@@ -1,18 +1,38 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+// src/app/_layout.tsx
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { AppHeader } from "../components/AppHeader";
+import { colors } from "../constants/theme";
+import { BannersProvider } from "../features/banners";
+import { FiltersProvider } from "../features/catalog";
+import { ProductsProvider } from "../features/products";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
-
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <ProductsProvider>
+      <BannersProvider>
+        <FiltersProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: true,
+              headerStyle: { backgroundColor: colors.primary },
+              headerTintColor: colors.white,
+              headerTitle: () => <AppHeader />,
+              headerTitleAlign: "left",
+              headerTitleContainerStyle: { left: 8, right: 8 },
+              contentStyle: { backgroundColor: colors.white },
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="catalog" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="product/[id]"
+              options={{ headerShown: false }}
+            />
+          </Stack>
+        </FiltersProvider>
+      </BannersProvider>
+    </ProductsProvider>
   );
 }
