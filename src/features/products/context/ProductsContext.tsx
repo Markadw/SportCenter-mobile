@@ -40,9 +40,42 @@ export const ProductsProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // useEffect(() => {
+  //   refresh();
+  // }, [refresh]);
+
+
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+
+    const loadProducts = async () => {
+      try {
+        const data = await productsApi.getAll();
+
+        if (!cancelled) {
+          setProducts(data);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Error al cargar productos"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getById = (id: number) => products.find((p) => p.id === id);
 

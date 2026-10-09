@@ -1,19 +1,30 @@
 // src/features/products/components/FiltersModal.tsx
-import { ChevronDown, ChevronUp, SlidersHorizontal, X } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Dimensions,
-    Easing,
-    Image,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  X,
+} from "lucide-react-native";
+import { useEffect, useState } from "react";
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import { colors, fontSize, radius, shadow, spacing } from "../../../constants/theme";
+import {
+  colors,
+  fontSize,
+  radius,
+  shadow,
+  spacing,
+} from "../../../constants/theme";
 import { useFilters } from "../../catalog";
 
 const { height: SCREEN_H } = Dimensions.get("window");
@@ -36,33 +47,69 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
   } = useFilters();
 
   const [openSection, setOpenSection] = useState<"category" | "brand" | null>(
-    "category"
+    "category",
   );
 
-  // Estado interno para controlar montaje/desmontaje
   const [mounted, setMounted] = useState(visible);
-  const anim = useRef(new Animated.Value(0)).current; // 0 = cerrado, 1 = abierto
+  const [previousVisible, setPreviousVisible] = useState(visible);
+  const [anim] = useState(() => new Animated.Value(0));
 
-  useEffect(() => {
+  // Sincronizar el montaje cuando cambia la visibilidad
+  if (visible !== previousVisible) {
+    setPreviousVisible(visible);
+
     if (visible) {
       setMounted(true);
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: ANIM_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(anim, {
-        toValue: 0,
-        duration: ANIM_MS,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) setMounted(false);
-      });
     }
+  }
+
+  // Controlar las animaciones de entrada y salida
+  useEffect(() => {
+    const animation = Animated.timing(anim, {
+      toValue: visible ? 1 : 0,
+      duration: ANIM_MS,
+      easing: visible
+        ? Easing.out(Easing.cubic)
+        : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    animation.start(({ finished }) => {
+      if (finished && !visible) {
+        setMounted(false);
+      }
+    });
+
+    return () => {
+      animation.stop();
+    };
   }, [visible, anim]);
+
+  // // Estado interno para controlar montaje/desmontaje
+  // const [mounted, setMounted] = useState(visible);
+  // const [anim] = useState(() => new Animated.Value(0)); // 0 = cerrado, 1 = abierto
+
+
+  // useEffect(() => {
+  //   if (visible) {
+  //     setMounted(true);
+  //     Animated.timing(anim, {
+  //       toValue: 1,
+  //       duration: ANIM_MS,
+  //       easing: Easing.out(Easing.cubic),
+  //       useNativeDriver: true,
+  //     }).start();
+  //   } else {
+  //     Animated.timing(anim, {
+  //       toValue: 0,
+  //       duration: ANIM_MS,
+  //       easing: Easing.in(Easing.cubic),
+  //       useNativeDriver: true,
+  //     }).start(({ finished }) => {
+  //       if (finished) setMounted(false);
+  //     });
+  //   }
+  // }, [visible, anim]);
 
   if (!mounted) return null;
 
@@ -82,20 +129,21 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
   });
 
   return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
+    <Modal
+      visible={mounted}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}>
       <View style={styles.root}>
         {/* Backdrop animado (cubre TODA la pantalla) */}
         <Animated.View
           style={[styles.backdrop, { opacity: backdropOpacity }]}
-          pointerEvents="box-none"
-        >
+          pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
         {/* Sheet animado */}
-        <Animated.View
-          style={[styles.sheet, { transform: [{ translateY }] }]}
-        >
+        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -108,24 +156,24 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
               )}
             </View>
             <Pressable
-              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.6 }]}
+              style={({ pressed }) => [
+                styles.closeBtn,
+                pressed && { opacity: 0.6 },
+              ]}
               onPress={onClose}
-              hitSlop={8}
-            >
+              hitSlop={8}>
               <X size={20} color={colors.text} />
             </Pressable>
           </View>
 
           <ScrollView
             contentContainerStyle={{ paddingBottom: spacing.xl }}
-            showsVerticalScrollIndicator={false}
-          >
+            showsVerticalScrollIndicator={false}>
             {/* Categorías */}
             <Section
               title="Categoría"
               open={openSection === "category"}
-              onToggle={() => toggle("category")}
-            >
+              onToggle={() => toggle("category")}>
               <RadioRow
                 label="Todas"
                 selected={filters.categoryId === null}
@@ -145,8 +193,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
             <Section
               title="Marca"
               open={openSection === "brand"}
-              onToggle={() => toggle("brand")}
-            >
+              onToggle={() => toggle("brand")}>
               <RadioRow
                 label="Todas"
                 selected={filters.brandId === null}
@@ -167,16 +214,20 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
           {/* Footer */}
           <View style={styles.footer}>
             <Pressable
-              style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
-              onPress={clearFilters}
-            >
+              style={({ pressed }) => [
+                styles.clearBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              onPress={clearFilters}>
               <Text style={styles.clearBtnText}>Limpiar</Text>
             </Pressable>
 
             <Pressable
-              style={({ pressed }) => [styles.applyBtn, pressed && { opacity: 0.9 }]}
-              onPress={onClose}
-            >
+              style={({ pressed }) => [
+                styles.applyBtn,
+                pressed && { opacity: 0.9 },
+              ]}
+              onPress={onClose}>
               <Text style={styles.applyBtnText}>Aplicar</Text>
             </Pressable>
           </View>
@@ -201,9 +252,11 @@ const Section = ({
 }) => (
   <View style={styles.section}>
     <Pressable
-      style={({ pressed }) => [styles.sectionHeader, pressed && { opacity: 0.7 }]}
-      onPress={onToggle}
-    >
+      style={({ pressed }) => [
+        styles.sectionHeader,
+        pressed && { opacity: 0.7 },
+      ]}
+      onPress={onToggle}>
       <Text style={styles.sectionTitle}>{title}</Text>
       {open ? (
         <ChevronUp size={18} color={colors.textMuted} />
@@ -228,8 +281,7 @@ const RadioRow = ({
 }) => (
   <Pressable
     style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-    onPress={onPress}
-  >
+    onPress={onPress}>
     <View style={[styles.radio, selected && styles.radioSelected]}>
       {selected && <View style={styles.radioDot} />}
     </View>
@@ -256,7 +308,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#000",
   },
   sheet: {
@@ -286,7 +338,11 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: radius.pill,
   },
-  badgeText: { fontSize: fontSize.xs, color: colors.primary, fontWeight: "700" },
+  badgeText: {
+    fontSize: fontSize.xs,
+    color: colors.primary,
+    fontWeight: "700",
+  },
   closeBtn: { padding: 4 },
 
   // Secciones
@@ -306,7 +362,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     backgroundColor: colors.white,
   },
-  sectionTitle: { fontSize: fontSize.md, fontWeight: "700", color: colors.text },
+  sectionTitle: {
+    fontSize: fontSize.md,
+    fontWeight: "700",
+    color: colors.text,
+  },
   sectionBody: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
@@ -358,7 +418,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  clearBtnText: { color: colors.text, fontWeight: "700", fontSize: fontSize.sm },
+  clearBtnText: {
+    color: colors.text,
+    fontWeight: "700",
+    fontSize: fontSize.sm,
+  },
   applyBtn: {
     flex: 2,
     height: 48,
@@ -367,5 +431,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.primary,
   },
-  applyBtnText: { color: colors.white, fontWeight: "700", fontSize: fontSize.md },
+  applyBtnText: {
+    color: colors.white,
+    fontWeight: "700",
+    fontSize: fontSize.md,
+  },
 });
