@@ -20,10 +20,8 @@ export default function RootLayout() {
               headerTintColor: colors.white,
               headerTitle: () => <AppHeader />,
               headerTitleAlign: "left",
-              headerTitleContainerStyle: { left: 8, right: 8 },
               contentStyle: { backgroundColor: colors.white },
-            }}
-          >
+            }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="catalog" options={{ headerShown: false }} />
             <Stack.Screen

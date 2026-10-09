@@ -1,8 +1,41 @@
-// src/api/axiosClient.ts
-import axios from "axios";
+import { create, isAxiosError } from "axios";
 import env from "../config/env";
 
-const axiosClient = axios.create({
+// Endpoints conocidos que pueden mostrarse en los registros.
+const SAFE_ENDPOINTS = new Set([
+  "/products/get-all-products",
+  "/products/get-all-categories",
+  "/products/get-all-marcas",
+  "/products/menu/sports",
+  "/company/banner",
+  "/users/create-user",
+  "/users/login-user",
+  "/users/verify-email",
+  "/users/resend-code",
+  "/users/refresh-token",
+  "/users/profile",
+  "/users/logout",
+]);
+
+// Evita registrar parámetros, identificadores o tokens en URLs.
+function safeEndpoint(url?: string): string {
+  if (!url) return "[ruta desconocida]";
+
+  const path = url.split(/[?#]/)[0];
+
+  if (SAFE_ENDPOINTS.has(path)) {
+    return path;
+  }
+
+  // Ocultar el ID del producto.
+  if (/^\/products\/get-product-details\/[^/]+$/.test(path)) {
+    return "/products/get-product-details/:id";
+  }
+
+  return "[ruta no registrada]";
+}
+
+const axiosClient = create({
   baseURL: env.apiUrl,
   timeout: 15000,
   headers: {
@@ -11,49 +44,40 @@ const axiosClient = axios.create({
   },
 });
 
-// 🔎 LOG de peticiones salientes
-axiosClient.interceptors.request.use((config) => {
-  if (__DEV__) {
-    console.log("➡️ REQUEST:", config.method?.toUpperCase(), `${config.baseURL}${config.url}`);
-    if (config.params) console.log("   params:", config.params);
-    if (config.data) console.log("   body:", config.data);
-  }
-  return config;
-});
+// Registros disponibles únicamente en desarrollo.
+if (__DEV__) {
+  // Peticiones salientes
+  axiosClient.interceptors.request.use((config) => {
+    console.info(
+      `[API] → ${config.method?.toUpperCase()} ${safeEndpoint(config.url)}`,
+    );
 
-// ✅ LOG de respuestas exitosas
-axiosClient.interceptors.response.use(
-  (response) => {
-    if (__DEV__) {
-      console.log(
-        "✅ RESPONSE:",
-        response.status,
-        response.config.url,
-        "→",
-        JSON.stringify(response.data).slice(0, 500) // recorta si es muy grande
+    return config;
+  });
+
+  // Respuestas y errores
+  axiosClient.interceptors.response.use(
+    (response) => {
+      console.info(
+        `[API] ← ${response.status} ${safeEndpoint(response.config.url)}`,
       );
-    }
-    return response;
-  },
-  // ❌ LOG de errores detallado
-  (error) => {
-    if (__DEV__) {
-      console.log("❌ API Error");
-      console.log("   message:", error.message);
-      console.log("   code:", error.code);
-      console.log("   url:", error.config?.baseURL + error.config?.url);
-      console.log("   method:", error.config?.method);
-      if (error.response) {
-        console.log("   status:", error.response.status);
-        console.log("   data:", error.response.data);
-      } else if (error.request) {
-        console.log("   ⚠️ No hubo respuesta. request enviado pero sin reply.");
-        console.log("   Posibles causas: backend apagado, IP incorrecta, firewall, CORS.");
-        console.log("   URL intentada:", error.config?.baseURL + error.config?.url);
+
+      return response;
+    },
+    (error: unknown) => {
+      if (isAxiosError(error)) {
+        const status = error.response
+          ? `HTTP ${error.response.status}`
+          : "Sin respuesta del servidor";
+
+        console.warn(`[API] ✕ ${status} ${safeEndpoint(error.config?.url)}`);
+      } else {
+        console.warn("[API] ✕ Error inesperado");
       }
-    }
-    return Promise.reject(error);
-  }
-);
+
+      return Promise.reject(error);
+    },
+  );
+}
 
 export default axiosClient;

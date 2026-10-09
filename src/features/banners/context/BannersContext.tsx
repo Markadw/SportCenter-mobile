@@ -1,11 +1,11 @@
 // src/features/banners/context/BannersContext.tsx
 import {
-    createContext,
-    ReactNode,
-    useCallback,
-    useContext,
-    useEffect,
-    useState,
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
 } from "react";
 import { bannersApi, type Banner } from "../../../api";
 
@@ -36,9 +36,41 @@ export const BannersProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // useEffect(() => {
+  //   refresh();
+  // }, [refresh]);
+
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+
+    const loadBanners = async () => {
+      try {
+        const data = await bannersApi.getAll();
+
+        if (!cancelled) {
+          setBanners(data);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Error al cargar banners"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadBanners();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <BannersContext.Provider value={{ banners, isLoading, error, refresh }}>

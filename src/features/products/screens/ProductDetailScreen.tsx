@@ -1,32 +1,38 @@
 // src/features/products/screens/ProductDetailScreen.tsx
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-    ArrowLeft,
-    ChevronRight,
-    Heart,
-    Minus,
-    Package,
-    Plus,
-    Share2,
-    ShoppingCart,
-    Truck,
+  ArrowLeft,
+  ChevronRight,
+  Heart,
+  Minus,
+  Package,
+  Plus,
+  Share2,
+  ShoppingCart,
+  Truck,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    Animated,
-    Dimensions,
-    Easing,
-    Image,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View
+  Animated,
+  Dimensions,
+  Easing,
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { productsApi, type Product } from "../../../api";
-import { colors, fontSize, radius, shadow, spacing } from "../../../constants/theme";
+import {
+  colors,
+  fontSize,
+  radius,
+  shadow,
+  spacing,
+} from "../../../constants/theme";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const IMG_H = SCREEN_W * 0.9;
@@ -67,13 +73,15 @@ export const ProductDetailScreen = () => {
   }, [id]);
 
   // --- Estados ---
-    if (isLoading) {
+  if (isLoading) {
     return <ProductDetailSkeleton />;
-    }
+  }
   if (error || !product) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorTitle}>{error ?? "Producto no encontrado"}</Text>
+        <Text style={styles.errorTitle}>
+          {error ?? "Producto no encontrado"}
+        </Text>
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Text style={styles.backBtnText}>Volver</Text>
         </Pressable>
@@ -99,17 +107,21 @@ export const ProductDetailScreen = () => {
       {/* Header flotante */}
       <View style={styles.header}>
         <Pressable
-          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-          onPress={() => router.back()}
-        >
+          style={({ pressed }) => [
+            styles.headerBtn,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={() => router.back()}>
           <ArrowLeft size={20} color={colors.text} />
         </Pressable>
 
         <View style={styles.headerRight}>
           <Pressable
-            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-            onPress={() => setLiked((v) => !v)}
-          >
+            style={({ pressed }) => [
+              styles.headerBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={() => setLiked((v) => !v)}>
             <Heart
               size={20}
               color={liked ? colors.error : colors.text}
@@ -117,8 +129,10 @@ export const ProductDetailScreen = () => {
             />
           </Pressable>
           <Pressable
-            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-          >
+            style={({ pressed }) => [
+              styles.headerBtn,
+              pressed && { opacity: 0.7 },
+            ]}>
             <Share2 size={20} color={colors.text} />
           </Pressable>
         </View>
@@ -127,8 +141,7 @@ export const ProductDetailScreen = () => {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-      >
+        showsVerticalScrollIndicator={false}>
         {/* Galería */}
         <View style={styles.galleryWrap}>
           {hasImages ? (
@@ -138,8 +151,7 @@ export const ProductDetailScreen = () => {
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
                 onScroll={onImageScroll}
-                scrollEventThrottle={16}
-              >
+                scrollEventThrottle={16}>
                 {images.map((uri, i) => (
                   <Image
                     key={i}
@@ -269,23 +281,29 @@ export const ProductDetailScreen = () => {
       <View style={styles.bottomBar}>
         <View style={styles.qtyBox}>
           <Pressable
-            style={({ pressed }) => [styles.qtyBtn, pressed && { opacity: 0.6 }]}
+            style={({ pressed }) => [
+              styles.qtyBtn,
+              pressed && { opacity: 0.6 },
+            ]}
             onPress={decrement}
-            disabled={quantity <= 1 || outOfStock}
-          >
+            disabled={quantity <= 1 || outOfStock}>
             <Minus
               size={16}
-              color={quantity <= 1 || outOfStock ? colors.neutral : colors.primary}
+              color={
+                quantity <= 1 || outOfStock ? colors.neutral : colors.primary
+              }
             />
           </Pressable>
 
           <Text style={styles.qtyText}>{quantity}</Text>
 
           <Pressable
-            style={({ pressed }) => [styles.qtyBtn, pressed && { opacity: 0.6 }]}
+            style={({ pressed }) => [
+              styles.qtyBtn,
+              pressed && { opacity: 0.6 },
+            ]}
             onPress={increment}
-            disabled={quantity >= product.totalStock || outOfStock}
-          >
+            disabled={quantity >= product.totalStock || outOfStock}>
             <Plus
               size={16}
               color={
@@ -306,8 +324,7 @@ export const ProductDetailScreen = () => {
           disabled={outOfStock}
           onPress={() => {
             console.log("Agregar al carrito:", product.id, "x", quantity);
-          }}
-        >
+          }}>
           <ShoppingCart size={18} color={colors.white} />
           <Text style={styles.addBtnText}>
             {outOfStock ? "Agotado" : "Agregar"}
@@ -642,7 +659,7 @@ const SkeletonBlock = ({
 );
 
 const ProductDetailSkeleton = () => {
-  const pulse = useRef(new Animated.Value(0.5)).current;
+  const [pulse] = useState(() => new Animated.Value(0.5));
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -659,7 +676,7 @@ const ProductDetailSkeleton = () => {
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
     loop.start();
     return () => loop.stop();
@@ -679,8 +696,7 @@ const ProductDetailSkeleton = () => {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-      >
+        showsVerticalScrollIndicator={false}>
         {/* Imagen grande */}
         <SkeletonBlock
           width="100%"
@@ -692,16 +708,41 @@ const ProductDetailSkeleton = () => {
         {/* Bloque info */}
         <View style={styles.infoBlock}>
           <View style={styles.brandRow}>
-            <SkeletonBlock width={60} height={22} borderRadius={999} pulse={pulse} />
+            <SkeletonBlock
+              width={60}
+              height={22}
+              borderRadius={999}
+              pulse={pulse}
+            />
             <SkeletonBlock width={80} height={14} pulse={pulse} />
           </View>
 
-          <SkeletonBlock width="90%" height={26} pulse={pulse} style={{ marginTop: 8 }} />
-          <SkeletonBlock width="70%" height={26} pulse={pulse} style={{ marginTop: 6 }} />
+          <SkeletonBlock
+            width="90%"
+            height={26}
+            pulse={pulse}
+            style={{ marginTop: 8 }}
+          />
+          <SkeletonBlock
+            width="70%"
+            height={26}
+            pulse={pulse}
+            style={{ marginTop: 6 }}
+          />
 
-          <SkeletonBlock width={120} height={16} pulse={pulse} style={{ marginTop: 10 }} />
+          <SkeletonBlock
+            width={120}
+            height={16}
+            pulse={pulse}
+            style={{ marginTop: 10 }}
+          />
 
-          <SkeletonBlock width={140} height={36} pulse={pulse} style={{ marginTop: 10 }} />
+          <SkeletonBlock
+            width={140}
+            height={36}
+            pulse={pulse}
+            style={{ marginTop: 10 }}
+          />
         </View>
 
         {/* Sección Características */}
@@ -728,15 +769,35 @@ const ProductDetailSkeleton = () => {
         {/* Descripción */}
         <View style={styles.section}>
           <SkeletonBlock width={110} height={14} pulse={pulse} />
-          <SkeletonBlock width="100%" height={14} pulse={pulse} style={{ marginTop: 10 }} />
-          <SkeletonBlock width="95%" height={14} pulse={pulse} style={{ marginTop: 6 }} />
-          <SkeletonBlock width="60%" height={14} pulse={pulse} style={{ marginTop: 6 }} />
+          <SkeletonBlock
+            width="100%"
+            height={14}
+            pulse={pulse}
+            style={{ marginTop: 10 }}
+          />
+          <SkeletonBlock
+            width="95%"
+            height={14}
+            pulse={pulse}
+            style={{ marginTop: 6 }}
+          />
+          <SkeletonBlock
+            width="60%"
+            height={14}
+            pulse={pulse}
+            style={{ marginTop: 6 }}
+          />
         </View>
       </ScrollView>
 
       {/* Bottom bar skeleton */}
       <View style={styles.bottomBar}>
-        <SkeletonBlock width={110} height={48} borderRadius={12} pulse={pulse} />
+        <SkeletonBlock
+          width={110}
+          height={48}
+          borderRadius={12}
+          pulse={pulse}
+        />
         <SkeletonBlock
           width="100%"
           height={48}
