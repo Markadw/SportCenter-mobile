@@ -15,7 +15,7 @@ npm start
 
 ## Configuración de pruebas
 
-Jest 29, `jest-expo` compatible con SDK 57 y React Native Testing Library 14. La configuración está en `jest.config.js`; las pruebas viven en `__tests__/`, fuera de las rutas de navegación.
+Jest 29, `jest-expo` compatible con SDK 57 y React Native Testing Library 14. Se fija `test-renderer` en 1.2.0 para usar el reconciliador compatible con React 19.2. La configuración está en `jest.config.js`; las pruebas viven en `__tests__/`, fuera de las rutas de navegación.
 
 ```bash
 npm test              # ejecución única
@@ -43,6 +43,8 @@ Una prueba reprodujo un defecto real: al seleccionar Fútbol, el catálogo aún 
 
 `.github/workflows/ci.yml` instala las dependencias fijadas, ejecuta lint, TypeScript y pruebas en cada Pull Request hacia `main` y cada actualización de `main`. Conserva los reportes como el artefacto `sport-center-mobile-test-evidence` durante 14 días. Una comprobación fallida queda visible en el PR; el workflow por sí solo no configura protección de rama.
 
+La [ejecución inicial en GitHub Actions](https://github.com/Markadw/SportCenter-mobile/actions/runs/38477517988) pasó también en Linux: instalación limpia, lint, TypeScript y 22 pruebas. El artefacto se descargó y se verificaron sus resultados. [Resumen de CI](evidence/ci-2026-10-13.json).
+
 ## Adecuaciones de planeación
 
 Se conserva la línea base del tablero: Explore, Initialize, seis iteraciones de Productionize, Stabilize, System Test & Fix y RC / Validación interna. Kanban sirve para seguir el trabajo; no cambia Mobile-D.
@@ -60,6 +62,18 @@ Se conserva la línea base del tablero: Explore, Initialize, seis iteraciones de
 | REL-001 / RC, 12–15 nov | Validar la build candidata tras QA-001 y QA-002 | Build identificable, instalación y validación interna |
 
 Los puntos de las nueve historias se conservan en **52 SP**. Las estimaciones de tareas técnicas nuevas se validan por la bina mediante Planning Poker. Las fechas expresan planeación y no garantizan que una actividad esté terminada.
+
+### Evidencia de adecuaciones aplicadas
+
+Se verificaron los cambios contra el tablero real. [La captura de datos anterior](evidence/planning-before-2026-10-13.json) y [la posterior](evidence/planning-after-2026-10-13.json) permiten comparar fechas y estados.
+
+- HU-05: finalización corregida de 24 sep a 24 oct.
+- HU-08: periodo corregido de 3 oct–7 nov a 25–28 oct, correspondiente a I5.
+- HU-09: fechas completadas para 15–19 oct, correspondientes a I3.
+- QA-001, QA-002 y REL-001: fechas completadas conforme a las fases de la línea base.
+- MOB-008 y [QA-003](https://github.com/Markadw/SportCenter-mobile/issues/26): en Revisión durante I2, vinculados al [PR #28](https://github.com/Markadw/SportCenter-mobile/pull/28).
+- [BUG-001](https://github.com/Markadw/SportCenter-mobile/issues/27): defecto real del filtro por deporte, con corrección preparada y estado Revisión.
+- [PLAN-001](https://github.com/Markadw/SportCenter-mobile/issues/29): tarea Por hacer para localizar las evidencias y reconciliar estados inconsistentes de actividades cerradas.
 
 ### Pruebas durante cada iteración
 

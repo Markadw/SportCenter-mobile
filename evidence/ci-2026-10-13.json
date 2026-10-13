@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-13",
+  "provider": "GitHub Actions",
+  "runId": 38477517988,
+  "runUrl": "https://github.com/Markadw/SportCenter-mobile/actions/runs/38477517988",
+  "headSha": "beca2a90eb07f143cb3a81f2683df06488114ebc",
+  "conclusion": "success",
+  "artifact": "sport-center-mobile-test-evidence",
+  "tests": {
+    "success": true,
+    "total": 22,
+    "passed": 22,
+    "failed": 0,
+    "suites": 4
+  },
+  "coverage": {
+    "lines": {
+      "total": 186,
+      "covered": 155,
+      "skipped": 0,
+      "pct": 83.33
+    },
+    "statements": {
+      "total": 214,
+      "covered": 170,
+      "skipped": 0,
+      "pct": 79.43
+    },
+    "functions": {
+      "total": 69,
+      "covered": 50,
+      "skipped": 0,
+      "pct": 72.46
+    },
+    "branches": {
+      "total": 177,
+      "covered": 114,
+      "skipped": 0,
+      "pct": 64.4
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "scope": "Cuatro modulos de catalogo y detalle; peticiones HTTP simuladas"
+}
