@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-13",
+  "baseCommit": "f24ccccef368730343f82c9da9a5de61176470d3",
+  "branch": "test/configuracion-pruebas-planeacion",
+  "environment": {
+    "node": "v22.20.0",
+    "expo": "57.0.27",
+    "jest": "29.7.0",
+    "testRenderer": "1.2.0"
+  },
+  "validation": {
+    "command": "npm run validate",
+    "exitCode": 0,
+    "lint": "passed",
+    "typecheck": "passed"
+  },
+  "beforeFix": {
+    "failed": 1,
+    "passed": 0,
+    "skipped": 6,
+    "case": "HU-03: filtra por el deporte seleccionado desde inicio"
+  },
+  "afterFix": {
+    "success": true,
+    "suites": 4,
+    "tests": 22,
+    "passed": 22,
+    "failed": 0
+  },
+  "coverageScope": [
+    "src/api/productsApi.ts",
+    "src/features/products/context/ProductsContext.tsx",
+    "src/features/products/screens/CatalogScreen.tsx",
+    "src/features/products/screens/ProductDetailScreen.tsx"
+  ],
+  "coverage": {
+    "lines": {
+      "total": 186,
+      "covered": 155,
+      "skipped": 0,
+      "pct": 83.33
+    },
+    "statements": {
+      "total": 214,
+      "covered": 170,
+      "skipped": 0,
+      "pct": 79.43
+    },
+    "functions": {
+      "total": 69,
+      "covered": 50,
+      "skipped": 0,
+      "pct": 72.46
+    },
+    "branches": {
+      "total": 177,
+      "covered": 114,
+      "skipped": 0,
+      "pct": 64.4
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "cases": [
+    {
+      "name": "HU-03: catálogo público muestra los productos y navega al detalle seleccionado sin sesión",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público muestra el estado de carga",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público muestra un error y permite reintentar",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público acepta una categoría padre y combina el filtro de marca",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público filtra por el deporte seleccionado desde inicio",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público informa cuando los filtros no tienen resultados",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: catálogo público divide el catálogo en páginas de 20 productos",
+      "status": "passed"
+    },
+    {
+      "name": "HU-04: detalle de producto muestra los datos del ID consultado desde la API",
+      "status": "passed"
+    },
+    {
+      "name": "HU-04: detalle de producto informa cuando el producto no existe",
+      "status": "passed"
+    },
+    {
+      "name": "HU-04: detalle de producto muestra un error de conexión sin simular un producto",
+      "status": "passed"
+    },
+    {
+      "name": "HU-04: detalle de producto impide agregar un producto agotado",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: estados y recuperación del catálogo carga los productos y permite localizar un ID",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: estados y recuperación del catálogo informa el error inicial y recupera el catálogo al reintentar",
+      "status": "passed"
+    },
+    {
+      "name": "HU-03: estados y recuperación del catálogo conserva los productos cargados si falla una actualización",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos convierte el contrato del backend y suma el stock de las variantes",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos acepta un catálogo vacío",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos maneja productos sin variantes ni deportes",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos consulta el ID seleccionado y convierte el arreglo de detalle",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: []",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: null",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: {}",
+      "status": "passed"
+    },
+    {
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos propaga el error de red para que la pantalla lo maneje",
+      "status": "passed"
+    }
+  ],
+  "notValidated": [
+    "API desplegada real",
+    "Android fisico",
+    "Autenticacion",
+    "Carrito completo",
+    "Checkout y pago",
+    "Pedidos",
+    "Perfil"
+  ]
+}

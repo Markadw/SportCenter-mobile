@@ -1,0 +1,272 @@
+[
+  {
+    "number": 2,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/2",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg7Idqw",
+    "status": "Terminado",
+    "start": "2026-09-24",
+    "end": "2026-09-27",
+    "iteration": null,
+    "fase": "Explore"
+  },
+  {
+    "number": 3,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/3",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg7IeBU",
+    "status": "En progreso",
+    "start": "2026-09-28",
+    "end": "2026-10-04",
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 4,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/4",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg7IeJk",
+    "status": "En progreso",
+    "start": "2026-09-28",
+    "end": "2026-10-04",
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 5,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/5",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg7IeTM",
+    "status": "Pruebas",
+    "start": "2026-09-28",
+    "end": "2026-10-04",
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 6,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/6",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg7IfXM",
+    "status": "Backlog",
+    "start": "2026-10-05",
+    "end": "2026-10-09",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "8490480b",
+      "startDate": "2026-10-05",
+      "title": "I1 · Autenticación"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 7,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/7",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TvRg",
+    "status": "En progreso",
+    "start": "2026-10-05",
+    "end": "2026-10-09",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "8490480b",
+      "startDate": "2026-10-05",
+      "title": "I1 · Autenticación"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 8,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/8",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9Tvdw",
+    "status": "En progreso",
+    "start": "2026-10-05",
+    "end": "2026-10-09",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "8490480b",
+      "startDate": "2026-10-05",
+      "title": "I1 · Autenticación"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 9,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/9",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TvxY",
+    "status": "Pruebas",
+    "start": "2026-10-10",
+    "end": "2026-10-14",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "4841d0ca",
+      "startDate": "2026-10-10",
+      "title": "I2 · Catálogo"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 10,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/10",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9Tv9Q",
+    "status": "Pruebas",
+    "start": "2026-10-15",
+    "end": "2026-10-19",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "c507eb8b",
+      "startDate": "2026-10-15",
+      "title": "I3 · Detalle y perfil"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 11,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/11",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TwGE",
+    "status": "Backlog",
+    "start": "2026-10-20",
+    "end": "2026-09-24",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "4541ecb1",
+      "startDate": "2026-10-20",
+      "title": "I4 · Carrito"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 12,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/12",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TwL0",
+    "status": "Backlog",
+    "start": "2026-10-25",
+    "end": "2026-10-28",
+    "iteration": {
+      "duration": 4,
+      "iterationId": "29c01b4e",
+      "startDate": "2026-10-25",
+      "title": "I5 · Direcciones y pedidos"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 13,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/13",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TwQk",
+    "status": "Backlog",
+    "start": "2026-10-29",
+    "end": "2026-11-02",
+    "iteration": {
+      "duration": 5,
+      "iterationId": "f88a5bce",
+      "startDate": "2026-10-29",
+      "title": "I6 · Checkout"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 14,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/14",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9TwVw",
+    "status": "Backlog",
+    "start": "2026-10-03",
+    "end": "2026-11-07",
+    "iteration": {
+      "duration": 4,
+      "iterationId": "29c01b4e",
+      "startDate": "2026-10-25",
+      "title": "I5 · Direcciones y pedidos"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 15,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/15",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9Twag",
+    "status": "Backlog",
+    "start": null,
+    "end": null,
+    "iteration": {
+      "duration": 5,
+      "iterationId": "c507eb8b",
+      "startDate": "2026-10-15",
+      "title": "I3 · Detalle y perfil"
+    },
+    "fase": "Productionize"
+  },
+  {
+    "number": 16,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/16",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WS8Q",
+    "status": "Por hacer",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 17,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/17",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WS8Y",
+    "status": "Por hacer",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 18,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/18",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WS9U",
+    "status": "Por hacer",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 19,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/19",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WS9k",
+    "status": "Por hacer",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "Initialize"
+  },
+  {
+    "number": 20,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/20",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WS-8",
+    "status": "Backlog",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "Stabilize"
+  },
+  {
+    "number": 21,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/21",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WTAs",
+    "status": "Backlog",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "System Test & Fix"
+  },
+  {
+    "number": 22,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/22",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9WTBQ",
+    "status": "Backlog",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": "RC / Validacion interna"
+  },
+  {
+    "number": 23,
+    "url": "https://github.com/Markadw/SportCenter-mobile/issues/23",
+    "id": "PVTI_lAHOCjW_Us4BjgVjzg9jEQc",
+    "status": "Por hacer",
+    "start": null,
+    "end": null,
+    "iteration": null,
+    "fase": null
+  }
+]
