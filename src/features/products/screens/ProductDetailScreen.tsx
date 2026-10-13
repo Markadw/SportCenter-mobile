@@ -281,6 +281,8 @@ export const ProductDetailScreen = () => {
       <View style={styles.bottomBar}>
         <View style={styles.qtyBox}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Disminuir cantidad"
             style={({ pressed }) => [
               styles.qtyBtn,
               pressed && { opacity: 0.6 },
@@ -298,6 +300,8 @@ export const ProductDetailScreen = () => {
           <Text style={styles.qtyText}>{quantity}</Text>
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Aumentar cantidad"
             style={({ pressed }) => [
               styles.qtyBtn,
               pressed && { opacity: 0.6 },

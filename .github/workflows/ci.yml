@@ -32,6 +32,9 @@ jobs:
         run: npm run typecheck
       - name: Tests and coverage
         run: npm run test:ci
+      - name: Publish test summary
+        if: always()
+        run: node scripts/write-test-summary.js
       - name: Preserve test evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { productsApi } from '../src/api';
 import { ProductDetailScreen } from '../src/features/products/screens/ProductDetailScreen';
 import { product } from './fixtures/products';
 
+const mockBack = jest.fn();
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: '7' }),
-  useRouter: () => ({ back: jest.fn() }) }));
+  useRouter: () => ({ back: mockBack }) }));
 jest.mock('lucide-react-native', () => ({ ArrowLeft: () => null, ChevronRight: () => null,
   Heart: () => null, Minus: () => null, Package: () => null, Plus: () => null,
   Share2: () => null, ShoppingCart: () => null, Truck: () => null }));
@@ -41,5 +42,47 @@ describe('HU-04: detalle de producto', () => {
     const labels = screen.getAllByText('Agotado');
     expect(labels).toHaveLength(2);
     expect(labels[1]).toBeDisabled();
+  });
+
+  test('muestra descripción, categoría y atributos del producto', async () => {
+    getById.mockResolvedValueOnce(product);
+    await render(<ProductDetailScreen />);
+    expect(screen.getByText('Balón de entrenamiento')).toBeTruthy();
+    expect(screen.getByText('Balones')).toBeTruthy();
+    expect(screen.getByText('Accesorios')).toBeTruthy();
+    expect(screen.getByText('Color')).toBeTruthy();
+    expect(screen.getByText('Blanco')).toBeTruthy();
+  });
+
+  test('permite volver después de consultar un producto inexistente', async () => {
+    getById.mockResolvedValueOnce(null);
+    await render(<ProductDetailScreen />);
+    await fireEvent.press(screen.getByText('Volver'));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  test('aumenta la cantidad hasta el stock disponible y bloquea el incremento', async () => {
+    getById.mockResolvedValueOnce(product);
+    await render(<ProductDetailScreen />);
+    const increase = screen.getByRole('button', { name: 'Aumentar cantidad' });
+    await fireEvent.press(increase);
+    expect(screen.getByText('2', { exact: true })).toBeTruthy();
+    expect(increase).toBeDisabled();
+    await fireEvent.press(increase);
+    expect(screen.getByText('2', { exact: true })).toBeTruthy();
+  });
+
+  test('disminuye la cantidad hasta uno y bloquea el decremento', async () => {
+    getById.mockResolvedValueOnce(product);
+    await render(<ProductDetailScreen />);
+    const decrease = screen.getByRole('button', { name: 'Disminuir cantidad' });
+    expect(decrease).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Aumentar cantidad' }));
+    expect(decrease).not.toBeDisabled();
+    await fireEvent.press(decrease);
+    expect(screen.getByText('1', { exact: true })).toBeTruthy();
+    expect(decrease).toBeDisabled();
+    await fireEvent.press(decrease);
+    expect(screen.getByText('1', { exact: true })).toBeTruthy();
   });
 });

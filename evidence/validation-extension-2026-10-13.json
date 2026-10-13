@@ -1,0 +1,287 @@
+{
+  "date": "2026-10-13",
+  "references": [
+    "QA-003",
+    "HU-03",
+    "HU-04",
+    "MOB-004"
+  ],
+  "baseCommit": "572a81fa08829fbcdf9fc2eee6faa9ef7b5baf5b",
+  "previousTests": 22,
+  "addedTests": 21,
+  "validation": {
+    "command": "npm run validate",
+    "exitCode": 0,
+    "lint": "passed",
+    "typecheck": "passed"
+  },
+  "tests": {
+    "success": true,
+    "total": 43,
+    "passed": 43,
+    "failed": 0,
+    "suites": 6
+  },
+  "coverageScope": [
+    "src/api/productsApi.ts",
+    "src/api/catalogApi.ts",
+    "src/features/catalog/context/FiltersContext.tsx",
+    "src/features/products/context/ProductsContext.tsx",
+    "src/features/products/screens/CatalogScreen.tsx",
+    "src/features/products/screens/ProductDetailScreen.tsx"
+  ],
+  "coverage": {
+    "lines": {
+      "total": 225,
+      "covered": 196,
+      "skipped": 0,
+      "pct": 87.11
+    },
+    "statements": {
+      "total": 260,
+      "covered": 221,
+      "skipped": 0,
+      "pct": 85
+    },
+    "functions": {
+      "total": 87,
+      "covered": 73,
+      "skipped": 0,
+      "pct": 83.9
+    },
+    "branches": {
+      "total": 185,
+      "covered": 129,
+      "skipped": 0,
+      "pct": 69.72
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "cases": [
+    {
+      "suite": "FiltersContext.test.tsx",
+      "name": "HU-03: selección y limpieza de filtros carga las opciones y comienza sin filtros activos",
+      "status": "passed"
+    },
+    {
+      "suite": "FiltersContext.test.tsx",
+      "name": "HU-03: selección y limpieza de filtros permite combinar categoría, marca y deporte",
+      "status": "passed"
+    },
+    {
+      "suite": "FiltersContext.test.tsx",
+      "name": "HU-03: selección y limpieza de filtros limpiar filtros elimina todas las selecciones y el contador",
+      "status": "passed"
+    },
+    {
+      "suite": "FiltersContext.test.tsx",
+      "name": "HU-03: selección y limpieza de filtros retirar un filtro conserva las demás selecciones",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros conserva la categoría padre al convertir las categorías",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros conserva el nombre y la imagen de la marca",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros conserva los nombres de los deportes utilizados para filtrar",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getCategories admite una lista vacía sin inventar opciones",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getBrands admite una lista vacía sin inventar opciones",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getSports admite una lista vacía sin inventar opciones",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getCategories propaga un error de conexión",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getBrands propaga un error de conexión",
+      "status": "passed"
+    },
+    {
+      "suite": "catalogApi.test.ts",
+      "name": "HU-03 / MOB-004: datos disponibles para los filtros getSports propaga un error de conexión",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público muestra los productos y navega al detalle seleccionado sin sesión",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público muestra el estado de carga",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público muestra un error y permite reintentar",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público acepta una categoría padre y combina el filtro de marca",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público filtra por el deporte seleccionado desde inicio",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público informa cuando los filtros no tienen resultados",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público divide el catálogo en páginas de 20 productos",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público una categoría específica excluye productos de otras categorías",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público combina categoría, marca y deporte sin mostrar productos que incumplen uno",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público retirar el filtro por deporte vuelve a mostrar los productos excluidos",
+      "status": "passed"
+    },
+    {
+      "suite": "CatalogScreen.test.tsx",
+      "name": "HU-03: catálogo público regresa a la primera página si un filtro elimina la página seleccionada",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto muestra los datos del ID consultado desde la API",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto informa cuando el producto no existe",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto muestra un error de conexión sin simular un producto",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto impide agregar un producto agotado",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto muestra descripción, categoría y atributos del producto",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto permite volver después de consultar un producto inexistente",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto aumenta la cantidad hasta el stock disponible y bloquea el incremento",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductDetailScreen.test.tsx",
+      "name": "HU-04: detalle de producto disminuye la cantidad hasta uno y bloquea el decremento",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductsContext.test.tsx",
+      "name": "HU-03: estados y recuperación del catálogo carga los productos y permite localizar un ID",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductsContext.test.tsx",
+      "name": "HU-03: estados y recuperación del catálogo informa el error inicial y recupera el catálogo al reintentar",
+      "status": "passed"
+    },
+    {
+      "suite": "ProductsContext.test.tsx",
+      "name": "HU-03: estados y recuperación del catálogo conserva los productos cargados si falla una actualización",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos convierte el contrato del backend y suma el stock de las variantes",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos acepta un catálogo vacío",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos maneja productos sin variantes ni deportes",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos consulta el ID seleccionado y convierte el arreglo de detalle",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: []",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: null",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos no inventa un producto ante un detalle ausente: {}",
+      "status": "passed"
+    },
+    {
+      "suite": "productsApi.test.ts",
+      "name": "MOB-004 / HU-03 / HU-04: consumo de productos propaga el error de red para que la pantalla lo maneje",
+      "status": "passed"
+    }
+  ],
+  "limits": [
+    "Respuestas HTTP simuladas",
+    "No valida Android fisico",
+    "No valida carrito integrado ni checkout"
+  ]
+}

@@ -79,4 +79,60 @@ describe('HU-03: catálogo público', () => {
     expect(screen.getByText('Producto 21')).toBeTruthy();
     expect(screen.queryByText('Producto 1', { exact: true })).toBeNull();
   });
+
+  test('una categoría específica excluye productos de otras categorías', async () => {
+    const other = { ...product, id: 8, name: 'Playera', category: 'Ropa' };
+    productsState.mockReturnValue({ ...productsState(), products: [product, other] });
+    filtersState.mockReturnValue({ ...filtersState(),
+      categories: [{ id: 2, name: 'Balones', parentId: 1 }],
+      filters: { categoryId: 2, brandId: null, sportName: null } });
+    await render(<CatalogScreen />);
+    expect(screen.getByText('Balón de fútbol')).toBeTruthy();
+    expect(screen.queryByText('Playera')).toBeNull();
+  });
+
+  test('combina categoría, marca y deporte sin mostrar productos que incumplen uno', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: [product,
+      { ...product, id: 8, name: 'Otra marca', brand: 'Otra' },
+      { ...product, id: 9, name: 'Otro deporte', sports: ['Básquetbol'] },
+      { ...product, id: 10, name: 'Otra categoría', category: 'Ropa', parentCategory: 'Ropa' },
+    ] });
+    filtersState.mockReturnValue({ ...filtersState(),
+      filters: { categoryId: 1, brandId: 1, sportName: 'Fútbol' } });
+    await render(<CatalogScreen />);
+    expect(screen.getByText('1 resultados')).toBeTruthy();
+    expect(screen.getByText('Balón de fútbol')).toBeTruthy();
+    expect(screen.queryByText('Otra marca')).toBeNull();
+    expect(screen.queryByText('Otro deporte')).toBeNull();
+    expect(screen.queryByText('Otra categoría')).toBeNull();
+  });
+
+  test('retirar el filtro por deporte vuelve a mostrar los productos excluidos', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: [product,
+      { ...product, id: 8, name: 'Balón de básquetbol', sports: ['Básquetbol'] },
+    ] });
+    filtersState.mockReturnValue({ ...filtersState(),
+      filters: { categoryId: null, brandId: null, sportName: 'Fútbol' } });
+    const view = await render(<CatalogScreen />);
+    expect(screen.queryByText('Balón de básquetbol')).toBeNull();
+    filtersState.mockReturnValue({ ...filtersState(),
+      filters: { categoryId: null, brandId: null, sportName: null } });
+    await view.rerender(<CatalogScreen />);
+    expect(screen.getByText('Balón de básquetbol')).toBeTruthy();
+    expect(screen.getByText('2 resultados')).toBeTruthy();
+  });
+
+  test('regresa a la primera página si un filtro elimina la página seleccionada', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: Array.from({ length: 21 },
+      (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}`,
+        sports: i === 0 ? ['Fútbol'] : ['Básquetbol'] })) });
+    const view = await render(<CatalogScreen />);
+    await fireEvent.press(screen.getByText('2', { exact: true }));
+    expect(screen.getByText('Producto 21')).toBeTruthy();
+    filtersState.mockReturnValue({ ...filtersState(),
+      filters: { categoryId: null, brandId: null, sportName: 'Fútbol' } });
+    await view.rerender(<CatalogScreen />);
+    expect(screen.getByText('Producto 1', { exact: true })).toBeTruthy();
+    expect(screen.queryByText('Producto 21')).toBeNull();
+  });
 });

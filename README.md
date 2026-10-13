@@ -31,7 +31,24 @@ Las peticiones HTTP, el router y los iconos nativos se sustituyen por dobles de 
 | MOB-004, HU-03, HU-04 | Conversión de respuestas, stock de variantes, catálogo vacío, detalle inexistente y errores de red | `__tests__/productsApi.test.ts` |
 | HU-03 | Carga inicial, recuperación al reintentar y conservación de productos ante un error de actualización | `__tests__/ProductsContext.test.tsx` |
 | HU-03 | Acceso público, navegación al detalle, carga, error, filtros, ausencia de resultados y páginas de 20 productos | `__tests__/CatalogScreen.test.tsx` |
-| HU-04 | Datos del ID seleccionado, producto inexistente, error de conexión y botón deshabilitado si está agotado | `__tests__/ProductDetailScreen.test.tsx` |
+| HU-03, MOB-004 | Categorías, marcas y deportes: conversión de respuestas, listas vacías y errores de conexión | `__tests__/catalogApi.test.ts` |
+| HU-03 | Carga de opciones, filtros combinados, limpieza de selecciones y contador de filtros activos | `__tests__/FiltersContext.test.tsx` |
+| HU-04 | Datos del ID seleccionado, producto inexistente, error de conexión, atributos, regreso y límites de cantidad | `__tests__/ProductDetailScreen.test.tsx` |
+
+### Ampliación de pruebas sencillas: 13 de octubre de 2026
+
+Se agregaron **21 casos** a los 22 iniciales: el resultado actual es **6 suites y 43 pruebas aprobadas**. También pasan lint y TypeScript. La cobertura de líneas es **87.11% sobre seis módulos seleccionados**, incluidos ahora `catalogApi` y `FiltersContext`; el alcance de cobertura es más amplio que el del reporte inicial.
+
+| Planeación | Casos adicionales | Resultado esperado |
+|---|---|---|
+| HU-03 / MOB-004 | 9 casos de categorías, marcas y deportes | Conservar datos para los filtros, aceptar listas vacías y propagar errores de conexión |
+| HU-03 | 4 casos del contexto de filtros | Cargar opciones, combinar selecciones, limpiar todo y retirar un filtro sin borrar los demás |
+| HU-03 | 4 casos de pantalla de catálogo | Filtrar por categoría específica, combinar los tres filtros, recuperar productos al quitar un filtro y volver a la página 1 si desaparece la página actual |
+| HU-04 | 4 casos de detalle | Mostrar descripción y atributos, volver ante producto inexistente y mantener la cantidad entre uno y el stock disponible |
+
+Estos casos amplían QA-003 y la regresión de HU-03/HU-04 conforme a Mobile-D. Se conservan las iteraciones y los 52 SP. Los controles de cantidad reciben etiquetas accesibles para identificarlos como Aumentar/Disminuir cantidad. Comprobar ese selector no certifica la integración del carrito o una compra.
+
+El [reporte de ampliación](evidence/validation-extension-2026-10-13.json) contiene los resultados de cada caso. En GitHub Actions, abrir la ejecución del PR y consultar el resumen **Pruebas de Sport Center Mobile**: muestra el total, el nombre y el resultado de los 43 casos. El paso **Tests and coverage** también presenta los casos individualmente y los reportes completos se conservan como artefactos.
 
 ### Evidencia inicial: 13 de octubre de 2026
 
@@ -42,6 +59,8 @@ Una prueba reprodujo un defecto real: al seleccionar Fútbol, el catálogo aún 
 ### Integración continua: MOB-008
 
 `.github/workflows/ci.yml` instala las dependencias fijadas, ejecuta lint, TypeScript y pruebas en cada Pull Request hacia `main` y cada actualización de `main`. Conserva los reportes como el artefacto `sport-center-mobile-test-evidence` durante 14 días. Una comprobación fallida queda visible en el PR; el workflow por sí solo no configura protección de rama.
+
+El paso **Publish test summary** publica automáticamente la tabla de casos y los resultados del reporte de Jest, incluso cuando hay pruebas fallidas. Si una validación previa impide generar el reporte, el resumen informa esa ausencia.
 
 La [ejecución inicial en GitHub Actions](https://github.com/Markadw/SportCenter-mobile/actions/runs/38477517988) pasó también en Linux: instalación limpia, lint, TypeScript y 22 pruebas. El artefacto se descargó y se verificaron sus resultados. [Resumen de CI](evidence/ci-2026-10-13.json).
 
