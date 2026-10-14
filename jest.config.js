@@ -1,6 +1,6 @@
 module.exports = {
   preset: 'jest-expo',
-  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
+  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)', '**/tests/integration/**/*.test.tsx'],
   clearMocks: true,
   testTimeout: 15000,
   coverageDirectory: 'coverage',

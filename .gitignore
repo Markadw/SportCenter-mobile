@@ -45,3 +45,4 @@ example
 # Generated test evidence (uploaded as CI artifacts)
 coverage/
 test-results/
+.tools/

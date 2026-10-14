@@ -10,9 +10,15 @@ if (!fs.existsSync(reportPath)) {
   markdown = '# Pruebas de Sport Center Mobile\n\nNo se generó el reporte de pruebas. Consultar los pasos anteriores del workflow.\n';
 } else {
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  const integrationCount = report.testResults.filter((suite) => /tests[\\/]integration[\\/]/.test(suite.name))
+    .reduce((sum, suite) => sum + suite.assertionResults.length, 0);
+  const result = report.success ? 'Aprobadas' : 'Consultar fallos';
+  const staticResult = process.env.LINT_OUTCOME === 'success' && process.env.TYPES_OUTCOME === 'success'
+    ? 'Aprobado' : 'Consultar pasos de lint y TypeScript';
   const rows = report.testResults.flatMap((suite) => suite.assertionResults.map((test) => {
     const status = test.status === 'passed' ? '✅ Aprobada' : test.status === 'failed' ? '❌ Fallida' : '⏸ Pendiente';
-    return `| ${escapeCell(path.basename(suite.name))} | ${escapeCell(test.fullName)} | ${status} |`;
+    const type = /tests[\\/]integration[\\/]/.test(suite.name) ? 'Integración cliente' : 'Unitaria / componente';
+    return `| ${type} | ${escapeCell(path.basename(suite.name))} | ${escapeCell(test.fullName)} | ${status} |`;
   }));
   markdown = [
     '# Pruebas de Sport Center Mobile',
@@ -21,10 +27,25 @@ if (!fs.existsSync(reportPath)) {
     '',
     `Suites: ${report.numPassedTestSuites}/${report.numTotalTestSuites} aprobadas.`,
     '',
+    '## Tipos previstos en la planeación integrada',
+    '',
+    '| Tipo | Resultado y alcance |',
+    '|---|---|',
+    `| Análisis estático | ${staticResult} |`,
+    `| Unitarias y componentes | ${report.numTotalTests - integrationCount} casos: ${result} |`,
+    `| Integración del cliente | ${integrationCount} casos: ${result}; transporte HTTP simulado |`,
+    '| Integración HTTP real | Suite separada en Pipeline 2; no ejecutada por el pipeline del cliente |',
+    `| Regresión afectada | ${result}; reutiliza los mismos ${report.numTotalTests} casos, sin duplicar el conteo |`,
+    '| Aceptación Android | Flujos Maestro preparados. No ejecutados sin APK/dispositivo |',
+    '| Rendimiento | Guion k6 preparado. Su inspección no mide el backend ni Android |',
+    '| Estrés | Guion k6 y recuperación preparados. No ejecutados sobre la API compartida |',
+    '',
+    'Fuente: Planeacion_Integrada_SportCenter_Mobile.docx, secciones 10–15. Matriz completa y grupos CP: tests/plan.json.',
+    '',
     'Alcance: HU-03 (catálogo y filtros), HU-04 (detalle) y MOB-004 (consumo de datos simulado). No certifica la API real ni Android físico.',
     '',
-    '| Archivo | Caso | Resultado |',
-    '|---|---|---|',
+    '| Tipo | Archivo | Caso | Resultado |',
+    '|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');

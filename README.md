@@ -15,7 +15,62 @@ npm start
 
 ## Configuración de pruebas
 
-Jest 29, `jest-expo` compatible con SDK 57 y React Native Testing Library 14. Se fija `test-renderer` en 1.2.0 para usar el reconciliador compatible con React 19.2. La configuración está en `jest.config.js`; las pruebas viven en `__tests__/`, fuera de las rutas de navegación.
+### Tipos definidos en la planeación integrada
+
+La referencia recibida es `Planeacion_Integrada_SportCenter_Mobile.docx`, secciones 10–15. Se aplica a **Markadw/SportCenter-mobile**, ubicación confirmada por el usuario, aunque el documento referencia originalmente un repositorio organizacional distinto. La [matriz completa](tests/plan.json) relaciona siete actividades de prueba, tres pipelines y los nueve grupos CP de historias.
+
+| Actividad del documento | Configuración y ejecución | Estado comprobado |
+|---|---|---|
+| Unitarias | Jest/jest-expo; `npm run test:unit` | 43 casos de lógica y componentes del código disponible |
+| Análisis estático | ESLint y TypeScript; `npm run lint` y `npm run typecheck` | Validaciones correctas; no sustituyen pruebas funcionales |
+| Integración | `npm run test:integration` une vistas/contextos/servicios reales con transporte simulado; `npm run test:api` comprueba HTTP real por separado | 4 casos de integración del cliente y 4 de lectura HTTP real aprobados |
+| Aceptación | `.maestro/`, `npm run test:acceptance`, Android y revisión manual | Dos flujos preparados; no ejecutados en dispositivo |
+| Regresión | `npm run test:regression` reutiliza casos anteriores y nuevos | 47 casos del cliente aprobados; no acredita regresión del sistema completo |
+| Rendimiento | k6; `tests/performance/load.js`; medición Android manual separada | Guion inspeccionado correctamente; backend y Android no medidos |
+| Esfuerzo o estrés | k6; `tests/performance/stress.js`, con reducción de carga y recuperación | Guion inspeccionado correctamente; carga no ejecutada |
+
+**Conteo:** 47 pruebas del cliente (43 unitarias/componentes y 4 de integración) más 4 HTTP en una suite separada. Regresión reutiliza las mismas 47; no se suman otra vez. La integración HTTP comprobó catálogo público, forma de variantes/precios/stock, detalle por ID y rechazo de perfil sin sesión. Se hicieron únicamente consultas GET, sin crear cuentas, carritos o compras.
+
+#### Pipeline 1 Verificación del cliente móvil
+
+`.github/workflows/ci.yml` ejecuta instalación, lint, tipos, casos del cliente y validación de YAML/perfil APK. El resumen de Actions muestra resultados **por tipo** y distingue los casos aprobados de la configuración pendiente de ejecución. La suite HTTP real se excluye de Jest del cliente. `npm run test:config` comprueba sintaxis y estructura; no ejecuta Android o carga.
+
+#### Pipeline 2 API APK y aceptación
+
+`.github/workflows/api-android.yml` ejecuta la suite HTTP de lectura en PR del propio repositorio y permite ejecución manual con `API_BASE_URL`. En PR utiliza `API_TEST_URL` si está configurada o la API pública indicada en el documento. Se realizan tres consultas GET; no se ejecutan operaciones de escritura o carga. Esta suite permanece separada del pipeline del cliente. El trabajo Android es opcional, solo manual, y necesita un runner propio etiquetado `android`, Maestro/ADB, APK instalado, `APP_ID` y `PRODUCT_NAME` reales. `eas.json` prepara `preview` con distribución interna y APK; antes de compilar se deben configurar el identificador Android y el proyecto/cuenta EAS. No se generó ni instaló una APK en esta configuración.
+
+```bash
+# Con API_BASE_URL definido en el entorno:
+npm run test:api
+# Con APK instalado, APP_ID y PRODUCT_NAME definidos:
+npm run test:acceptance
+# Tras configurar la identidad Android y EAS:
+npx eas-cli@latest build --platform android --profile preview
+```
+
+Los workflows manuales deben integrarse a `main` para aparecer con **Run workflow**. Durante el PR las suites pueden ejecutarse localmente; su evidencia se registra por separado.
+
+#### Pipeline 3 Carga esperada y estrés
+
+`.github/workflows/performance.yml` inspecciona ambos guiones con k6 en cada PR. **Ese trabajo no realiza peticiones ni acredita rendimiento.** La medición requiere ejecución manual y `API_BASE_URL`, `ISOLATED_API=true`, `PRODUCT_ID` y `BACKEND_COMMIT`. Se rechazan el Render compartido indicado en el documento y Mercado Pago como objetivos de carga.
+
+```bash
+# Con el entorno aislado y sus variables previamente definidos:
+npm run test:load
+npm run test:stress
+```
+
+Los parámetros iniciales son pilotos pequeños: carga de 1 usuario durante 10 segundos y estrés de 1 a 3 usuarios con reducción y recuperación. Deben ajustarse al uso esperado y a la línea base antes de acreditar capacidad. La carga normal acepta `P95_LIMIT_MS`, `ERROR_RATE_LIMIT` y `THRESHOLD_REASON`; sin umbrales justificados el resultado se documenta como línea base. Estrés comprueba recuperación sin imponer automáticamente el mismo P95 a la sobrecarga. Los reportes preservan métricas y el commit del backend. k6 no acredita fluidez móvil.
+
+#### Alcance pendiente y correspondencia con el documento
+
+La matriz conserva CP-01 a CP-09. Registro, activación, renovación de sesión, perfil/logout, carrito persistente, direcciones, pago/tracking e historial requieren sus módulos y contratos. CP-03 y CP-04 siguen parciales: faltan, entre otros, precio desde, selección real de variante, máximo de 99 y aceptación Android. Pasar las pruebas disponibles no cierra esas historias.
+
+El documento estima **60 SP** y asigna QA-001 a pruebas por historia, QA-002 a integración/rendimiento/estrés y QA-003 a sistema/aceptación. El tablero anterior tiene 52 SP y utiliza esos códigos para actividades distintas. Se registra esa diferencia para conciliarla en PLAN-001; esta ampliación configura los tipos de prueba y no reasigna historias ni modifica estimaciones automáticamente.
+
+El registro manual debe incluir caso/HU, tipo, precondiciones, pasos, esperado, obtenido, estado, ejecutor/revisor, commit, build, Android y evidencia. Usar **no ejecutado** cuando falte un recurso; conservar **fallido** para un resultado contrario al criterio.
+
+Jest 29, `jest-expo` compatible con SDK 57 y React Native Testing Library 14. Se fija `test-renderer` en 1.2.0 para usar el reconciliador compatible con React 19.2. La configuración del cliente está en `jest.config.js`; sus pruebas viven en `__tests__/` y `tests/integration/`, fuera de las rutas de navegación. La suite HTTP utiliza `jest.api.config.js` y `tests/api/` por separado.
 
 ```bash
 npm test              # ejecución única
@@ -37,7 +92,7 @@ Las peticiones HTTP, el router y los iconos nativos se sustituyen por dobles de 
 
 ### Ampliación de pruebas sencillas: 13 de octubre de 2026
 
-Se agregaron **21 casos** a los 22 iniciales: el resultado actual es **6 suites y 43 pruebas aprobadas**. También pasan lint y TypeScript. La cobertura de líneas es **87.11% sobre seis módulos seleccionados**, incluidos ahora `catalogApi` y `FiltersContext`; el alcance de cobertura es más amplio que el del reporte inicial.
+Se agregaron **21 casos** a los 22 iniciales: el resultado de esa ampliación fue **6 suites y 43 pruebas aprobadas**. También pasan lint y TypeScript. La cobertura de líneas es **87.11% sobre seis módulos seleccionados**, incluidos ahora `catalogApi` y `FiltersContext`; el alcance de cobertura es más amplio que el del reporte inicial.
 
 | Planeación | Casos adicionales | Resultado esperado |
 |---|---|---|
