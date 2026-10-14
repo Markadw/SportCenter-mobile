@@ -41,3 +41,8 @@ example
 # generated native folders
 /ios
 /android
+
+# Generated test evidence (uploaded as CI artifacts)
+coverage/
+test-results/
+.tools/

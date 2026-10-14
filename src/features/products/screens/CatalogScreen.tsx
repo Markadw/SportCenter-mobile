@@ -48,6 +48,11 @@ export const CatalogScreen = () => {
         if (brand && p.brand !== brand.name) return false;
       }
 
+      // El deporte seleccionado en inicio también limita el catálogo.
+      if (filters.sportName !== null && !p.sports.includes(filters.sportName)) {
+        return false;
+      }
+
       return true;
     });
   }, [products, filters, categories, brands]);

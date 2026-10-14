@@ -31,10 +31,16 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
-    "typescript": "~6.0.3"
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.6",
+    "test-renderer": "1.2.0",
+    "typescript": "~6.0.3",
+    "yaml": "^2.9.1"
   },
   "scripts": {
     "start": "expo start",
@@ -42,7 +48,20 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:unit": "jest --runInBand --testPathPattern=__tests__",
+    "test:integration": "jest --runInBand --testPathPattern=tests/integration",
+    "test:regression": "npm run test:ci",
+    "test:api": "node scripts/run-api-tests.js",
+    "test:acceptance": "maestro test .maestro",
+    "test:config": "node scripts/validate-test-configs.js",
+    "test:load": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/load.js",
+    "test:stress": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/stress.js",
+    "test:ci": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && jest --ci --runInBand --coverage --verbose --json --outputFile=test-results/jest.json",
+    "validate": "npm run lint && npm run typecheck && npm run test:ci"
   },
   "private": true
 }
