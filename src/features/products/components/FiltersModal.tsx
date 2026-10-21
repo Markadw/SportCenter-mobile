@@ -1,11 +1,10 @@
-// src/features/products/components/FiltersModal.tsx
 import {
   ChevronDown,
   ChevronUp,
   SlidersHorizontal,
   X,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -53,16 +52,9 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
 
   // `mounted` controla si el Modal se renderiza (para poder animar la salida)
   const [mounted, setMounted] = useState(false);
-  const anim = useRef(new Animated.Value(0)).current; // 0 = cerrado, 1 = abierto
+  const [anim] = useState(() => new Animated.Value(0)); // 0 = cerrado, 1 = abierto
 
-  // 1) Montar el modal cuando `visible` pasa a true
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-    }
-  }, [visible]);
-
-  // 2) Ejecutar animación de entrada/salida
+  // Ejecutar animación de entrada/salida
   useEffect(() => {
     const animation = Animated.timing(anim, {
       toValue: visible ? 1 : 0,
@@ -72,15 +64,15 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     });
 
     animation.start(({ finished }) => {
-      if (finished && !visible) {
-        setMounted(false); // ya terminó la salida, desmontamos
+      if (finished) {
+        setMounted(visible); // conservar el modal durante la salida
       }
     });
 
     return () => animation.stop();
   }, [visible, anim]);
 
-  if (!mounted) return null;
+  if (!mounted && !visible) return null;
 
   const allCategories = categories;
 
