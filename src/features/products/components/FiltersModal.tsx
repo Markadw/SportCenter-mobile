@@ -4,13 +4,14 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Easing,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -49,63 +50,34 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     "category",
   );
 
-  const [mounted, setMounted] = useState(visible);
-  const [previousVisible, setPreviousVisible] = useState(visible);
-  const [anim] = useState(() => new Animated.Value(0));
+  // Usamos useRef para mantener el valor de la animación sin re-renderizar
+  const anim = useRef(new Animated.Value(0)).current;
+  const [mounted, setMounted] = useState(false);
 
-  // Sincronizar el montaje cuando cambia la visibilidad
-  if (visible !== previousVisible) {
-    setPreviousVisible(visible);
-
+  // 1. Controlar cuándo se monta el modal
+  useEffect(() => {
     if (visible) {
       setMounted(true);
     }
-  }
+  }, [visible]);
 
-  // Controlar las animaciones de entrada y salida
+  // 2. Ejecutar la animación
   useEffect(() => {
     const animation = Animated.timing(anim, {
       toValue: visible ? 1 : 0,
       duration: ANIM_MS,
       easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web", // Evita el warning en web
     });
 
     animation.start(({ finished }) => {
       if (finished && !visible) {
-        setMounted(false);
+        setMounted(false); // Se desmonta cuando termina de cerrarse
       }
     });
 
-    return () => {
-      animation.stop();
-    };
+    return () => animation.stop();
   }, [visible, anim]);
-
-  // // Estado interno para controlar montaje/desmontaje
-  // const [mounted, setMounted] = useState(visible);
-  // const [anim] = useState(() => new Animated.Value(0)); // 0 = cerrado, 1 = abierto
-
-  // useEffect(() => {
-  //   if (visible) {
-  //     setMounted(true);
-  //     Animated.timing(anim, {
-  //       toValue: 1,
-  //       duration: ANIM_MS,
-  //       easing: Easing.out(Easing.cubic),
-  //       useNativeDriver: true,
-  //     }).start();
-  //   } else {
-  //     Animated.timing(anim, {
-  //       toValue: 0,
-  //       duration: ANIM_MS,
-  //       easing: Easing.in(Easing.cubic),
-  //       useNativeDriver: true,
-  //     }).start(({ finished }) => {
-  //       if (finished) setMounted(false);
-  //     });
-  //   }
-  // }, [visible, anim]);
 
   if (!mounted) return null;
 
@@ -132,7 +104,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
       onRequestClose={onClose}
     >
       <View style={styles.root}>
-        {/* Backdrop animado (cubre TODA la pantalla) */}
+        {/* Backdrop animado */}
         <Animated.View
           style={[styles.backdrop, { opacity: backdropOpacity }]}
           pointerEvents="box-none"
