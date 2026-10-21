@@ -1,4 +1,3 @@
-// src/features/products/components/FiltersModal.tsx
 import {
   ChevronDown,
   ChevronUp,
@@ -68,9 +67,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     const animation = Animated.timing(anim, {
       toValue: visible ? 1 : 0,
       duration: ANIM_MS,
-      easing: visible
-        ? Easing.out(Easing.cubic)
-        : Easing.in(Easing.cubic),
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: true,
     });
 
@@ -88,7 +85,6 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
   // // Estado interno para controlar montaje/desmontaje
   // const [mounted, setMounted] = useState(visible);
   // const [anim] = useState(() => new Animated.Value(0)); // 0 = cerrado, 1 = abierto
-
 
   // useEffect(() => {
   //   if (visible) {
@@ -133,12 +129,14 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
       visible={mounted}
       transparent
       animationType="none"
-      onRequestClose={onClose}>
+      onRequestClose={onClose}
+    >
       <View style={styles.root}>
         {/* Backdrop animado (cubre TODA la pantalla) */}
         <Animated.View
           style={[styles.backdrop, { opacity: backdropOpacity }]}
-          pointerEvents="box-none">
+          pointerEvents="box-none"
+        >
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
@@ -161,19 +159,22 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 pressed && { opacity: 0.6 },
               ]}
               onPress={onClose}
-              hitSlop={8}>
+              hitSlop={8}
+            >
               <X size={20} color={colors.text} />
             </Pressable>
           </View>
 
           <ScrollView
             contentContainerStyle={{ paddingBottom: spacing.xl }}
-            showsVerticalScrollIndicator={false}>
+            showsVerticalScrollIndicator={false}
+          >
             {/* Categorías */}
             <Section
               title="Categoría"
               open={openSection === "category"}
-              onToggle={() => toggle("category")}>
+              onToggle={() => toggle("category")}
+            >
               <RadioRow
                 label="Todas"
                 selected={filters.categoryId === null}
@@ -193,7 +194,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
             <Section
               title="Marca"
               open={openSection === "brand"}
-              onToggle={() => toggle("brand")}>
+              onToggle={() => toggle("brand")}
+            >
               <RadioRow
                 label="Todas"
                 selected={filters.brandId === null}
@@ -218,7 +220,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.clearBtn,
                 pressed && { opacity: 0.7 },
               ]}
-              onPress={clearFilters}>
+              onPress={clearFilters}
+            >
               <Text style={styles.clearBtnText}>Limpiar</Text>
             </Pressable>
 
@@ -227,7 +230,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.applyBtn,
                 pressed && { opacity: 0.9 },
               ]}
-              onPress={onClose}>
+              onPress={onClose}
+            >
               <Text style={styles.applyBtnText}>Aplicar</Text>
             </Pressable>
           </View>
@@ -256,7 +260,8 @@ const Section = ({
         styles.sectionHeader,
         pressed && { opacity: 0.7 },
       ]}
-      onPress={onToggle}>
+      onPress={onToggle}
+    >
       <Text style={styles.sectionTitle}>{title}</Text>
       {open ? (
         <ChevronUp size={18} color={colors.textMuted} />
@@ -281,7 +286,8 @@ const RadioRow = ({
 }) => (
   <Pressable
     style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-    onPress={onPress}>
+    onPress={onPress}
+  >
     <View style={[styles.radio, selected && styles.radioSelected]}>
       {selected && <View style={styles.radioDot} />}
     </View>
