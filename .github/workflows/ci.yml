@@ -2,9 +2,10 @@ name: Sport Center Mobile CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [develop, main]
   push:
-    branches: [main]
+    branches: [develop, main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -24,6 +25,15 @@ jobs:
         with:
           node-version: '22.20.0'
           cache: npm
+      - name: Check release source branch
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+        run: |
+          case "$SOURCE_BRANCH" in
+            develop|release/*|hotfix/*) ;;
+            *) echo 'Main recibe entregas desde develop, release/* o hotfix/*.'; exit 1 ;;
+          esac
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Lint

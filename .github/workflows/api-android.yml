@@ -2,7 +2,7 @@ name: 'Pipeline 2 - API y aceptación Android'
 
 on:
   pull_request:
-    branches: [main]
+    branches: [develop, main]
   workflow_dispatch:
     inputs:
       api_base_url:
@@ -24,6 +24,11 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    name: Calidad previa a aceptación Android
+    if: github.event_name == 'workflow_dispatch' && inputs.run_android
+    uses: ./.github/workflows/ci.yml
+
   api:
     name: Integración HTTP real de lectura
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
@@ -51,8 +56,8 @@ jobs:
 
   android:
     name: Aceptación y regresión Android
-    needs: api
-    if: inputs.run_android
+    needs: [quality, api]
+    if: github.event_name == 'workflow_dispatch' && inputs.run_android
     runs-on: [self-hosted, android]
     timeout-minutes: 10
     steps:

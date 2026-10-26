@@ -12,5 +12,6 @@ module.exports = {
     'src/features/products/context/ProductsContext.tsx',
     'src/features/products/screens/CatalogScreen.tsx',
     'src/features/products/screens/ProductDetailScreen.tsx',
+    'src/features/products/components/FiltersModal.tsx',
   ],
 };

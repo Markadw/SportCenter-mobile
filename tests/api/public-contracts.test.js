@@ -4,8 +4,18 @@ let products;
 let detail;
 let productId;
 
+async function readResponse(route) {
+  try {
+    return await axios.get(`${base}${route}`, { timeout: 25000, maxRedirects: 0, validateStatus: () => true });
+  } catch (error) {
+    // El error Axios incluye sockets circulares; el reporte conserva sólo datos seguros.
+    const code = typeof error?.code === 'string' ? error.code : 'ERROR_RED';
+    throw new Error(`No se pudo consultar ${route}: ${code}`);
+  }
+}
+
 async function readJson(route) {
-  const response = await axios.get(`${base}${route}`, { timeout: 25000, maxRedirects: 0, validateStatus: () => true });
+  const response = await readResponse(route);
   if (response.status !== 200) throw new Error(`Contrato público respondió HTTP ${response.status}`);
   return response.data;
 }
@@ -35,7 +45,7 @@ describe('CP-03 / CP-04: integración HTTP real de lectura pública', () => {
     expect(detail[0].id_producto).toBe(productId);
   });
   test('perfil privado rechaza acceso sin sesión', async () => {
-    const response = await axios.get(`${base}/users/profile`, { timeout: 25000, maxRedirects: 0, validateStatus: () => true });
+    const response = await readResponse('/users/profile');
     expect([401, 403]).toContain(response.status);
   });
 });

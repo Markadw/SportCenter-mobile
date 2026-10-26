@@ -1,11 +1,5 @@
-// src/config/env.ts
-const ENV = {
-  dev: {
-    apiUrl: "https://back-sport-ghxk.onrender.com", // ← pon TU IP local
-  },
-  prod: {
-    apiUrl: "https://back-sport-ghxk.onrender.com",
-  },
-};
+// EXPO_PUBLIC_ values are public and are embedded by Expo CLI at build time.
+const apiUrl = (process.env.EXPO_PUBLIC_API_URL?.trim()
+  || 'https://back-sport-ghxk.onrender.com').replace(/\/+$/, '');
 
-export default __DEV__ ? ENV.dev : ENV.prod;
+export default { apiUrl };

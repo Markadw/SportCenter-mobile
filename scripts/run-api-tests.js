@@ -10,6 +10,7 @@ if (!['http:', 'https:'].includes(target.protocol) || target.username || target.
   throw new Error('API_BASE_URL debe ser una URL HTTP sin credenciales ni parámetros.');
 }
 fs.mkdirSync('test-results', { recursive: true });
+fs.rmSync('test-results/api.json', { force: true });
 const result = spawnSync(process.execPath, [require.resolve('jest/bin/jest'), '--config', 'jest.api.config.js',
   '--ci', '--runInBand', '--verbose', '--json', '--outputFile=test-results/api.json'], { stdio: 'inherit' });
 process.exit(result.status ?? 1);

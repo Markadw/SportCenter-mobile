@@ -18,14 +18,14 @@
       "name": "Verificación del cliente móvil",
       "workflow": ".github/workflows/ci.yml",
       "scope": "Análisis estático, pruebas unitarias/componentes, integración del cliente y regresión afectada",
-      "execution": "Automática en PR y push a main"
+      "execution": "Automática en PR y push a develop y main; reutilizable para comprobar calidad antes de aceptación Android"
     },
     {
       "id": 2,
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Suite HTTP separada y flujos Maestro en Android",
-      "execution": "HTTP de solo lectura en PR propio o manual. Android manual; requiere APK instalado, ID real, Maestro/ADB y runner Android"
+      "execution": "HTTP de solo lectura en PR propio o manual. Android manual, después de calidad del cliente y API aprobadas; requiere APK instalado, ID real, Maestro/ADB y runner Android"
     },
     {
       "id": 3,
@@ -44,7 +44,8 @@
       ],
       "files": [
         "__tests__/productsApi.test.ts",
-        "__tests__/catalogApi.test.ts"
+        "__tests__/catalogApi.test.ts",
+        "__tests__/FiltersModal.test.tsx"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },

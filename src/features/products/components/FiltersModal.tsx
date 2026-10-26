@@ -1,4 +1,3 @@
-// src/features/products/components/FiltersModal.tsx
 import {
   ChevronDown,
   ChevronUp,
@@ -12,6 +11,7 @@ import {
   Easing,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,66 +50,29 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     "category",
   );
 
-  const [mounted, setMounted] = useState(visible);
-  const [previousVisible, setPreviousVisible] = useState(visible);
   const [anim] = useState(() => new Animated.Value(0));
+  const [mounted, setMounted] = useState(visible);
 
-  // Sincronizar el montaje cuando cambia la visibilidad
-  if (visible !== previousVisible) {
-    setPreviousVisible(visible);
+  // Abrir en este render; al cerrar, conservar el modal hasta terminar la animación.
+  if (visible && !mounted) setMounted(true);
 
-    if (visible) {
-      setMounted(true);
-    }
-  }
-
-  // Controlar las animaciones de entrada y salida
+  // 2. Ejecutar la animación
   useEffect(() => {
     const animation = Animated.timing(anim, {
       toValue: visible ? 1 : 0,
       duration: ANIM_MS,
-      easing: visible
-        ? Easing.out(Easing.cubic)
-        : Easing.in(Easing.cubic),
-      useNativeDriver: true,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: Platform.OS !== "web", // Evita el warning en web
     });
 
     animation.start(({ finished }) => {
       if (finished && !visible) {
-        setMounted(false);
+        setMounted(false); // Se desmonta cuando termina de cerrarse
       }
     });
 
-    return () => {
-      animation.stop();
-    };
+    return () => animation.stop();
   }, [visible, anim]);
-
-  // // Estado interno para controlar montaje/desmontaje
-  // const [mounted, setMounted] = useState(visible);
-  // const [anim] = useState(() => new Animated.Value(0)); // 0 = cerrado, 1 = abierto
-
-
-  // useEffect(() => {
-  //   if (visible) {
-  //     setMounted(true);
-  //     Animated.timing(anim, {
-  //       toValue: 1,
-  //       duration: ANIM_MS,
-  //       easing: Easing.out(Easing.cubic),
-  //       useNativeDriver: true,
-  //     }).start();
-  //   } else {
-  //     Animated.timing(anim, {
-  //       toValue: 0,
-  //       duration: ANIM_MS,
-  //       easing: Easing.in(Easing.cubic),
-  //       useNativeDriver: true,
-  //     }).start(({ finished }) => {
-  //       if (finished) setMounted(false);
-  //     });
-  //   }
-  // }, [visible, anim]);
 
   if (!mounted) return null;
 
@@ -133,12 +96,14 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
       visible={mounted}
       transparent
       animationType="none"
-      onRequestClose={onClose}>
+      onRequestClose={onClose}
+    >
       <View style={styles.root}>
-        {/* Backdrop animado (cubre TODA la pantalla) */}
+        {/* Backdrop animado */}
         <Animated.View
           style={[styles.backdrop, { opacity: backdropOpacity }]}
-          pointerEvents="box-none">
+          pointerEvents="box-none"
+        >
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
@@ -161,19 +126,22 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 pressed && { opacity: 0.6 },
               ]}
               onPress={onClose}
-              hitSlop={8}>
+              hitSlop={8}
+            >
               <X size={20} color={colors.text} />
             </Pressable>
           </View>
 
           <ScrollView
             contentContainerStyle={{ paddingBottom: spacing.xl }}
-            showsVerticalScrollIndicator={false}>
+            showsVerticalScrollIndicator={false}
+          >
             {/* Categorías */}
             <Section
               title="Categoría"
               open={openSection === "category"}
-              onToggle={() => toggle("category")}>
+              onToggle={() => toggle("category")}
+            >
               <RadioRow
                 label="Todas"
                 selected={filters.categoryId === null}
@@ -193,7 +161,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
             <Section
               title="Marca"
               open={openSection === "brand"}
-              onToggle={() => toggle("brand")}>
+              onToggle={() => toggle("brand")}
+            >
               <RadioRow
                 label="Todas"
                 selected={filters.brandId === null}
@@ -218,7 +187,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.clearBtn,
                 pressed && { opacity: 0.7 },
               ]}
-              onPress={clearFilters}>
+              onPress={clearFilters}
+            >
               <Text style={styles.clearBtnText}>Limpiar</Text>
             </Pressable>
 
@@ -227,7 +197,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.applyBtn,
                 pressed && { opacity: 0.9 },
               ]}
-              onPress={onClose}>
+              onPress={onClose}
+            >
               <Text style={styles.applyBtnText}>Aplicar</Text>
             </Pressable>
           </View>
@@ -256,7 +227,8 @@ const Section = ({
         styles.sectionHeader,
         pressed && { opacity: 0.7 },
       ]}
-      onPress={onToggle}>
+      onPress={onToggle}
+    >
       <Text style={styles.sectionTitle}>{title}</Text>
       {open ? (
         <ChevronUp size={18} color={colors.textMuted} />
@@ -281,7 +253,8 @@ const RadioRow = ({
 }) => (
   <Pressable
     style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-    onPress={onPress}>
+    onPress={onPress}
+  >
     <View style={[styles.radio, selected && styles.radioSelected]}>
       {selected && <View style={styles.radioDot} />}
     </View>

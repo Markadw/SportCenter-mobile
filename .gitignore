@@ -31,18 +31,18 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
 
-example
 
 # generated native folders
 /ios
 /android
 
-# Generated test evidence (uploaded as CI artifacts)
+# Generated test reports
 coverage/
 test-results/
-.tools/
