@@ -20,6 +20,12 @@ function validateWorkflows(workflows) {
   assert.deepEqual(integration.jobs.android.needs, ['plan', 'quality', 'api', 'performance'], 'Android requiere calidad, API e inspección aprobadas');
   assert.equal(integration.jobs.android['runs-on'], 'ubuntu-latest', 'Android debe disponer de un runner alojado');
   assert.ok(integration.jobs.android.steps.some((step) => step.run?.includes('--wait --json')), 'Debe esperar el resultado real del build');
+  const acceptance = integration.jobs.android.steps.find((step) => step.id === 'acceptance');
+  assert.ok(acceptance?.with?.script?.includes('--test-output-dir test-results/maestro'),
+    'Maestro debe conservar capturas en el directorio de evidencia sin carpetas ocultas');
+  const androidEvidence = integration.jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(androidEvidence?.with?.path?.split('\n').includes('test-results/maestro/'),
+    'El artefacto Android debe incluir las capturas de Maestro');
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'api', 'performance', 'android']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   assert.equal(integration.jobs.performance.uses, './.github/workflows/performance.yml');

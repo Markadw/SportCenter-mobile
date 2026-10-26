@@ -86,6 +86,18 @@ describe('Dependencias reales de los YAML', () => {
     config.get('api-android.yml').jobs.api.needs = ['plan'];
     expect(() => validateWorkflows(config)).toThrow('HTTP requiere calidad');
   });
+  test('rechaza guardar capturas en una carpeta oculta que no se conserva como evidencia', () => {
+    const config = workflows();
+    const acceptance = config.get('api-android.yml').jobs.android.steps.find((step) => step.id === 'acceptance');
+    acceptance.with.script = acceptance.with.script.replace('--test-output-dir', '--debug-output');
+    expect(() => validateWorkflows(config)).toThrow('conservar capturas');
+  });
+  test('rechaza omitir las capturas del artefacto de diagnóstico Android', () => {
+    const config = workflows();
+    const evidence = config.get('api-android.yml').jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    evidence.with.path = 'test-results/maestro.xml';
+    expect(() => validateWorkflows(config)).toThrow('incluir las capturas');
+  });
   test('detecta artefactos añadidos a una simple inspección', () => {
     const config = workflows();
     config.get('performance.yml').jobs.inspect.steps.push({ uses: 'actions/upload-artifact@v4' });
