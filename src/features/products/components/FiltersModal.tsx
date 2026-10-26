@@ -4,7 +4,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -50,16 +50,11 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     "category",
   );
 
-  // Usamos useRef para mantener el valor de la animación sin re-renderizar
-  const anim = useRef(new Animated.Value(0)).current;
-  const [mounted, setMounted] = useState(false);
+  const [anim] = useState(() => new Animated.Value(0));
+  const [mounted, setMounted] = useState(visible);
 
-  // 1. Controlar cuándo se monta el modal
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-    }
-  }, [visible]);
+  // Abrir en este render; al cerrar, conservar el modal hasta terminar la animación.
+  if (visible && !mounted) setMounted(true);
 
   // 2. Ejecutar la animación
   useEffect(() => {
