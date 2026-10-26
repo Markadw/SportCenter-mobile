@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-13",
+  "source": {
+    "document": "Planeacion_Integrada_SportCenter_Mobile.docx",
+    "sha256": "E712F9C4728A6FCF7CDEA11DA18C2BABDF5E7345501992FF000BF4822D0FC7CF",
+    "sections": [
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ]
+  },
+  "repository": "Markadw/SportCenter-mobile",
+  "client": {
+    "success": true,
+    "suites": 7,
+    "total": 47,
+    "passed": 47,
+    "failed": 0
+  },
+  "clientBreakdown": {
+    "unitAndComponents": 43,
+    "integration": 4,
+    "regression": "Reutiliza los mismos 47 casos"
+  },
+  "http": {
+    "success": true,
+    "suites": 1,
+    "total": 4,
+    "passed": 4,
+    "failed": 0
+  },
+  "httpTarget": "https://back-sport-ghxk.onrender.com",
+  "httpScope": "Tres consultas GET: catálogo, detalle y rechazo de perfil sin sesión. Sin mutaciones.",
+  "staticAnalysis": {
+    "lint": "passed",
+    "typescript": "passed"
+  },
+  "configuration": {
+    "yamlAndEas": "passed",
+    "k6Version": "2.3.0",
+    "loadInspect": "passed",
+    "stressInspect": "passed"
+  },
+  "notExecuted": [
+    "Aceptación Maestro en Android",
+    "Construcción e instalación de APK",
+    "Rendimiento del backend y Android",
+    "Estrés del backend",
+    "Flujos privados de registro, sesión, carrito, direcciones, compra e historial"
+  ],
+  "traceability": "tests/plan.json"
+}

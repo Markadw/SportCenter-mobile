@@ -9,7 +9,7 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-Autenticación y la infraestructura de pruebas están preparándose en trabajos separados, pendientes de integración. Selección completa de variantes, carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente.
+La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. Autenticación permanece pendiente de integración. Selección completa de variantes, carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente.
 
 ## Entorno y arranque
 
@@ -35,9 +35,37 @@ npx expo-doctor
 
 - `npm run lint`: revisión ESLint del proyecto.
 - `npm run typecheck`: comprobación TypeScript sin generar JavaScript.
-- `npm run validate`: ejecuta ambas comprobaciones y se detiene ante un fallo.
+- `npm run validate`: ejecuta lint, TypeScript, pruebas del cliente con cobertura y validación de configuración; se detiene ante un fallo.
 
-Estos comandos no ejecutan pruebas unitarias, aceptación Android ni auditorías de seguridad. Esas comprobaciones tendrán sus propios resultados al integrar la infraestructura de pruebas. El empaquetado de JavaScript tampoco equivale a generar un APK firmado.
+La validación del cliente usa transporte HTTP simulado. No consulta la API desplegada ni ejecuta aceptación Android o carga. El empaquetado de JavaScript tampoco equivale a generar un APK firmado.
+
+### Pruebas
+
+| Comando | Alcance |
+| --- | --- |
+| `npm test` | Pruebas Jest del cliente |
+| `npm run test:unit` | Lógica y componentes en __tests__/ |
+| `npm run test:integration` | Integración de vistas, contextos y servicios con transporte simulado |
+| `npm run test:ci` | Jest con cobertura y reporte JSON en test-results/ |
+| `npm run test:config` | Coherencia de workflows, flujos Maestro, perfil EAS y plan de pruebas |
+| `npm run test:api` | Contratos HTTP reales de lectura; requiere API_BASE_URL explícita |
+
+Para ejecutar las consultas HTTP públicas desde PowerShell:
+
+```powershell
+$env:API_BASE_URL = 'https://back-sport-ghxk.onrender.com'
+npm run test:api
+```
+
+La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
+
+Los flujos Maestro de catálogo y detalle requieren APK instalado, ADB, Maestro y los valores APP_ID/PRODUCT_NAME. En GitHub, la aceptación Android se habilita manualmente y depende de las pruebas HTTP y de la calidad del cliente aprobadas.
+
+Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
+
+Los workflows revisan PR y cambios en develop/main. Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
+
+eas.json define preview (APK interno) y production (AAB). Generar una compilación requiere vincular Expo, confirmar identificadores y credenciales de firma; la presencia del perfil no acredita un APK construido.
 
 ## Ramas y revisión
 

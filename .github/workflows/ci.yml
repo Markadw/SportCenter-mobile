@@ -1,0 +1,64 @@
+name: Sport Center Mobile CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - name: Check release source branch
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+        run: |
+          case "$SOURCE_BRANCH" in
+            develop|release/*|hotfix/*) ;;
+            *) echo 'Main recibe entregas desde develop, release/* o hotfix/*.'; exit 1 ;;
+          esac
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Lint
+        id: lint
+        run: npm run lint
+      - name: TypeScript
+        id: types
+        run: npm run typecheck
+      - name: Tests and coverage
+        run: npm run test:ci
+      - name: Validate API Android and performance configuration
+        run: npm run test:config
+      - name: Publish test summary
+        if: always()
+        run: node scripts/write-test-summary.js
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TYPES_OUTCOME: ${{ steps.types.outcome }}
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sport-center-mobile-test-evidence
+          path: |
+            coverage/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

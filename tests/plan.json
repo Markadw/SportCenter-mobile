@@ -1,0 +1,227 @@
+{
+  "source": {
+    "document": "Planeacion_Integrada_SportCenter_Mobile.docx",
+    "sections": [
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "repository": "Markadw/SportCenter-mobile",
+    "selection": "Repositorio confirmado por el usuario"
+  },
+  "pipelines": [
+    {
+      "id": 1,
+      "name": "Verificación del cliente móvil",
+      "workflow": ".github/workflows/ci.yml",
+      "scope": "Análisis estático, pruebas unitarias/componentes, integración del cliente y regresión afectada",
+      "execution": "Automática en PR y push a develop y main; reutilizable para comprobar calidad antes de aceptación Android"
+    },
+    {
+      "id": 2,
+      "name": "API APK y aceptación del incremento",
+      "workflow": ".github/workflows/api-android.yml",
+      "scope": "Suite HTTP separada y flujos Maestro en Android",
+      "execution": "HTTP de solo lectura en PR propio o manual. Android manual, después de calidad del cliente y API aprobadas; requiere APK instalado, ID real, Maestro/ADB y runner Android"
+    },
+    {
+      "id": 3,
+      "name": "Carga esperada y estrés de la API",
+      "workflow": ".github/workflows/performance.yml",
+      "scope": "Inspección k6 automática; medición solo en backend propio aislado",
+      "execution": "La inspección no ejecuta carga. Medición manual con entorno y commit identificados"
+    }
+  ],
+  "activities": [
+    {
+      "type": "unitarias",
+      "tools": [
+        "Jest",
+        "jest-expo"
+      ],
+      "files": [
+        "__tests__/productsApi.test.ts",
+        "__tests__/catalogApi.test.ts",
+        "__tests__/FiltersModal.test.tsx"
+      ],
+      "scope": "Lógica y mapeos implementados; dependencias simuladas"
+    },
+    {
+      "type": "analisis_estatico",
+      "tools": [
+        "ESLint",
+        "TypeScript"
+      ],
+      "commands": [
+        "npm run lint",
+        "npm run typecheck"
+      ],
+      "scope": "Código actual; no acredita comportamiento"
+    },
+    {
+      "type": "integracion",
+      "tools": [
+        "React Native Testing Library",
+        "Jest HTTP"
+      ],
+      "files": [
+        "tests/integration/Storefront.test.tsx",
+        "tests/api/public-contracts.test.js"
+      ],
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión"
+    },
+    {
+      "type": "aceptacion",
+      "tools": [
+        "Maestro",
+        "Android",
+        "revisión manual"
+      ],
+      "files": [
+        ".maestro/catalogo-publico.yaml",
+        ".maestro/detalle-producto.yaml"
+      ],
+      "status": "not_executed",
+      "reason": "Faltan APK instalado, identificador real y dispositivo configurado. Los demás módulos aún no están implementados."
+    },
+    {
+      "type": "regresion",
+      "commands": [
+        "npm run test:regression"
+      ],
+      "scope": "Reutiliza casos anteriores de cliente y nuevos casos de integración; no acredita el recorrido completo del sistema"
+    },
+    {
+      "type": "rendimiento",
+      "tools": [
+        "k6",
+        "medición manual Android"
+      ],
+      "files": [
+        "tests/performance/load.js"
+      ],
+      "status": "not_executed",
+      "reason": "La medición requiere entorno propio aislado y línea base/criterios justificados. Inspeccionar un guion no mide rendimiento."
+    },
+    {
+      "type": "estres",
+      "tools": [
+        "k6"
+      ],
+      "files": [
+        "tests/performance/stress.js"
+      ],
+      "status": "not_executed",
+      "reason": "Solo guion y recuperación preparados; no se genera carga sobre Render compartido o Mercado Pago."
+    }
+  ],
+  "cases": [
+    {
+      "group": "CP-01",
+      "story": "HU-01",
+      "iteration": "I1",
+      "expected": "Registro, activación y reenvío sin iniciar sesión antes de activar",
+      "status": "not_executed",
+      "reason": "Registro y activación móviles no disponibles"
+    },
+    {
+      "group": "CP-02",
+      "story": "HU-02",
+      "iteration": "I1",
+      "expected": "Login, refresh coordinado, un reintento, restauración y limpieza de sesión",
+      "status": "not_executed",
+      "reason": "Sesión móvil no disponible"
+    },
+    {
+      "group": "CP-03",
+      "story": "HU-03",
+      "iteration": "I2",
+      "expected": "Catálogo público, datos, carga/vacío/error/reintento, navegación correcta y precio desde cuando aplique",
+      "status": "partial",
+      "available": "Unitarias/componentes e integración del cliente; suite HTTP real separada",
+      "pending": [
+        "Precio desde entre variantes",
+        "Aceptación Android"
+      ]
+    },
+    {
+      "group": "CP-04",
+      "story": "HU-04",
+      "iteration": "I3",
+      "expected": "Detalle, id_variante válido y cantidad entre 1, stock y máximo 99",
+      "status": "partial",
+      "available": "Detalle, datos, errores y límites de cantidad según implementación actual",
+      "pending": [
+        "Selección de variante",
+        "Límite máximo de 99",
+        "Aceptación Android"
+      ]
+    },
+    {
+      "group": "CP-09",
+      "story": "HU-09",
+      "iteration": "I3",
+      "expected": "Perfil propio, logout, limpieza local y cambio de cuenta",
+      "status": "not_executed",
+      "reason": "Perfil y logout móviles no disponibles"
+    },
+    {
+      "group": "CP-05",
+      "story": "HU-05",
+      "iteration": "I4",
+      "expected": "Carrito persistente confirmado por servidor y aislado por cuenta",
+      "status": "not_executed",
+      "reason": "El botón actual no integra el carrito del servidor"
+    },
+    {
+      "group": "CP-06",
+      "story": "HU-06",
+      "iteration": "I5",
+      "expected": "Dirección propia persistida independientemente de compra",
+      "status": "not_executed",
+      "reason": "Depende de API-002 y módulo móvil"
+    },
+    {
+      "group": "CP-08",
+      "story": "HU-08",
+      "iteration": "I5",
+      "expected": "Historial propio, estados, vacío/error y aislamiento entre cuentas",
+      "status": "not_executed",
+      "reason": "Historial móvil no disponible"
+    },
+    {
+      "group": "CP-07",
+      "story": "HU-07",
+      "iteration": "I6",
+      "expected": "Pedido/pago/tracking y misma operación al reintentar",
+      "status": "not_executed",
+      "reason": "Depende de API-003, PAG-001 y módulos de compra"
+    }
+  ],
+  "manualRecordFields": [
+    "caseId",
+    "story",
+    "type",
+    "scope",
+    "preconditions",
+    "steps",
+    "expected",
+    "actual",
+    "status",
+    "executor",
+    "reviewer",
+    "commit",
+    "build",
+    "android",
+    "evidence",
+    "defect"
+  ],
+  "differences": {
+    "documentStoryPoints": 60,
+    "existingBoardStoryPoints": 52,
+    "note": "El documento pertenece originalmente al repositorio organizacional. Se usa para configurar tipos de pruebas en el repositorio confirmado; la conciliación de SP, responsables y códigos QA queda registrada, sin reasignar historias ni duplicar esfuerzo."
+  }
+}

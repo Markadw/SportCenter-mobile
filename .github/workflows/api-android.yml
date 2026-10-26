@@ -1,0 +1,79 @@
+name: 'Pipeline 2 - API y aceptación Android'
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: URL de API para contratos HTTP de lectura
+        required: true
+        type: string
+      run_android:
+        description: Ejecutar Maestro en runner Android propio con APK ya instalado
+        default: false
+        type: boolean
+      app_id:
+        description: Identificador real del APK instalado
+        type: string
+      product_name:
+        description: Nombre del producto conocido para CP-04
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Calidad previa a aceptación Android
+    if: github.event_name == 'workflow_dispatch' && inputs.run_android
+    uses: ./.github/workflows/ci.yml
+
+  api:
+    name: Integración HTTP real de lectura
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:api
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url || vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
+      - name: Publicar resultado HTTP
+        if: always()
+        run: node scripts/write-api-summary.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-contract-evidence
+          path: test-results/api.json
+          if-no-files-found: warn
+
+  android:
+    name: Aceptación y regresión Android
+    needs: [quality, api]
+    if: github.event_name == 'workflow_dispatch' && inputs.run_android
+    runs-on: [self-hosted, android]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar precondiciones y ejecutar flujos
+        env:
+          APP_ID: ${{ inputs.app_id }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+        run: |
+          test -n "$APP_ID" && test -n "$PRODUCT_NAME"
+          mkdir -p test-results
+          adb shell pm path "$APP_ID"
+          maestro test --format junit --output test-results/maestro.xml .maestro
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-acceptance-evidence
+          path: test-results/
+          if-no-files-found: warn

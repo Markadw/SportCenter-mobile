@@ -1,0 +1,18 @@
+{
+  "caseId": "CP-03-ANDROID-01",
+  "story": "HU-03",
+  "type": "aceptacion",
+  "scope": "incremento Android",
+  "preconditions": ["APK del commit comprobado instalado", "API configurada y disponible"],
+  "steps": ["Abrir aplicación sin sesión", "Abrir catálogo", "Seleccionar producto conocido"],
+  "expected": "Catálogo público y detalle del producto seleccionado, sin solicitar login",
+  "actual": null,
+  "status": "not_executed",
+  "executor": null,
+  "reviewer": null,
+  "commit": null,
+  "build": null,
+  "android": null,
+  "evidence": null,
+  "defect": null
+}

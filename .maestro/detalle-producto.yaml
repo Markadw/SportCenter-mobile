@@ -1,0 +1,18 @@
+appId: ${APP_ID}
+name: CP-04 detalle publico en Android
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Destacados"
+    timeout: 45000
+- tapOn: "Ver todas"
+- extendedWaitUntil:
+    visible: ${PRODUCT_NAME}
+    timeout: 30000
+- tapOn: ${PRODUCT_NAME}
+- assertVisible: "Categoría"
+- scrollUntilVisible:
+    element:
+      text: "Descripción"
+    direction: DOWN
+- assertVisible: "Descripción"
