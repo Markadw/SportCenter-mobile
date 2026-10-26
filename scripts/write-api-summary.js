@@ -1,15 +1,25 @@
 const fs = require('node:fs');
-const target = process.env.GITHUB_STEP_SUMMARY;
-let text = '# Integración HTTP real de Sport Center Mobile\n\n';
-if (fs.existsSync('test-results/api.json')) {
-  const report = JSON.parse(fs.readFileSync('test-results/api.json', 'utf8'));
-  text += `Total: **${report.numTotalTests}** · Aprobadas: **${report.numPassedTests}** · Fallidas: **${report.numFailedTests}**.\n\n`;
-  text += 'Lecturas de catálogo/detalle y rechazo de perfil sin sesión. No crea datos ni valida compra, sesión completa o aceptación Android.\n\n';
-  for (const suite of report.testResults) {
-    for (const test of suite.assertionResults) text += `- ${test.status}: ${test.fullName.replace(/[\r\n]/g, ' ')}\n`;
+function apiSummary(report, env = {}) {
+  if (!report) {
+    const reason = env.INSTALL_OUTCOME === 'failure' ? 'Falló la instalación de dependencias.'
+      : env.TEST_OUTCOME === 'failure' ? 'Falló la suite HTTP antes de producir un informe.'
+        : 'La suite HTTP no llegó a ejecutarse; revisar las etapas previas.';
+    return `# Integración HTTP real\n\n**Sin informe**. ${reason}\n`;
   }
-} else {
-  text += 'No ejecutado: no se generó reporte HTTP. Consultar instalación y precondiciones.\n';
+  const clean = (value) => String(value).replace(/[\r\n]/g, ' ');
+  return [
+    '# Integración HTTP real', '',
+    `Total: **${report.numTotalTests}** · Aprobadas: **${report.numPassedTests}** · Fallidas: **${report.numFailedTests}** · Pendientes: **${report.numPendingTests}**.`, '',
+    'Lecturas de catálogo/detalle y rechazo de perfil sin sesión. No crea datos ni valida compra o sesión completa.', '',
+    ...report.testResults.flatMap((suite) => suite.assertionResults.map((test) => `- ${test.status}: ${clean(test.fullName)}`)), '',
+  ].join('\n');
 }
-if (target) fs.appendFileSync(target, text);
-else process.stdout.write(text);
+module.exports = { apiSummary };
+if (require.main === module) {
+  const file = 'test-results/api.json';
+  const text = apiSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/api-summary.md', text);
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+  else process.stdout.write(text);
+}

@@ -59,11 +59,37 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los flujos Maestro de catálogo y detalle requieren APK instalado, ADB, Maestro y los valores APP_ID/PRODUCT_NAME. En GitHub, la aceptación Android se habilita manualmente y depende de las pruebas HTTP y de la calidad del cliente aprobadas.
+Los flujos Maestro de catálogo y detalle se ejecutan sobre un APK candidato en un emulador Android API 34 de GitHub. Los PR a develop/main y las comprobaciones de main exigen aceptación; después de un merge a develop se ejecuta regresión del cliente y HTTP sin repetir Android. La ejecución manual permite incluir Android en develop. Un fallo de calidad o HTTP impide compilar y ejecutar aceptación.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
-Los workflows revisan PR y cambios en develop/main. Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
+### Matriz de automatización
+
+| Evento | Rama o destino | Comprobaciones |
+| --- | --- | --- |
+| Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Lint, TypeScript, unitarias/componentes, integración simulada, regresión y configuración |
+| PR | develop o main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
+| Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
+| Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
+| Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
+| Medición manual | develop o release/* | Carga o estrés contra API aislada confirmada |
+
+El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; marcarla como requerida en GitHub sigue pendiente de configurar. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama.
+
+Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main y en candidatas manuales. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva su JSON. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
+
+Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
+
+### Configuración pendiente de Android en CI
+
+- Vincular app.json a un proyecto EAS mediante extra.eas.projectId y definir android.package.
+- Configurar el secreto EXPO_TOKEN en GitHub y las credenciales de firma Android en EAS.
+- Definir ANDROID_TEST_PRODUCT_NAME con un producto conocido del entorno de pruebas.
+- API_TEST_URL selecciona el backend HTTP y el incorporado al APK; API_TEST_PRODUCT_ID permite fijar el producto del contrato HTTP. La preparación sólo ajusta el perfil preview en la copia de CI para usar la misma API.
+- EAS debe terminar el APK del mismo commit; CI verifica su procedencia, calcula SHA256, lo instala y ejecuta Maestro 2.12.0. La descarga de Maestro verifica el checksum de su versión.
+- Si faltan precondiciones, Android falla antes de solicitar el build. Esta configuración todavía necesita comprobarse en GitHub con credenciales y un APK real.
+- El entorno HTTP con datos sembrados y reiniciables sigue pendiente. La suite actual conserva el primer producto como alternativa cuando no se fija un ID.
+- Estos workflows no publican en Google Play ni certifican rendimiento por inspeccionar guiones; la promoción y sus evidencias de medición se preparan por separado.
 
 eas.json define preview (APK interno) y production (AAB). Generar una compilación requiere vincular Expo, confirmar identificadores y credenciales de firma; la presencia del perfil no acredita un APK construido.
 

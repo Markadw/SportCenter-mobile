@@ -1,66 +1,36 @@
 const fs = require('node:fs');
 const path = require('node:path');
-
-const reportPath = 'test-results/jest.json';
-const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 const escapeCell = (value) => String(value).replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
-let markdown;
+const outcome = (value) => ({ success: 'Aprobada', failure: 'Fallida', cancelled: 'Cancelada',
+  skipped: 'Omitida por una etapa previa' }[value] || 'Sin resultado');
 
-if (!fs.existsSync(reportPath)) {
-  markdown = '# Pruebas de Sport Center Mobile\n\nNo se generó el reporte de pruebas. Consultar los pasos anteriores del workflow.\n';
-} else {
-  const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-  const integrationCount = report.testResults.filter((suite) => /tests[\\/]integration[\\/]/.test(suite.name))
-    .reduce((sum, suite) => sum + suite.assertionResults.length, 0);
-  const result = report.success ? 'Aprobadas' : 'Consultar fallos';
-  const staticResult = process.env.LINT_OUTCOME === 'success' && process.env.TYPES_OUTCOME === 'success'
-    ? 'Aprobado' : 'Consultar pasos de lint y TypeScript';
-  const rows = report.testResults.flatMap((suite) => suite.assertionResults.map((test) => {
-    const status = test.status === 'passed' ? '✅ Aprobada' : test.status === 'failed' ? '❌ Fallida' : '⏸ Pendiente';
-    const type = /tests[\\/]integration[\\/]/.test(suite.name) ? 'Integración cliente' : 'Unitaria / componente';
-    return `| ${type} | ${escapeCell(path.basename(suite.name))} | ${escapeCell(test.fullName)} | ${status} |`;
-  }));
-  markdown = [
-    '# Pruebas de Sport Center Mobile',
-    '',
-    `**Total: ${report.numTotalTests} · Aprobadas: ${report.numPassedTests} · Fallidas: ${report.numFailedTests} · Pendientes: ${report.numPendingTests}**`,
-    '',
-    `Suites: ${report.numPassedTestSuites}/${report.numTotalTestSuites} aprobadas.`,
-    '',
-    '## Tipos previstos en la planeación integrada',
-    '',
-    '| Tipo | Resultado y alcance |',
-    '|---|---|',
-    `| Análisis estático | ${staticResult} |`,
-    `| Unitarias y componentes | ${report.numTotalTests - integrationCount} casos: ${result} |`,
-    `| Integración del cliente | ${integrationCount} casos: ${result}; transporte HTTP simulado |`,
-    '| Integración HTTP real | Suite separada en Pipeline 2; no ejecutada por el pipeline del cliente |',
-    `| Regresión afectada | ${result}; reutiliza los mismos ${report.numTotalTests} casos, sin duplicar el conteo |`,
-    '| Aceptación Android | Flujos Maestro preparados. No ejecutados sin APK/dispositivo |',
-    '| Rendimiento | Guion k6 preparado. Su inspección no mide el backend ni Android |',
-    '| Estrés | Guion k6 y recuperación preparados. No ejecutados sobre la API compartida |',
-    '',
-    'Fuente: Planeacion_Integrada_SportCenter_Mobile.docx, secciones 10–15. Matriz completa y grupos CP: tests/plan.json.',
-    '',
-    'Alcance: HU-03 (catálogo y filtros), HU-04 (detalle) y MOB-004 (consumo de datos simulado). No certifica la API real ni Android físico.',
-    '',
-    '| Tipo | Archivo | Caso | Resultado |',
-    '|---|---|---|---|',
-    ...rows,
-    '',
-  ].join('\n');
-
-  const coveragePath = 'coverage/coverage-summary.json';
-  if (fs.existsSync(coveragePath)) {
-    const coverage = JSON.parse(fs.readFileSync(coveragePath, 'utf8'));
-    const moduleCount = Object.keys(coverage).filter((key) => key !== 'total').length;
-    markdown += `\nCobertura de líneas: **${coverage.total.lines.pct}%** sobre ${moduleCount} módulos seleccionados. No representa toda la aplicación.\n`;
+function clientSummary(report, env = {}) {
+  const groups = { 'Unitaria / componente': [], 'Integración del cliente': [] };
+  for (const suite of report?.testResults || []) {
+    const type = /tests[\\/]integration[\\/]/.test(suite.name) ? 'Integración del cliente' : 'Unitaria / componente';
+    for (const test of suite.assertionResults) groups[type].push({ ...test, file: path.basename(suite.name) });
   }
-  markdown += '\nReportes JSON y cobertura disponibles en el artefacto **sport-center-mobile-test-evidence**.\n';
+  const counts = (cases) => `${cases.length} casos · ${cases.filter((test) => test.status === 'passed').length} aprobados · ${cases.filter((test) => test.status === 'failed').length} fallidos · ${cases.filter((test) => !['passed', 'failed'].includes(test.status)).length} pendientes`;
+  const rows = Object.entries(groups).flatMap(([type, cases]) => cases.map((test) =>
+    `| ${type} | ${escapeCell(test.file)} | ${escapeCell(test.fullName)} | ${escapeCell(test.status)} |`));
+  return [
+    '# Calidad del cliente móvil', '',
+    `Instalación: **${outcome(env.INSTALL_OUTCOME)}**. ESLint: **${outcome(env.LINT_OUTCOME)}**. TypeScript: **${outcome(env.TYPES_OUTCOME)}**.`,
+    `Ejecución Jest: **${outcome(env.TEST_OUTCOME)}**. Configuración: **${outcome(env.CONFIG_OUTCOME)}**.`, '',
+    ...(report ? Object.entries(groups).map(([type, cases]) => `- ${type}: ${counts(cases)}.`)
+      : ['**No se generó el informe Jest.** Los estados anteriores distinguen fallo de instalación, pruebas fallidas y etapas omitidas.']),
+    '', 'Regresión: reutiliza esta misma suite; no duplica el número de casos.',
+    'HTTP real y Android se informan en sus propias etapas. La inspección k6 no acredita rendimiento.', '',
+    '| Tipo | Archivo | Caso | Resultado |', '|---|---|---|---|', ...rows, '',
+    'Los resultados ordinarios quedan en este resumen y en los logs. Los informes compactos se conservan ante fallo o en candidatas de entrega.', '',
+  ].join('\n');
 }
-
-if (summaryPath) {
-  fs.appendFileSync(summaryPath, markdown);
-} else {
-  process.stdout.write(markdown);
+module.exports = { clientSummary };
+if (require.main === module) {
+  const file = 'test-results/jest.json';
+  const text = clientSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/client-summary.md', text);
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+  else process.stdout.write(text);
 }

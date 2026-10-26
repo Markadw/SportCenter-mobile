@@ -5,7 +5,7 @@ module.exports = defineConfig([
   { ignores: ['node_modules/**', '.expo/**', 'dist/**', 'web-build/**', 'coverage/**', 'test-results/**'] },
   expoConfig,
   {
-    files: ['scripts/**/*.{js,cjs}', '*.config.js'],
+    files: ['scripts/**/*.{js,cjs}', '*.config.js', '__tests__/pipelines.test.js'],
     languageOptions: {
       globals: { __dirname: 'readonly', module: 'readonly', require: 'readonly',
         process: 'readonly', Buffer: 'readonly', console: 'readonly' },
