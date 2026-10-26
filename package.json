@@ -3,21 +3,14 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@expo/ui": "~57.0.22",
     "axios": "^1.20.0",
-    "expo": "~57.0.27",
+    "expo": "~57.0.31",
     "expo-constants": "~57.0.19",
-    "expo-device": "~57.0.2",
-    "expo-font": "~57.0.4",
-    "expo-glass-effect": "~57.0.4",
-    "expo-image": "~57.0.5",
-    "expo-linking": "~57.0.12",
-    "expo-router": "~57.0.25",
-    "expo-splash-screen": "~57.0.9",
+    "expo-linking": "~57.0.13",
+    "expo-router": "~57.0.29",
+    "expo-splash-screen": "~57.0.10",
     "expo-status-bar": "~57.0.1",
-    "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
-    "expo-web-browser": "~57.0.3",
     "lucide-react-native": "^1.52.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -38,11 +31,15 @@
   },
   "scripts": {
     "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint .",
+    "typecheck": "tsc --noEmit",
+    "validate": "npm run lint && npm run typecheck"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22.20.0"
+  }
 }

@@ -1,56 +1,65 @@
-# Welcome to your Expo app 👋
+# Sport Center Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplicación móvil de Sport Center para consultar productos deportivos y acceder a los servicios de la tienda.
 
-## Get started
+Desarrollada con Expo SDK 57, React Native, TypeScript y Expo Router.
+Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter-mobile).
 
-1. Install dependencies
+## Estado del proyecto
 
-   ```bash
-   npm install
-   ```
+El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-2. Start the app
+Autenticación y la infraestructura de pruebas están preparándose en trabajos separados, pendientes de integración. Selección completa de variantes, carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente.
 
-   ```bash
-   npx expo start
-   ```
+## Entorno y arranque
 
-In the output, you'll find options to open the app in a
+Usar Node 22.20.0 o superior compatible con SDK 57 y npm. Desde la carpeta del proyecto:
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+npm ci
+npm start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Escanear con Expo Go el QR que muestre esa terminal. Mantener el teléfono y la PC en la misma red y la terminal abierta. La dirección de Metro corresponde a la conexión de esa ejecución. Para limpiar su caché: `npm start -- --clear`.
 
-### Other setup steps
+La API predeterminada es https://back-sport-ghxk.onrender.com. Para cambiarla, copiar `.env.example` a `.env.local` y definir `EXPO_PUBLIC_API_URL`. Recargar completamente la aplicación después del cambio. Los valores EXPO_PUBLIC_ son públicos en el bundle; no guardar secretos allí.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Instalar paquetes con `npx expo install <paquete>` para resolver versiones compatibles con el SDK. Las carpetas android/ e ios/ se generan con Expo; la configuración nativa se mantiene mediante app.json y plugins.
 
-## Learn more
+## Verificación
 
-To learn more about developing your project with Expo, look at the following resources:
+```powershell
+npm run validate
+npx expo-doctor
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- `npm run lint`: revisión ESLint del proyecto.
+- `npm run typecheck`: comprobación TypeScript sin generar JavaScript.
+- `npm run validate`: ejecuta ambas comprobaciones y se detiene ante un fallo.
 
-## Join the community
+Estos comandos no ejecutan pruebas unitarias, aceptación Android ni auditorías de seguridad. Esas comprobaciones tendrán sus propios resultados al integrar la infraestructura de pruebas. El empaquetado de JavaScript tampoco equivale a generar un APK firmado.
 
-Join our community of developers creating universal apps.
+## Ramas y revisión
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- `main`: versiones terminadas y comprobadas.
+- `develop`: integración de tareas aprobadas.
+- `feature/<tarea>`, `fix/<tarea>` y `chore/<tarea>`: trabajo con alcance concreto desde develop; PR hacia develop.
+- `release/<version>`: opcional para preparar una entrega desde develop; PR a main y reintegración de sus correcciones a develop.
+- `hotfix/<problema>`: corrección urgente desde una versión publicada en main; integrar también en develop.
+
+Cada tarea incluye el código, las pruebas y la configuración que necesita. Las ramas muestran el proyecto completo; los commits y la pestaña Files changed del PR delimitan el trabajo realizado. Si hay dependencias entre tareas, integrar primero la base y después continuar desde develop actualizado.
+
+Las protecciones de main y develop todavía deben configurarse en GitHub para exigir PR y verificaciones. Documentar el flujo no bloquea por sí solo los pushes directos.
+
+## Carpetas
+
+- `src/app/`: rutas y composición de navegación con Expo Router.
+- `src/features/`: pantallas, componentes, estado y tipos por función.
+- `src/api/`: cliente HTTP, endpoints y conversión de datos.
+- `src/config/`: configuración pública del backend.
+- `src/components/` y `src/constants/`: componentes y estilos compartidos.
+- `assets/`: logo y recursos utilizados por la aplicación y su configuración.
+
+No subir node_modules, cachés, .env locales, reportes generados, claves de firma ni carpetas nativas generadas.
+
+Documentación: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/), [variables de entorno](https://docs.expo.dev/guides/environment-variables/) y [ESLint](https://docs.expo.dev/guides/using-eslint/).
