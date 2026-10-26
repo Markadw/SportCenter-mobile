@@ -150,7 +150,7 @@ jobs:
           disable-animations: true
           script: |
             adb install -r "$RUNNER_TEMP/sport-center.apk"
-            maestro test --format junit --output test-results/maestro.xml --debug-output test-results/maestro .maestro
+            maestro test -e APP_ID="$APP_ID" -e PRODUCT_NAME="$PRODUCT_NAME" --format junit --output test-results/maestro.xml --debug-output test-results/maestro .maestro
             node scripts/android-ci.js verify
       - name: Mostrar resultado de compilación y aceptación
         if: always()
