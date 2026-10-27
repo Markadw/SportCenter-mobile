@@ -55,7 +55,7 @@
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR en borrador: calidad, HTTP e inspección sin APK. PR listo con cambios de aplicación, dependencias, build o aceptación: Android obligatorio; un PR sólo de herramientas/documentación no recompila. Main y candidatas manuales mantienen Android. Fallos de etapas requeridas bloquean; no hay reintentos ni builds programados."
+      "execution": "PR a develop, en borrador o listo: lint, TypeScript, pruebas del cliente, HTTP e inspección obligatorios, sin APK ni Android automáticos. Android puede solicitarse mediante ejecución manual en develop; si se solicita, exige compilación EAS y aceptación aprobadas. Main y candidatas manuales conservan su política Android. Fallos u omisiones de etapas requeridas bloquean; no hay reintentos ni builds programados."
     },
     {
       "id": 3,

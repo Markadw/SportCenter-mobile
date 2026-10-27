@@ -1,5 +1,6 @@
 # Tipos: calidad del cliente, integración HTTP, regresión y aceptación Android.
-# PR: calidad e integración; Android en candidatas listas con cambios de aplicación.
+# PR a develop: lint, TypeScript, pruebas y HTTP obligatorios; sin APK ni Android automáticos.
+# Android opcional mediante ejecución manual en develop; las entregas conservan su política.
 # Push a develop/main (incluido merge): comprobar el commit integrado.
 # No publica en Google Play ni promueve una versión automáticamente.
 name: Integración y aceptación móvil
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       run_android:
-        description: Incluir compilación y aceptación Android; main siempre la exige
+        description: Incluir APK y aceptación Android en esta ejecución manual; main siempre los exige
         type: boolean
         default: false
       keep_evidence:
@@ -38,8 +39,6 @@ jobs:
       evidence: ${{ steps.policy.outputs.evidence }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Aplicar matriz y validar origen de entregas a main
         id: policy
         run: node scripts/pipeline-policy.js plan
@@ -225,7 +224,7 @@ jobs:
   delivery:
     name: Entregar candidata interna aprobada
     needs: [plan, android, integration]
-    if: needs.plan.outputs.evidence == 'true'
+    if: needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
