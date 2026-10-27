@@ -57,7 +57,9 @@
     "env:start": "node scripts/test-environment.js start",
     "env:stop": "node scripts/test-environment.js stop",
     "env:status": "node scripts/test-environment.js status",
-    "test:performance": "node scripts/run-performance.js"
+    "test:performance": "node scripts/run-performance.js",
+    "lint:report": "node scripts/run-static-analysis.js lint",
+    "typecheck:report": "node scripts/run-static-analysis.js typecheck"
   },
   "private": true,
   "engines": {

@@ -35,10 +35,11 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Análisis estático con ESLint
         id: lint
-        run: npm run lint
+        run: npm run lint:report
       - name: Análisis estático con TypeScript
         id: types
-        run: npm run typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck:report
       - name: Unitarias, componentes, integración simulada y regresión
         id: tests
         run: npm run test:ci
@@ -63,5 +64,6 @@ jobs:
             test-results/client-summary.md
             test-results/jest.json
             coverage/coverage-summary.json
+            test-results/static-analysis/
           if-no-files-found: error
           retention-days: 14

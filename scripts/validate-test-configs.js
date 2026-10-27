@@ -12,6 +12,16 @@ function validateWorkflows(workflows) {
   for (const script of ['lint', 'typecheck', 'test:ci', 'test:config']) {
     assert.ok(commands.includes(`npm run ${script}`), `CI no ejecuta ${script}`);
   }
+  for (const [id, script] of [['lint', 'lint:report'], ['types', 'typecheck:report']]) {
+    assert.equal(client.jobs.validate.steps.find((step) => step.id === id)?.run, 'npm run ' + script,
+      'El análisis estático debe generar sus informes');
+  }
+  const typecheck = client.jobs.validate.steps.find((step) => step.id === 'types');
+  assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
+    'TypeScript debe informar también cuando ESLint falle');
+  const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
+    'El artefacto existente debe conservar los informes estáticos');
   const integration = workflows.get('api-android.yml');
   assert.deepEqual(integration.on.pull_request.branches, ['develop', 'main']);
   assert.deepEqual(integration.on.push.branches, ['develop', 'main']);
