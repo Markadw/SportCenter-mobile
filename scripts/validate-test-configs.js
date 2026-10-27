@@ -30,13 +30,18 @@ function validateWorkflows(workflows) {
   const integration = workflows.get('api-android.yml');
   assert.deepEqual(integration.on.pull_request.branches, ['develop', 'main']);
   assert.ok(integration.on.pull_request.types.includes('ready_for_review'), 'La candidata debe comprobarse al salir de borrador');
-  assert.equal(integration.jobs.plan.steps[0].with['fetch-depth'], 0, 'La clasificación requiere los commits de base y head');
+  assert.equal(integration.jobs.plan.steps.find((step) => step.id === 'policy')?.run, 'node scripts/pipeline-policy.js plan');
+  assert.equal(integration.jobs.plan.outputs.android, '${{ steps.policy.outputs.android }}', 'La decisión Android debe proceder de la matriz');
+  assert.equal(integration.on.workflow_dispatch.inputs.run_android.type, 'boolean');
+  assert.equal(integration.on.workflow_dispatch.inputs.run_android.default, false, 'Android manual debe solicitarse explícitamente');
   assert.deepEqual(integration.on.push.branches, ['develop', 'main']);
   assert.equal(integration.jobs.quality.uses, './.github/workflows/ci.yml');
+  assert.equal(integration.jobs.quality.needs, 'plan', 'La calidad debe respetar la matriz');
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');
   assert.ok(integration.jobs.api.steps.some((step) => step.id === 'readiness'
     && step.run === 'node scripts/wait-for-service.js'), 'HTTP requiere comprobar disponibilidad de la API');
   assert.deepEqual(integration.jobs.android.needs, ['plan', 'quality', 'api', 'performance'], 'Android requiere calidad, API e inspección aprobadas');
+  assert.equal(integration.jobs.android.if, "needs.plan.outputs.android == 'true'", 'Android sólo se ejecuta cuando lo solicita la matriz');
   assert.equal(integration.jobs.android['runs-on'], 'ubuntu-latest', 'Android debe disponer de un runner alojado');
   assert.ok(integration.jobs.android.steps.some((step) => step.run?.includes('--wait --json')), 'Debe esperar el resultado real del build');
   const acceptance = integration.jobs.android.steps.find((step) => step.id === 'acceptance');
@@ -51,9 +56,16 @@ function validateWorkflows(workflows) {
     'El artefacto Android debe incluir las capturas de Maestro');
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'api', 'performance', 'android']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
+  const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');
+  assert.ok(gate, 'El resultado final debe ejecutar el bloqueo de integración');
+  assert.equal(gate.env.REQUIRE_ANDROID, '${{ needs.plan.outputs.android }}', 'El bloqueo Android debe seguir la matriz');
+  for (const id of ['plan', 'quality', 'api', 'performance', 'android']) {
+    assert.equal(gate.env[`RESULT_${id.toUpperCase()}`], '${{ needs.' + id + '.result }}',
+      'El resultado final debe evaluar la comprobación real: ' + id);
+  }
   assert.equal(integration.jobs.performance.uses, './.github/workflows/performance.yml');
   assert.deepEqual(integration.jobs.delivery.needs, ['plan', 'android', 'integration'], 'La entrega exige integración y Android aprobados');
-  assert.equal(integration.jobs.delivery.if, "needs.plan.outputs.evidence == 'true'", 'La entrega sólo se prepara para una candidata con evidencia');
+  assert.equal(integration.jobs.delivery.if, "needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'", 'La entrega requiere evidencia y una candidata Android solicitada');
   assert.equal(integration.jobs.delivery.environment.name, 'qa-interna');
   const performance = workflows.get('performance.yml');
   assert.ok(Object.hasOwn(performance.on, 'workflow_call'));
@@ -68,6 +80,7 @@ function validateWorkflows(workflows) {
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
+      assert.ok(!job['continue-on-error'], `No ocultar fallos del job: ${file} / ${id}`);
       for (const dependency of [].concat(job.needs || [])) {
         assert.ok(workflow.jobs[dependency], `Dependencia inexistente: ${file} / ${id} / ${dependency}`);
       }

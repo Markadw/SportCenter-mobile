@@ -23,6 +23,8 @@ function Navigation() {
         <Stack.Screen name="index" />
         <Stack.Screen name="catalog" options={{ headerShown: false }} />
         <Stack.Screen name="product/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="register" options={{ headerTitle: "Crear cuenta" }} />
+        <Stack.Screen name="verify-email" options={{ headerTitle: "Verificar correo" }} />
         <Stack.Screen name="login" options={{ title: "Iniciar sesión", headerTitle: "Iniciar sesión" }} />
         <Stack.Protected guard={session !== null}>
           <Stack.Screen name="account" options={{ title: "Mi cuenta", headerTitle: "Mi cuenta" }} />

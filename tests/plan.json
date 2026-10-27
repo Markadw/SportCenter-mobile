@@ -55,7 +55,7 @@
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR en borrador: calidad, HTTP e inspección sin APK. PR listo con cambios de aplicación, dependencias, build o aceptación: Android obligatorio; un PR sólo de herramientas/documentación no recompila. Main y candidatas manuales mantienen Android. Fallos de etapas requeridas bloquean; no hay reintentos ni builds programados."
+      "execution": "PR a develop, en borrador o listo: lint, TypeScript, pruebas del cliente, HTTP e inspección obligatorios, sin APK ni Android automáticos. Android puede solicitarse mediante ejecución manual en develop; si se solicita, exige compilación EAS y aceptación aprobadas. Main y candidatas manuales conservan su política Android. Fallos u omisiones de etapas requeridas bloquean; no hay reintentos ni builds programados."
     },
     {
       "id": 3,
@@ -78,6 +78,9 @@
         "__tests__/FiltersModal.test.tsx",
         "__tests__/pipelines.test.js",
         "__tests__/release-infrastructure.test.js",
+        "__tests__/registrationApi.test.ts",
+        "__tests__/registrationValidation.test.ts",
+        "__tests__/axiosLogging.test.ts",
         "__tests__/authApi.test.ts",
         "__tests__/authLogging.test.ts"
       ],
@@ -104,9 +107,11 @@
       "files": [
         "tests/integration/Storefront.test.tsx",
         "tests/api/public-contracts.test.js",
-        "tests/integration/Login.test.tsx"
+        "tests/integration/Registration.test.tsx",
+        "tests/integration/Login.test.tsx",
+        "tests/integration/AuthenticationFlow.test.tsx"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; CP-02 con API simulada: login, sesión en memoria, cierre, vencimiento y acceso privado",
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; registro, verificación y reenvío con transporte simulado; autenticación con transporte simulado: registro, reenvío, verificación, inicio, cierre y sesión en memoria, incluyendo la conexión entre pantallas",
       "environment": {
         "source": "tests/environment/backend-source.json",
         "configuration": "tests/environment/compose.yml",
@@ -124,10 +129,11 @@
       ],
       "files": [
         ".maestro/catalogo-publico.yaml",
-        ".maestro/detalle-producto.yaml"
+        ".maestro/detalle-producto.yaml",
+        "tests/manual/registro-cliente.md"
       ],
       "status": "passed",
-      "scope": "Dos recorridos básicos en Android API 34; registro, sesión, carrito y compra quedan fuera de esta evidencia.",
+      "scope": "Los dos recorridos Maestro y su evidencia existente cubren catálogo/detalle. HU-01 conserva evidencia manual separada en Android/Expo Go, anterior a esta actualización de base.",
       "evidence": {
         "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
         "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
@@ -137,6 +143,13 @@
         "uniqueHttpCases": 4,
         "androidPassed": 2,
         "scope": "Última candidata Android verificada antes de corregir disparadores. Catálogo y detalle básicos, sin certificar módulos privados."
+      },
+      "manualEvidence": {
+        "story": "HU-01",
+        "status": "passed_user_reported",
+        "record": "tests/manual/registro-cliente.md",
+        "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5",
+        "scope": "Registro, primer correo, código incorrecto, reenvío y cuenta verificada, confirmados por el usuario"
       }
     },
     {
@@ -215,9 +228,23 @@
       "story": "HU-01",
       "iteration": "I1",
       "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
-      "status": "not_executed",
-      "reason": "Registro y activación móviles no disponibles",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7"
+      "status": "partial",
+      "reason": "Registro, verificación y reenvío integrados mediante PR #36. Se conserva la aceptación manual anterior y se comprueba su conexión con login mediante transporte simulado. Queda por confirmar el recorrido combinado en Android.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
+      "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
+      "manualAcceptance": {
+        "status": "passed_user_reported",
+        "environment": "Android físico con Expo Go compatible con SDK 57",
+        "record": "tests/manual/registro-cliente.md",
+        "scope": "Registro, recepción de correo, rechazo del código incorrecto, reenvío y verificación; corresponde al código de HU-01 antes de esta actualización de base",
+        "source": "Confirmación textual del usuario; sin observación directa ni capturas nuevas",
+        "baseCommit": "509a050188cc4cc9c9a4b432473f107d69bab4ee",
+        "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
+      },
+      "pending": [
+        "Confirmar en Android el recorrido combinado de HU-01 y HU-02"
+      ],
+      "updateBase": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3"
     },
     {
       "group": "CP-02",
@@ -226,12 +253,11 @@
       "expected": "Credenciales validadas, autenticación con API, sesión establecida, errores controlados y reconocimiento de sesión en rutas privadas.",
       "status": "partial",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8",
-      "available": "Login y sesión en memoria implementados. La actualización local con develop aprobó lint, TypeScript, configuración y 188 pruebas en 14 suites, además de cuatro contratos HTTP públicos por entorno. Se conserva la evidencia manual anterior del usuario en Android: cuenta verificada, navegación, cierre, recarga y ausencia del aviso amarillo. Publicación, comprobaciones remotas e integración del PR #37 pendientes.",
+      "available": "Formulario, API, sesión en memoria y conexión con registro implementados. Lint, TypeScript, configuración y 264 pruebas en 19 suites aprobados. La exportación JavaScript Android aprobó; se conserva la comprobación manual anterior del usuario. Las pruebas nuevas del recorrido combinado usan transporte simulado.",
       "pending": [
-        "Entrada directa, vencimiento natural y cuenta no verificada: casos específicos no confirmados en Android",
-        "MOB-005: almacenamiento seguro, restauración y renovación coordinada de sesión",
-        "Publicación y comprobaciones de la actualización del PR #37 con develop",
-        "Revisión e integración mediante PR"
+        "Confirmar en Android el recorrido combinado de registro, verificación, inicio y cierre",
+        "Entrada directa, vencimiento natural y cuenta no verificada: casos específicos pendientes en Android",
+        "MOB-005: almacenamiento seguro, restauración y renovación coordinada de sesión"
       ],
       "evidence": [
         "__tests__/authApi.test.ts",
@@ -369,17 +395,29 @@
     "performanceEvidence": "evidence/performance-local-2026-10-26.json",
     "scope": "Verificación local; el resultado remoto del nuevo commit debe consultarse en GitHub Actions."
   },
-  "loginUpdateVerification": {
-    "sourceCommit": "86c7e81b1d2c49e9c9c26b53b8c779c438c1de63",
-    "developCommit": "d5c842a95122372d5c6f6c401d88cd7efc759c78",
+  "registrationUpdateVerification": {
+    "sourceCommit": "f0327aa578d86af2f7a95bdffc55a8b9904ba7b7",
+    "developCommit": "935725aa7b7a56fe594c0f994437b6dd25abece9",
+    "clientTestsPassed": 214,
+    "suitesPassed": 15,
     "lint": "passed",
     "typecheck": "passed",
     "configuration": "passed",
-    "clientPassed": 188,
-    "clientSuites": 14,
-    "httpRenderPassed": 4,
-    "httpLocalPassed": 4,
-    "uniqueHttpCases": 4,
-    "scope": "Verificación local de HU-02 actualizada con develop. Las pruebas del cliente simulan el transporte; los contratos HTTP son lecturas públicas y rechazo del perfil sin sesión. Se conserva por separado la comprobación manual anterior en Android. No acredita un nuevo APK ni login real automatizado."
+    "transport": "simulated",
+    "scope": "Verificación local de HU-01 combinada con la política actual de develop. No crea cuentas, no solicita APK y no acredita una nueva comprobación Android. La evidencia manual anterior se conserva por separado.",
+    "routerTypes": "Regenerados con Expo CLI para las rutas actuales; archivo local ignorado por Git."
+  },
+  "loginUpdateVerification": {
+    "sourceCommit": "abec61eb16fcdb2af63c60499c5837ce84369703",
+    "developCommit": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3",
+    "lint": "passed",
+    "typecheck": "passed",
+    "configuration": "passed",
+    "clientPassed": 264,
+    "clientSuites": 19,
+    "androidJavaScriptExport": "passed",
+    "combinedFlow": "tests/integration/AuthenticationFlow.test.tsx",
+    "transport": "simulated",
+    "scope": "Combinación de HU-01 y HU-02. Las pruebas no envían correos ni crean cuentas en Render. La exportación no es un APK ni una nueva aceptación en teléfono."
   }
 }

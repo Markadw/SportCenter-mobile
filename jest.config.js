@@ -6,6 +6,8 @@ module.exports = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'json-summary', 'lcov'],
   collectCoverageFrom: [
+    'src/api/registrationApi.ts',
+    'src/features/registration/**/*.{ts,tsx}',
     'src/api/authApi.ts',
     'src/features/auth/**/*.{ts,tsx}',
     'src/api/productsApi.ts',

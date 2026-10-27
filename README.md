@@ -9,7 +9,19 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado, contratos HTTP y los recorridos públicos de catálogo y detalle en Android. Esta rama incorpora inicio de sesión y control de acceso con sesión en memoria; se conservan las comprobaciones manuales de inicio, navegación, cierre y recarga en Android. La revisión e integración de HU-02 siguen pendientes. Persistencia y restauración de sesión corresponden a MOB-005. Carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+El cliente incluye registro, verificación de correo, reenvío e inicio de sesión con control de acceso y sesión en memoria. Las pruebas cubren componentes, servicios y su combinación con transporte simulado, además de contratos HTTP públicos y recorridos públicos Android. Almacenamiento seguro, restauración y renovación de sesión corresponden a MOB-005. Carrito, direcciones, compra/pago, pedidos y gestión del perfil siguen pendientes. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+
+## Registro de clientes (HU-01)
+
+El icono de usuario abre Iniciar sesión cuando no hay sesión activa; desde allí, «Crear cuenta» abre el registro. Se solicitan nombre, ambos apellidos, correo, teléfono de 10 dígitos y contraseña con confirmación. Cada contraseña permite mostrar u ocultar su contenido mediante un botón. La contraseña requiere al menos 12 caracteres, mayúscula, minúscula, número y un símbolo admitido por el backend; la ayuda del formulario muestra la lista.
+
+El servicio usa los endpoints públicos POST /users/create-user, /users/verify-email y /users/resend-code. Solo envía los seis campos de registro aceptados; la confirmación de contraseña es local. El contrato se revisó en AlexisYazir/back-sport, commit 31ee304d902ec5ec5a9c0fc702eca5e1a531bc16.
+
+Después del registro se introduce el código recibido por correo. El backend establece vigencia de 24 horas y 3 intentos; reenviar genera un código nuevo. La verificación no inicia sesión. «Ya tengo un código» permite retomar el proceso después de salir de la app o perder la conexión.
+
+Las peticiones tienen un límite de espera de 45 segundos y no se repiten automáticamente. Un timeout puede ocurrir después de que el servidor haya procesado el registro: la pantalla indica revisar el correo antes de reintentar. Se bloquean envíos simultáneos y se cancela la espera al salir de la pantalla. La aplicación no guarda contraseñas ni códigos en almacenamiento y descarta el hash y el código presentes en la respuesta actual del backend.
+
+Jest comprueba validaciones, contrato de envío, errores, registro/verificación/reenvío y concurrencia con transporte simulado; estas pruebas automatizadas no crean cuentas en Render. El usuario confirmó en su Android, mediante Expo Go y la API real, el registro, la recepción del primer correo, el rechazo del código incorrecto, la recepción del reenvío y la verificación de la cuenta. El alcance y las limitaciones de esa comprobación están en [el registro manual](tests/manual/registro-cliente.md). El recorrido manual corresponde a HU-01 antes de incorporar la nueva base. El PR #36 conserva las comprobaciones de registro y su actualización. Tras verificar el correo se puede abrir Iniciar sesión; el registro también permite volver a login mediante «Ya tengo una cuenta».
 
 ## Entorno y arranque
 
@@ -30,9 +42,11 @@ Instalar paquetes con `npx expo install <paquete>` para resolver versiones compa
 
 El icono de usuario abre login o Mi cuenta según la sesión. El formulario usa POST /users/login-user, valida correo y contraseña, admite mostrar/ocultar y presenta los errores sin mostrar detalles internos. Mi cuenta confirma la autenticación; la consulta y edición del perfil corresponden a HU-09.
 
-Los tokens permanecen únicamente en memoria. Al cerrar sesión se retira el acceso local y se solicita el cierre al backend; al vencer el acceso también se retira la sesión. Una recarga completa o un nuevo arranque exige volver a entrar. Almacenamiento seguro, restauración y renovación coordinada quedan en MOB-005. Registro/verificación se desarrollan por separado en HU-01.
+Los tokens permanecen únicamente en memoria. Al cerrar sesión se retira el acceso local y se solicita el cierre al backend; al vencer el acceso también se retira la sesión. Una recarga completa o un nuevo arranque exige volver a entrar. Almacenamiento seguro, restauración y renovación coordinada quedan en MOB-005. Registro, verificación y reenvío se conectan con este flujo desde HU-01.
 
 Las pruebas Android confirmadas y los casos específicos pendientes están en tests/manual/inicio-sesion.md. Las pruebas automatizadas usan transporte simulado; no acreditan una autenticación real en el teléfono.
+
+La prueba `tests/integration/AuthenticationFlow.test.tsx` recorre registro, reenvío, verificación, login y cierre con transporte simulado. No envía correos ni comprueba un teléfono real.
 
 ## Verificación
 
@@ -70,7 +84,9 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los flujos Maestro de catálogo y detalle se ejecutan sobre un APK candidato en un emulador Android API 34 de GitHub. Un PR en borrador ejecuta calidad e integración sin generar APK. Al marcarlo listo, Android es obligatorio si cambia la aplicación, dependencias, compilación o flujos de aceptación; también es obligatorio para entregas a main. Un PR sólo de informes, pruebas de herramientas o documentación no recompila; después de un merge a develop se ejecuta regresión del cliente y HTTP sin repetir Android. La ejecución manual permite incluir Android en develop. Un fallo de calidad o HTTP impide compilar y ejecutar aceptación.
+Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, contratos HTTP e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar una candidata Android de develop, se puede ejecutar manualmente **Integración y aceptación móvil**, seleccionar la rama `develop` y activar `run_android`. El push posterior a un merge tampoco repite Android. Un fallo de calidad o HTTP bloquea la integración.
+
+Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. Cuando se solicita Android manualmente, deben aprobar tanto la compilación EAS como Maestro. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
@@ -80,7 +96,8 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 | --- | --- | --- |
 | Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Calidad si no hay PR para ese commit; con PR se evita repetirla |
 | PR en borrador | develop o main | Calidad, contratos HTTP e inspección k6; sin compilar APK |
-| PR listo | develop o main | Lo anterior; Android para cambios de app/build/aceptación o entrega a main |
+| PR listo | develop | Calidad, contratos HTTP e inspección k6; sin APK ni Android automáticos |
+| PR listo | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
@@ -90,7 +107,7 @@ El merge se atiende mediante push a su destino. No se añade un segundo disparad
 
 El resumen de calidad incluye versión, código de salida y diagnósticos de ESLint y TypeScript. TypeScript se ejecuta aunque ESLint falle para informar ambos resultados; las pruebas posteriores e integración continúan bloqueadas. Un informe ausente, de otra ejecución o de una etapa omitida se señala explícitamente. Los JSON se incluyen en el mismo `client-evidence`, sin añadir artefactos.
 
-Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main, en candidatas manuales y en PR marcados con la etiqueta `evidencia`. La etiqueta permite guardar una candidata concreta sin archivar cada push ordinario. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva un único paquete con sus JSON y resumen. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
+Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main, en candidatas manuales y en PR marcados con la etiqueta `evidencia`. La etiqueta `evidencia` conserva informes; en los PR a develop no activa APK ni Android. La entrega interna requiere además una ejecución con Android aprobado. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva un único paquete con sus JSON y resumen. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
 
 Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
 
@@ -102,12 +119,12 @@ flowchart LR
   C[PR a develop o main] --> D[Calidad]
   D --> E[Contratos HTTP compartidos y locales]
   D --> F[Inspección k6]
-  E --> G[Candidata lista con cambios de app: EAS y Android]
+  E --> G[Entrega o Android manual solicitado: EAS y Maestro]
   F --> G
   E --> H[Resultado de integración]
   F --> H
   G --> H
-  H --> I[Candidata con evidencia: entrega interna]
+  H --> I[Candidata con evidencia y Android aprobado: entrega interna]
   J[Medición manual] --> K[Backend y datos aislados]
   K --> L[Referencia, carga y recuperación]
 ```
@@ -117,9 +134,11 @@ flowchart LR
 
 La [candidata del PR #35](https://github.com/Markadw/SportCenter-mobile/actions/runs/40506781998), sobre `ee736e8`, aprobó 140 pruebas, cuatro contratos por entorno y dos recorridos públicos Android. El APK preview terminó en EAS con el identificador `812e78fa-1511-40c7-89d9-de796a8fba01`. Esta aceptación comprueba catálogo y detalle.
 
-La [validación de la base integrada](https://github.com/Markadw/SportCenter-mobile/actions/runs/40537859651), commit `d5c842a`, aprobó calidad, 140 pruebas, contratos HTTP e inspección k6 después del merge a develop, sin repetir APK ni Android. Las comprobaciones manuales de inicio de sesión se conservan por separado en HU-02.
+La [validación de la base integrada](https://github.com/Markadw/SportCenter-mobile/actions/runs/40537859651), commit `d5c842a`, aprobó calidad, 140 pruebas, contratos HTTP e inspección k6 después del merge a develop, sin repetir APK ni Android. La comprobación manual de registro se conserva por separado en HU-01.
 
 La [candidata histórica ac6bf53](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133) conserva su evidencia de 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna.
+
+La [validación de la política integrada en develop](https://github.com/Markadw/SportCenter-mobile/actions/runs/40563479112), commit `935725a`, aprobó lint, TypeScript, 141 pruebas, cuatro contratos HTTP por entorno e inspección k6. Resultado de integración aprobó sin APK ni Android. Esa ejecución comprueba la base de automatización; las pruebas de HU-01 y su aceptación manual se mantienen por separado.
 
 El proyecto EAS es `anth.oi/sport-center-mobile` y el paquete Android es `com.markadw.sportcenter`. GitHub tiene configurado `EXPO_TOKEN`; las credenciales de firma se administran en EAS.
 
