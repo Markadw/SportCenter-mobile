@@ -1,79 +1,249 @@
-name: 'Pipeline 2 - API y aceptación Android'
+# Tipos: calidad del cliente, integración HTTP, regresión y aceptación Android.
+# PR: calidad e integración; Android en candidatas listas con cambios de aplicación.
+# Push a develop/main (incluido merge): comprobar el commit integrado.
+# No publica en Google Play ni promueve una versión automáticamente.
+name: Integración y aceptación móvil
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [develop, main]
+  push:
     branches: [develop, main]
   workflow_dispatch:
     inputs:
-      api_base_url:
-        description: URL de API para contratos HTTP de lectura
-        required: true
-        type: string
       run_android:
-        description: Ejecutar Maestro en runner Android propio con APK ya instalado
-        default: false
+        description: Incluir compilación y aceptación Android; main siempre la exige
         type: boolean
-      app_id:
-        description: Identificador real del APK instalado
-        type: string
-      product_name:
-        description: Nombre del producto conocido para CP-04
-        type: string
+        default: false
+      keep_evidence:
+        description: Conservar informes de esta ejecución manual
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: integration-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plan:
+    name: Definir comprobaciones por evento y rama
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.policy.outputs.android }}
+      evidence: ${{ steps.policy.outputs.evidence }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Aplicar matriz y validar origen de entregas a main
+        id: policy
+        run: node scripts/pipeline-policy.js plan
+        env:
+          RUN_ANDROID: ${{ inputs.run_android }}
+          KEEP_EVIDENCE: ${{ inputs.keep_evidence || contains(github.event.pull_request.labels.*.name, 'evidencia') }}
+
   quality:
-    name: Calidad previa a aceptación Android
-    if: github.event_name == 'workflow_dispatch' && inputs.run_android
+    name: Calidad previa a integración
+    needs: plan
     uses: ./.github/workflows/ci.yml
+    with:
+      keep_evidence: ${{ needs.plan.outputs.evidence == 'true' }}
 
   api:
-    name: Integración HTTP real de lectura
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    name: Integración HTTP real y regresión de contratos
+    needs: [plan, quality]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.20.0'
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run test:api
+      - name: Instalar dependencias del lockfile
+        id: install
+        run: npm ci --no-audit --no-fund
+      - name: Esperar disponibilidad del catálogo antes de los contratos
+        id: readiness
+        run: node scripts/wait-for-service.js
         env:
-          API_BASE_URL: ${{ inputs.api_base_url || vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
-      - name: Publicar resultado HTTP
+          API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
+      - name: Integración de catálogo, detalle y acceso privado sin sesión
+        id: tests
+        run: npm run test:api
+        env:
+          API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
+          API_PRODUCT_ID: ${{ vars.API_TEST_PRODUCT_ID }}
+      - name: Preparar backend y datos sintéticos reproducibles
+        run: node scripts/test-environment.js start
+      - name: Ejecutar los contratos contra la copia local
+        id: local_tests
+        run: npm run test:api
+        env:
+          API_BASE_URL: http://127.0.0.1:3011
+          API_PRODUCT_ID: '66'
+          API_REPORT_NAME: api-local
+      - name: Mostrar resultados HTTP y motivo si no hay informe
         if: always()
         run: node scripts/write-api-summary.js
-      - uses: actions/upload-artifact@v4
-        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          LOCAL_TEST_OUTCOME: ${{ steps.local_tests.outcome }}
+      - name: Conservar diagnóstico o evidencia HTTP de entrega
+        if: ${{ !cancelled() && (failure() || needs.plan.outputs.evidence == 'true') }}
+        uses: actions/upload-artifact@v4
         with:
-          name: api-contract-evidence
-          path: test-results/api.json
-          if-no-files-found: warn
+          name: api-evidence
+          path: |
+            test-results/readiness-api.json
+            test-results/api-summary.md
+            test-results/api.json
+            test-results/api-local.json
+            test-results/local-environment.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Detener la copia de integración
+        if: always()
+        run: node scripts/test-environment.js stop
+
+  performance:
+    name: Comprobar configuración de rendimiento y estrés
+    needs: quality
+    uses: ./.github/workflows/performance.yml
 
   android:
-    name: Aceptación y regresión Android
-    needs: [quality, api]
-    if: github.event_name == 'workflow_dispatch' && inputs.run_android
-    runs-on: [self-hosted, android]
-    timeout-minutes: 10
+    name: Compilar y aceptar APK candidato
+    needs: [plan, quality, api, performance]
+    if: needs.plan.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      build_id: ${{ steps.apk.outputs.build_id }}
+      commit: ${{ steps.apk.outputs.commit }}
+      apk_url: ${{ steps.apk.outputs.apk_url }}
+      apk_sha256: ${{ steps.apk.outputs.apk_sha256 }}
+    env:
+      API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
+      PRODUCT_NAME: ${{ vars.ANDROID_TEST_PRODUCT_NAME }}
     steps:
       - uses: actions/checkout@v4
-      - name: Comprobar precondiciones y ejecutar flujos
-        env:
-          APP_ID: ${{ inputs.app_id }}
-          PRODUCT_NAME: ${{ inputs.product_name }}
-        run: |
-          test -n "$APP_ID" && test -n "$PRODUCT_NAME"
-          mkdir -p test-results
-          adb shell pm path "$APP_ID"
-          maestro test --format junit --output test-results/maestro.xml .maestro
-      - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: android-acceptance-evidence
-          path: test-results/
-          if-no-files-found: warn
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - name: Comprobar EAS, identificador Android y datos del escenario
+        id: prepare
+        run: node scripts/android-ci.js prepare
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Instalar dependencias del APK candidato
+        run: npm ci --no-audit --no-fund
+      - name: Compilar APK en EAS y esperar el resultado real
+        id: build
+        run: npx eas-cli@latest build --platform android --profile preview --non-interactive --wait --json > test-results/eas-build.json
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Verificar procedencia y descargar APK de esta ejecución
+        id: apk
+        run: node scripts/android-ci.js download
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar Maestro 2.12.0 y verificar su SHA256
+        env:
+          MAESTRO_SHA256: a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/maestro.zip" https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo "$MAESTRO_SHA256  $RUNNER_TEMP/maestro.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          echo "$RUNNER_TEMP/maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Habilitar aceleración del emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Aceptación y regresión en Android API 34
+        id: acceptance
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            node scripts/wait-for-service.js --android
+            adb install -r "$RUNNER_TEMP/sport-center.apk"
+            maestro test -e APP_ID="$APP_ID" -e PRODUCT_NAME="$PRODUCT_NAME" --format junit --output test-results/maestro.xml --test-output-dir test-results/maestro .maestro
+            node scripts/android-ci.js verify
+      - name: Mostrar resultado de compilación y aceptación
+        if: always()
+        run: node scripts/android-ci.js summary
+        env:
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          ANDROID_OUTCOME: ${{ steps.acceptance.outcome }}
+      - name: Conservar diagnóstico o evidencia Android de entrega
+        if: ${{ !cancelled() && (failure() || needs.plan.outputs.evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-evidence
+          path: |
+            test-results/readiness-android.json
+            test-results/android-summary.md
+            test-results/android-build.json
+            test-results/maestro.xml
+            test-results/maestro/
+          if-no-files-found: error
+          retention-days: 14
+
+  integration:
+    name: Resultado de integración
+    needs: [plan, quality, api, performance, android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Impedir aprobación con comprobaciones fallidas u omitidas obligatorias
+        run: node scripts/pipeline-policy.js gate
+        env:
+          REQUIRE_ANDROID: ${{ needs.plan.outputs.android }}
+          RESULT_PLAN: ${{ needs.plan.result }}
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_API: ${{ needs.api.result }}
+          RESULT_PERFORMANCE: ${{ needs.performance.result }}
+          RESULT_ANDROID: ${{ needs.android.result }}
+
+  delivery:
+    name: Entregar candidata interna aprobada
+    needs: [plan, android, integration]
+    if: needs.plan.outputs.evidence == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: qa-interna
+      url: ${{ needs.android.outputs.apk_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - name: Registrar entrega del mismo APK después de las comprobaciones
+        run: node scripts/publish-internal-candidate.js
+        env:
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          CANDIDATE_BUILD_ID: ${{ needs.android.outputs.build_id }}
+          CANDIDATE_COMMIT: ${{ needs.android.outputs.commit }}
+          CANDIDATE_APK_URL: ${{ needs.android.outputs.apk_url }}
+          CANDIDATE_SHA256: ${{ needs.android.outputs.apk_sha256 }}

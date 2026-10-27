@@ -2,54 +2,8 @@
 import axiosClient from "./axios";
 import { ENDPOINTS } from "./endpoints";
 
-interface VariantRaw {
-  sku: string;
-  stock: number;
-  precio: number;
-  imagenes: string[];
-  atributos: Record<string, string>;
-  id_variante: number;
-}
-
-interface ProductRaw {
-  id_producto: number;
-  producto: string;
-  descripcion: string;
-  activo: boolean;
-  fecha_creacion: string;
-  marca: string;
-  imagen_marca: string | null;
-  categoria: string;
-  categoria_padre: string;
-  deportes: string[];
-  variantes: VariantRaw[];
-}
-
-export interface Variant {
-  id: number;
-  sku: string;
-  stock: number;
-  price: number;
-  images: string[];
-  attributes: Record<string, string>;
-}
-
-export interface Product {
-  id: number;
-  name: string;
-  description: string;
-  brand: string;
-  brandImage: string | null;
-  category: string;
-  parentCategory: string;
-  sports: string[];
-  variants: Variant[];
-  mainImage: string | null;
-  price: number;
-  stock: number;
-  totalStock: number;
-  attributes: Record<string, string>;
-}
+import type { Product, ProductRaw, Variant, VariantRaw } from "../features/products/types";
+export type { Product, Variant } from "../features/products/types";
 
 const mapVariant = (v: VariantRaw): Variant => ({
   id: v.id_variante,

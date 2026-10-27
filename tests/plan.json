@@ -1,16 +1,46 @@
 {
   "source": {
-    "document": "Planeacion_Integrada_SportCenter_Mobile.docx",
-    "sections": [
-      10,
-      11,
-      12,
-      13,
-      14,
-      15
-    ],
+    "project": "https://github.com/users/Markadw/projects/2",
     "repository": "Markadw/SportCenter-mobile",
-    "selection": "Repositorio confirmado por el usuario"
+    "stories": [
+      {
+        "story": "HU-01",
+        "issue": 7
+      },
+      {
+        "story": "HU-02",
+        "issue": 8
+      },
+      {
+        "story": "HU-03",
+        "issue": 9
+      },
+      {
+        "story": "HU-04",
+        "issue": 10
+      },
+      {
+        "story": "HU-05",
+        "issue": 11
+      },
+      {
+        "story": "HU-06",
+        "issue": 12
+      },
+      {
+        "story": "HU-07",
+        "issue": 13
+      },
+      {
+        "story": "HU-08",
+        "issue": 14
+      },
+      {
+        "story": "HU-09",
+        "issue": 15
+      }
+    ],
+    "selection": "Los criterios vigentes son los de las issues del tablero personal. Los requisitos de otra planeación no se incorporan como bloqueadores sin reconciliación explícita."
   },
   "pipelines": [
     {
@@ -18,21 +48,21 @@
       "name": "Verificación del cliente móvil",
       "workflow": ".github/workflows/ci.yml",
       "scope": "Análisis estático, pruebas unitarias/componentes, integración del cliente y regresión afectada",
-      "execution": "Automática en PR y push a develop y main; reutilizable para comprobar calidad antes de aceptación Android"
+      "execution": "Push de trabajo sin PR abierto para ese commit: calidad. Si existe PR a develop/main, su workflow ejecuta calidad una sola vez. El push conserva sólo una comprobación breve de deduplicación."
     },
     {
       "id": 2,
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
-      "scope": "Suite HTTP separada y flujos Maestro en Android",
-      "execution": "HTTP de solo lectura en PR propio o manual. Android manual, después de calidad del cliente y API aprobadas; requiere APK instalado, ID real, Maestro/ADB y runner Android"
+      "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
+      "execution": "PR en borrador: calidad, HTTP e inspección sin APK. PR listo con cambios de aplicación, dependencias, build o aceptación: Android obligatorio; un PR sólo de herramientas/documentación no recompila. Main y candidatas manuales mantienen Android. Fallos de etapas requeridas bloquean; no hay reintentos ni builds programados."
     },
     {
       "id": 3,
       "name": "Carga esperada y estrés de la API",
       "workflow": ".github/workflows/performance.yml",
       "scope": "Inspección k6 automática; medición solo en backend propio aislado",
-      "execution": "La inspección no ejecuta carga. Medición manual con entorno y commit identificados"
+      "execution": "Inspección reutilizable desde integración sin artefactos. Medición manual desde develop o ramas de trabajo: referencia, carga y esfuerzo contra el backend fijado con datos sintéticos, preparado en el runner. Un paquete de evidencia por medición; fallo de umbrales devuelve error."
     }
   ],
   "activities": [
@@ -46,6 +76,8 @@
         "__tests__/productsApi.test.ts",
         "__tests__/catalogApi.test.ts",
         "__tests__/FiltersModal.test.tsx",
+        "__tests__/pipelines.test.js",
+        "__tests__/release-infrastructure.test.js",
         "__tests__/registrationApi.test.ts",
         "__tests__/registrationValidation.test.ts",
         "__tests__/axiosLogging.test.ts"
@@ -75,7 +107,14 @@
         "tests/api/public-contracts.test.js",
         "tests/integration/Registration.test.tsx"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión"
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; registro, verificación y reenvío con transporte simulado",
+      "environment": {
+        "source": "tests/environment/backend-source.json",
+        "configuration": "tests/environment/compose.yml",
+        "products": 100,
+        "variants": 200,
+        "verification": "Copia detenida y recreada; los mismos cuatro contratos aprobaron. No se contabilizan como ocho casos únicos."
+      }
     },
     {
       "type": "aceptacion",
@@ -89,8 +128,25 @@
         ".maestro/detalle-producto.yaml",
         "tests/manual/registro-cliente.md"
       ],
-      "status": "partial",
-      "reason": "HU-01: recorrido manual con API real confirmado por el usuario en Android/Expo Go. Los flujos Maestro requieren APK y runner Android; no se ejecutaron en esta comprobación."
+      "status": "passed",
+      "scope": "Los dos recorridos Maestro y su evidencia existente cubren catálogo/detalle. HU-01 conserva evidencia manual separada en Android/Expo Go, anterior a esta actualización de base.",
+      "evidence": {
+        "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+        "build": "4779586e-a274-45b7-a1e5-a3c85e5f543b",
+        "clientPassed": 122,
+        "httpPassedPerEnvironment": 4,
+        "uniqueHttpCases": 4,
+        "androidPassed": 2,
+        "scope": "Última candidata Android verificada antes de corregir disparadores. Catálogo y detalle básicos, sin certificar módulos privados."
+      },
+      "manualEvidence": {
+        "story": "HU-01",
+        "status": "passed_user_reported",
+        "record": "tests/manual/registro-cliente.md",
+        "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5",
+        "scope": "Registro, primer correo, código incorrecto, reenvío y cuenta verificada, confirmados por el usuario"
+      }
     },
     {
       "type": "regresion",
@@ -103,24 +159,63 @@
       "type": "rendimiento",
       "tools": [
         "k6",
-        "medición manual Android"
+        "Docker",
+        "backend NestJS real y PostgreSQL aislados"
       ],
       "files": [
-        "tests/performance/load.js"
+        "tests/performance/load.js",
+        "tests/performance/profile.json"
       ],
-      "status": "not_executed",
-      "reason": "La medición requiere entorno propio aislado y línea base/criterios justificados. Inspeccionar un guion no mide rendimiento."
+      "status": "passed_for_local_api_scope",
+      "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+      "evidence": "evidence/performance-local-2026-10-26.json",
+      "profile": "tests/performance/profile.json",
+      "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+      "actual": {
+        "name": "load",
+        "exitCode": 0,
+        "requests": 80,
+        "p95Ms": 8.248826749999997,
+        "errorRate": 0,
+        "passed": true
+      },
+      "reference": {
+        "name": "baseline",
+        "exitCode": 0,
+        "requests": 20,
+        "p95Ms": 10.07882875,
+        "errorRate": 0,
+        "passed": true
+      }
     },
     {
       "type": "estres",
       "tools": [
-        "k6"
+        "k6",
+        "Docker",
+        "backend NestJS real y PostgreSQL aislados"
       ],
       "files": [
         "tests/performance/stress.js"
       ],
-      "status": "not_executed",
-      "reason": "Solo guion y recuperación preparados; no se genera carga sobre Render compartido o Mercado Pago."
+      "status": "passed_for_local_api_scope",
+      "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+      "evidence": "evidence/performance-local-2026-10-26.json",
+      "profile": "tests/performance/profile.json",
+      "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+      "actual": {
+        "name": "stress",
+        "exitCode": 0,
+        "requests": 262,
+        "p95Ms": 6.8959171999999995,
+        "errorRate": 0.4122137404580153,
+        "passed": true,
+        "rateLimitedResponses": 86,
+        "recoveryMs": 35906,
+        "recoverySamples": 12,
+        "recoveryErrorRate": 0
+      },
+      "interpretation": "Los 429 durante sobrecarga y observación son rechazos de admisión; la verificación final exige cero errores. El P95 de esfuerzo incluye rechazos rápidos y no acredita mayor capacidad."
     }
   ],
   "cases": [
@@ -128,96 +223,103 @@
       "group": "CP-01",
       "story": "HU-01",
       "iteration": "I1",
-      "expected": "Registro, activación y reenvío sin iniciar sesión antes de activar",
+      "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "partial",
-      "reason": "Recorrido principal aprobado manualmente en Android por el usuario el 2026-10-27; pendiente commit, revisión e integración.",
+      "reason": "El recorrido principal de HU-01 fue confirmado por el usuario en Android. La combinación local con develop aprobó lint, TypeScript, configuración y 213 pruebas en 15 suites; las comprobaciones remotas y la integración del PR #36 siguen pendientes.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
       "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
-      "pending": [
-        "Commit, revisión e integración de feature/registro-cliente"
-      ],
       "manualAcceptance": {
         "status": "passed_user_reported",
-        "date": "2026-10-27",
         "environment": "Android físico con Expo Go compatible con SDK 57",
         "record": "tests/manual/registro-cliente.md",
-        "scope": "Registro, recepción de correo, rechazo del código incorrecto, reenvío y verificación",
+        "scope": "Registro, recepción de correo, rechazo del código incorrecto, reenvío y verificación; corresponde al código de HU-01 antes de esta actualización de base",
         "source": "Confirmación textual del usuario; sin observación directa ni capturas nuevas",
         "baseCommit": "509a050188cc4cc9c9a4b432473f107d69bab4ee",
-        "commit": null
-      }
+        "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
+      },
+      "pending": [
+        "Publicación y comprobaciones de la actualización del PR #36 sobre develop",
+        "Revisión de cambios e integración del PR #36"
+      ],
+      "updateBase": "d5c842a95122372d5c6f6c401d88cd7efc759c78"
     },
     {
       "group": "CP-02",
       "story": "HU-02",
       "iteration": "I1",
-      "expected": "Login, refresh coordinado, un reintento, restauración y limpieza de sesión",
+      "expected": "Credenciales validadas, autenticación con API, sesión establecida, errores controlados y reconocimiento de sesión en rutas privadas.",
       "status": "not_executed",
-      "reason": "Sesión móvil no disponible"
+      "reason": "Sesión móvil no disponible",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8"
     },
     {
       "group": "CP-03",
       "story": "HU-03",
       "iteration": "I2",
-      "expected": "Catálogo público, datos, carga/vacío/error/reintento, navegación correcta y precio desde cuando aplique",
-      "status": "partial",
-      "available": "Unitarias/componentes e integración del cliente; suite HTTP real separada",
-      "pending": [
-        "Precio desde entre variantes",
-        "Aceptación Android"
-      ]
+      "expected": "Catálogo público desde API, estados carga/error/vacío, información identificable y acceso al detalle; criterios de HU-03 (#9).",
+      "status": "verified_for_current_board_scope",
+      "available": "Pruebas del cliente para estados y filtros, contratos HTTP reales y recorrido básico Android. El avance no incluye carrito ni compra.",
+      "pending": [],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/9",
+      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
     },
     {
       "group": "CP-04",
       "story": "HU-04",
       "iteration": "I3",
-      "expected": "Detalle, id_variante válido y cantidad entre 1, stock y máximo 99",
-      "status": "partial",
-      "available": "Detalle, datos, errores y límites de cantidad según implementación actual",
-      "pending": [
-        "Selección de variante",
-        "Límite máximo de 99",
-        "Aceptación Android"
-      ]
+      "expected": "Detalle público del ID seleccionado desde API, carga/error/producto no disponible y pantalla preparada para acciones posteriores; criterios de HU-04 (#10).",
+      "status": "verified_for_current_board_scope",
+      "available": "Pruebas del cliente para detalle, datos y errores; contratos HTTP reales y recorrido básico Android. Selección de compra pertenece al trabajo funcional posterior.",
+      "pending": [],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/10",
+      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
     },
     {
       "group": "CP-09",
       "story": "HU-09",
       "iteration": "I3",
-      "expected": "Perfil propio, logout, limpieza local y cambio de cuenta",
+      "expected": "Consultar y modificar los campos permitidos del perfil propio, validar datos, sincronizar cambios y controlar errores de actualización.",
       "status": "not_executed",
-      "reason": "Perfil y logout móviles no disponibles"
+      "reason": "Perfil y logout móviles no disponibles",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15"
     },
     {
       "group": "CP-05",
       "story": "HU-05",
       "iteration": "I4",
-      "expected": "Carrito persistente confirmado por servidor y aislado por cuenta",
+      "expected": "Agregar, modificar cantidades y retirar productos del carrito; importes consistentes, autenticación y errores controlados de API/disponibilidad.",
       "status": "not_executed",
-      "reason": "El botón actual no integra el carrito del servidor"
+      "reason": "El botón actual no integra el carrito del servidor",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/11"
     },
     {
       "group": "CP-06",
       "story": "HU-06",
       "iteration": "I5",
-      "expected": "Dirección propia persistida independientemente de compra",
+      "expected": "Consultar direcciones, registrar datos requeridos y seleccionar una dirección válida vinculada con la cuenta.",
       "status": "not_executed",
-      "reason": "Depende de API-002 y módulo móvil"
+      "reason": "Depende de API-002 y módulo móvil",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/12"
     },
     {
       "group": "CP-08",
       "story": "HU-08",
       "iteration": "I5",
-      "expected": "Historial propio, estados, vacío/error y aislamiento entre cuentas",
+      "expected": "Consultar pedidos propios desde API, información de cada pedido y estados de carga, error y vacío.",
       "status": "not_executed",
-      "reason": "Historial móvil no disponible"
+      "reason": "Historial móvil no disponible",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/14"
     },
     {
       "group": "CP-07",
       "story": "HU-07",
       "iteration": "I6",
-      "expected": "Pedido/pago/tracking y misma operación al reintentar",
+      "expected": "Revisar productos y dirección, validar datos, usar contrato real y confirmar compra sólo con aceptación del backend o pago; errores controlados.",
       "status": "not_executed",
-      "reason": "Depende de API-003, PAG-001 y módulos de compra"
+      "reason": "Depende de API-003, PAG-001 y módulos de compra",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/13"
     }
   ],
   "manualRecordFields": [
@@ -239,8 +341,36 @@
     "defect"
   ],
   "differences": {
-    "documentStoryPoints": 60,
-    "existingBoardStoryPoints": 52,
-    "note": "El documento pertenece originalmente al repositorio organizacional. Se usa para configurar tipos de pruebas en el repositorio confirmado; la conciliación de SP, responsables y códigos QA queda registrada, sin reasignar historias ni duplicar esfuerzo."
+    "boardStoryPoints": 52,
+    "note": "Se conserva la línea base, responsables, fechas y las nueve historias del tablero personal. La planeación de otro repositorio no redefine estos criterios. Esta revisión no altera estados del tablero ni marca módulos pendientes como terminados."
+  },
+  "verifiedIncrement": {
+    "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
+    "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+    "build": "4779586e-a274-45b7-a1e5-a3c85e5f543b",
+    "clientPassed": 122,
+    "httpPassedPerEnvironment": 4,
+    "uniqueHttpCases": 4,
+    "androidPassed": 2,
+    "scope": "Última candidata Android verificada antes de corregir disparadores. Catálogo y detalle básicos, sin certificar módulos privados."
+  },
+  "localInfrastructureVerification": {
+    "clientAndInfrastructurePassed": 112,
+    "httpContractsPassed": 4,
+    "dateLocal": "2026-10-26",
+    "performanceEvidence": "evidence/performance-local-2026-10-26.json",
+    "scope": "Verificación local; el resultado remoto del nuevo commit debe consultarse en GitHub Actions."
+  },
+  "registrationUpdateVerification": {
+    "sourceCommit": "a2a9676aa259538ff208a7af27d831ac79dd60a5",
+    "developCommit": "d5c842a95122372d5c6f6c401d88cd7efc759c78",
+    "clientTestsPassed": 213,
+    "suitesPassed": 15,
+    "lint": "passed",
+    "typecheck": "passed",
+    "configuration": "passed",
+    "transport": "simulated",
+    "scope": "Verificación de la combinación local de HU-01 y develop. No crea cuentas ni acredita una nueva comprobación Android.",
+    "routerTypes": "Regenerados con Expo CLI para las rutas actuales; archivo local ignorado por Git."
   }
 }
