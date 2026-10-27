@@ -20,8 +20,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/fix/') || startsWith(github.ref, 'refs/heads/chore/') || startsWith(github.ref, 'refs/heads/test/') }}
 
 jobs:
+  push_policy:
+    name: Evitar calidad duplicada cuando existe un PR
+    if: github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run_quality: ${{ steps.policy.outputs.run_quality }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar si el PR ya valida este commit
+        id: policy
+        run: node scripts/pipeline-policy.js push
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
   validate:
     name: Análisis estático y pruebas del cliente
+    needs: push_policy
+    if: ${{ !cancelled() && (needs.push_policy.result == 'skipped' || needs.push_policy.outputs.run_quality == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

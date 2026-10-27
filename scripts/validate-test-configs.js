@@ -8,6 +8,11 @@ function validateWorkflows(workflows) {
   assert.deepEqual(client.on.push.branches, ['feature/**', 'fix/**', 'chore/**', 'test/**', 'release/**', 'hotfix/**']);
   assert.ok(Object.hasOwn(client.on, 'workflow_call'), 'Calidad debe ser reutilizable');
   assert.ok(!client.on.pull_request, 'El orquestador debe evitar una segunda ejecución de calidad en PR');
+  assert.equal(client.jobs.push_policy.steps.find((step) => step.id === 'policy')?.run, 'node scripts/pipeline-policy.js push',
+    'El push debe deduplicar la calidad con el PR abierto');
+  assert.equal(client.jobs.validate.needs, 'push_policy');
+  assert.equal(client.jobs.validate.if, "${{ !cancelled() && (needs.push_policy.result == 'skipped' || needs.push_policy.outputs.run_quality == 'true') }}",
+    'Calidad debe respetar la deduplicación y los fallos de la política');
   const commands = client.jobs.validate.steps.map((step) => step.run).filter(Boolean).join('\n');
   for (const script of ['lint', 'typecheck', 'test:ci', 'test:config']) {
     assert.ok(commands.includes(`npm run ${script}`), `CI no ejecuta ${script}`);
@@ -24,6 +29,8 @@ function validateWorkflows(workflows) {
     'El artefacto existente debe conservar los informes estáticos');
   const integration = workflows.get('api-android.yml');
   assert.deepEqual(integration.on.pull_request.branches, ['develop', 'main']);
+  assert.ok(integration.on.pull_request.types.includes('ready_for_review'), 'La candidata debe comprobarse al salir de borrador');
+  assert.equal(integration.jobs.plan.steps[0].with['fetch-depth'], 0, 'La clasificación requiere los commits de base y head');
   assert.deepEqual(integration.on.push.branches, ['develop', 'main']);
   assert.equal(integration.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const YAML = require('yaml');
-const { executionPlan, evaluateChecks } = require('../scripts/pipeline-policy');
+const { executionPlan, evaluateChecks, applicationChanged, pushQuality } = require('../scripts/pipeline-policy');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const { clientSummary } = require('../scripts/write-test-summary');
 const { apiSummary } = require('../scripts/write-api-summary');
@@ -197,5 +197,47 @@ describe('Preparación limitada del entorno antes de probar', () => {
   test('un HTTP 200 sin productos no acredita un entorno listo', async () => {
     const fetchApi = jest.fn().mockResolvedValue({ status: 200, json: async () => [] });
     await expect(waitForService({ apiUrl: 'https://example.test', fetchApi, ...clock() })).rejects.toThrow('catálogo JSON con productos');
+  });
+});
+
+
+describe('Evitar trabajo duplicado sin omitir cambios de aplicación', () => {
+  const pr = { state: 'open', base: { ref: 'develop' }, head: { sha: 'actual' } };
+  test('el push de un commit con PR abierto no repite calidad', async () => {
+    expect(await pushQuality({ repository: 'owner/repo', branch: 'chore/ci', sha: 'actual' }, async () => [pr])).toBe(false);
+  });
+  test('un push sin PR conserva la validación rápida', async () => {
+    expect(await pushQuality({ repository: 'owner/repo', branch: 'feature/app', sha: 'actual' }, async () => [])).toBe(true);
+  });
+  test('un PR de otro commit no permite omitir calidad', async () => {
+    expect(await pushQuality({ repository: 'owner/repo', branch: 'feature/app', sha: 'nuevo' }, async () => [pr])).toBe(true);
+  });
+  test('una consulta fallida no produce una omisión aprobada', async () => {
+    await expect(pushQuality({ repository: 'owner/repo', branch: 'feature/app', sha: 'actual' }, async () => { throw new Error('HTTP 403'); })).rejects.toThrow('HTTP 403');
+  });
+  test('un PR en borrador no compila; la candidata lista con app sí', () => {
+    const event = { event: 'pull_request', base: 'develop', head: 'feature/app', appChanged: true };
+    expect(executionPlan({ ...event, draft: true }).android).toBe(false);
+    expect(executionPlan({ ...event, draft: false }).android).toBe(true);
+  });
+  test('un PR sólo de herramientas no compila Android', () => {
+    expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'chore/ci', appChanged: false }).android).toBe(false);
+  });
+  test.each(['src/app/index.tsx', 'assets/logo.png', 'app.json', 'eas.json', 'package-lock.json', '.maestro/catalogo-publico.yaml', 'scripts/android-ci.js', 'scripts/wait-for-service.js', 'plugin-desconocido.js'])(
+    'el cambio %s requiere Android al preparar candidata', (file) => expect(applicationChanged([file], () => '')).toBe(true));
+  test('pruebas, informes y documentación no modifican el APK', () => {
+    expect(applicationChanged(['README.md','tests/plan.json','scripts/run-static-analysis.js','__tests__/pipelines.test.js','.github/workflows/ci.yml'], () => '')).toBe(false);
+  });
+  test('scripts de informes en package.json no equivalen a dependencias nuevas', () => {
+    const before = { dependencies: { expo: '57' }, scripts: { lint: 'expo lint' } };
+    const after = { ...before, scripts: { ...before.scripts, 'lint:report': 'node report.js' } };
+    expect(applicationChanged(['package.json'], (side) => JSON.stringify(side === 'base' ? before : after))).toBe(false);
+    after.dependencies = { expo: '58' };
+    expect(applicationChanged(['package.json'], (side) => JSON.stringify(side === 'base' ? before : after))).toBe(true);
+  });
+  test('cambiar compilación o aceptación sí requiere otro APK', () => {
+    const before = 'jobs:\n  plan:\n    name: anterior\n  android:\n    name: aceptar\n  integration:\n    name: final\n';
+    expect(applicationChanged(['.github/workflows/api-android.yml'], (side) => side === 'base' ? before : before.replace('anterior','nuevo'))).toBe(false);
+    expect(applicationChanged(['.github/workflows/api-android.yml'], (side) => side === 'base' ? before : before.replace('aceptar','compilar y aceptar'))).toBe(true);
   });
 });

@@ -1,11 +1,12 @@
 # Tipos: calidad del cliente, integración HTTP, regresión y aceptación Android.
-# PR a develop/main: comprobar la combinación propuesta y exigir Android.
+# PR: calidad e integración; Android en candidatas listas con cambios de aplicación.
 # Push a develop/main (incluido merge): comprobar el commit integrado.
 # No publica en Google Play ni promueve una versión automáticamente.
 name: Integración y aceptación móvil
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [develop, main]
   push:
     branches: [develop, main]
@@ -22,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: integration-${{ github.event_name }}-${{ github.ref }}
@@ -36,6 +38,8 @@ jobs:
       evidence: ${{ steps.policy.outputs.evidence }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Aplicar matriz y validar origen de entregas a main
         id: policy
         run: node scripts/pipeline-policy.js plan

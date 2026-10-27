@@ -50,8 +50,6 @@
     "test:api": "node scripts/run-api-tests.js",
     "test:acceptance": "maestro test .maestro",
     "test:config": "node scripts/validate-test-configs.js",
-    "test:load": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/load.js",
-    "test:stress": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/stress.js",
     "test:ci": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && jest --ci --runInBand --coverage --verbose --json --outputFile=test-results/jest.json",
     "validate": "npm run lint && npm run typecheck && npm run test:ci && npm run test:config",
     "env:start": "node scripts/test-environment.js start",

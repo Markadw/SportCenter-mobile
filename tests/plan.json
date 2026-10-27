@@ -1,16 +1,46 @@
 {
   "source": {
-    "document": "Planeacion_Integrada_SportCenter_Mobile.docx",
-    "sections": [
-      10,
-      11,
-      12,
-      13,
-      14,
-      15
-    ],
+    "project": "https://github.com/users/Markadw/projects/2",
     "repository": "Markadw/SportCenter-mobile",
-    "selection": "Repositorio confirmado por el usuario"
+    "stories": [
+      {
+        "story": "HU-01",
+        "issue": 7
+      },
+      {
+        "story": "HU-02",
+        "issue": 8
+      },
+      {
+        "story": "HU-03",
+        "issue": 9
+      },
+      {
+        "story": "HU-04",
+        "issue": 10
+      },
+      {
+        "story": "HU-05",
+        "issue": 11
+      },
+      {
+        "story": "HU-06",
+        "issue": 12
+      },
+      {
+        "story": "HU-07",
+        "issue": 13
+      },
+      {
+        "story": "HU-08",
+        "issue": 14
+      },
+      {
+        "story": "HU-09",
+        "issue": 15
+      }
+    ],
+    "selection": "Los criterios vigentes son los de las issues del tablero personal. Los requisitos de otra planeación no se incorporan como bloqueadores sin reconciliación explícita."
   },
   "pipelines": [
     {
@@ -18,14 +48,14 @@
       "name": "Verificación del cliente móvil",
       "workflow": ".github/workflows/ci.yml",
       "scope": "Análisis estático, pruebas unitarias/componentes, integración del cliente y regresión afectada",
-      "execution": "Push a ramas de trabajo; reutilizado en PR a develop/main y push integrado a develop/main. Resumen por tipo; artefactos sólo ante fallo o para candidatas."
+      "execution": "Push de trabajo sin PR abierto para ese commit: calidad. Si existe PR a develop/main, su workflow ejecuta calidad una sola vez. El push conserva sólo una comprobación breve de deduplicación."
     },
     {
       "id": 2,
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR a develop/main exige calidad, contratos HTTP compartidos y locales, inspección y aceptación Android. Push a develop omite Android; main lo exige. Candidatas con evidencia y Android aprobado registran el mismo APK en qa-interna después del resultado de integración. No publica Google Play."
+      "execution": "PR en borrador: calidad, HTTP e inspección sin APK. PR listo con cambios de aplicación, dependencias, build o aceptación: Android obligatorio; un PR sólo de herramientas/documentación no recompila. Main y candidatas manuales mantienen Android. Fallos de etapas requeridas bloquean; no hay reintentos ni builds programados."
     },
     {
       "id": 3,
@@ -96,13 +126,14 @@
       "status": "passed",
       "scope": "Dos recorridos básicos en Android API 34; registro, sesión, carrito y compra quedan fuera de esta evidencia.",
       "evidence": {
-        "commit": "edca4639cad9e0f403df1920efe9c6d2897cb1cf",
-        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513",
-        "build": "6ebedf77-bbd0-47fe-a4a5-d0298629b511",
-        "clientPassed": 96,
-        "httpPassed": 4,
+        "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+        "build": "4779586e-a274-45b7-a1e5-a3c85e5f543b",
+        "clientPassed": 122,
+        "httpPassedPerEnvironment": 4,
+        "uniqueHttpCases": 4,
         "androidPassed": 2,
-        "scope": "Catálogo público y detalle básicos; no certifica módulos pendientes."
+        "scope": "Última candidata Android verificada antes de corregir disparadores. Catálogo y detalle básicos, sin certificar módulos privados."
       }
     },
     {
@@ -180,82 +211,88 @@
       "group": "CP-01",
       "story": "HU-01",
       "iteration": "I1",
-      "expected": "Registro, activación y reenvío sin iniciar sesión antes de activar",
+      "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "not_executed",
-      "reason": "Registro y activación móviles no disponibles"
+      "reason": "Registro y activación móviles no disponibles",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7"
     },
     {
       "group": "CP-02",
       "story": "HU-02",
       "iteration": "I1",
-      "expected": "Login, refresh coordinado, un reintento, restauración y limpieza de sesión",
+      "expected": "Credenciales validadas, autenticación con API, sesión establecida, errores controlados y reconocimiento de sesión en rutas privadas.",
       "status": "not_executed",
-      "reason": "Sesión móvil no disponible"
+      "reason": "Sesión móvil no disponible",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8"
     },
     {
       "group": "CP-03",
       "story": "HU-03",
       "iteration": "I2",
-      "expected": "Catálogo público, datos, carga/vacío/error/reintento, navegación correcta y precio desde cuando aplique",
-      "status": "partial",
-      "available": "Unitarias/componentes e integración del cliente; suite HTTP real separada; aceptación Android básica aprobada en la revisión de referencia",
-      "pending": [
-        "Precio desde entre variantes"
-      ],
-      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513"
+      "expected": "Catálogo público desde API, estados carga/error/vacío, información identificable y acceso al detalle; criterios de HU-03 (#9).",
+      "status": "verified_for_current_board_scope",
+      "available": "Pruebas del cliente para estados y filtros, contratos HTTP reales y recorrido básico Android. El avance no incluye carrito ni compra.",
+      "pending": [],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/9",
+      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
     },
     {
       "group": "CP-04",
       "story": "HU-04",
       "iteration": "I3",
-      "expected": "Detalle, id_variante válido y cantidad entre 1, stock y máximo 99",
-      "status": "partial",
-      "available": "Detalle, datos, errores y límites de cantidad según implementación actual; aceptación Android básica aprobada en la revisión de referencia",
-      "pending": [
-        "Selección de variante",
-        "Límite máximo de 99"
-      ],
-      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513"
+      "expected": "Detalle público del ID seleccionado desde API, carga/error/producto no disponible y pantalla preparada para acciones posteriores; criterios de HU-04 (#10).",
+      "status": "verified_for_current_board_scope",
+      "available": "Pruebas del cliente para detalle, datos y errores; contratos HTTP reales y recorrido básico Android. Selección de compra pertenece al trabajo funcional posterior.",
+      "pending": [],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/10",
+      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
     },
     {
       "group": "CP-09",
       "story": "HU-09",
       "iteration": "I3",
-      "expected": "Perfil propio, logout, limpieza local y cambio de cuenta",
+      "expected": "Consultar y modificar los campos permitidos del perfil propio, validar datos, sincronizar cambios y controlar errores de actualización.",
       "status": "not_executed",
-      "reason": "Perfil y logout móviles no disponibles"
+      "reason": "Perfil y logout móviles no disponibles",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15"
     },
     {
       "group": "CP-05",
       "story": "HU-05",
       "iteration": "I4",
-      "expected": "Carrito persistente confirmado por servidor y aislado por cuenta",
+      "expected": "Agregar, modificar cantidades y retirar productos del carrito; importes consistentes, autenticación y errores controlados de API/disponibilidad.",
       "status": "not_executed",
-      "reason": "El botón actual no integra el carrito del servidor"
+      "reason": "El botón actual no integra el carrito del servidor",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/11"
     },
     {
       "group": "CP-06",
       "story": "HU-06",
       "iteration": "I5",
-      "expected": "Dirección propia persistida independientemente de compra",
+      "expected": "Consultar direcciones, registrar datos requeridos y seleccionar una dirección válida vinculada con la cuenta.",
       "status": "not_executed",
-      "reason": "Depende de API-002 y módulo móvil"
+      "reason": "Depende de API-002 y módulo móvil",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/12"
     },
     {
       "group": "CP-08",
       "story": "HU-08",
       "iteration": "I5",
-      "expected": "Historial propio, estados, vacío/error y aislamiento entre cuentas",
+      "expected": "Consultar pedidos propios desde API, información de cada pedido y estados de carga, error y vacío.",
       "status": "not_executed",
-      "reason": "Historial móvil no disponible"
+      "reason": "Historial móvil no disponible",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/14"
     },
     {
       "group": "CP-07",
       "story": "HU-07",
       "iteration": "I6",
-      "expected": "Pedido/pago/tracking y misma operación al reintentar",
+      "expected": "Revisar productos y dirección, validar datos, usar contrato real y confirmar compra sólo con aceptación del backend o pago; errores controlados.",
       "status": "not_executed",
-      "reason": "Depende de API-003, PAG-001 y módulos de compra"
+      "reason": "Depende de API-003, PAG-001 y módulos de compra",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/13"
     }
   ],
   "manualRecordFields": [
@@ -277,18 +314,18 @@
     "defect"
   ],
   "differences": {
-    "documentStoryPoints": 60,
-    "existingBoardStoryPoints": 52,
-    "note": "El documento pertenece originalmente al repositorio organizacional. Se usa para configurar tipos de pruebas en el repositorio confirmado; la conciliación de SP, responsables y códigos QA queda registrada, sin reasignar historias ni duplicar esfuerzo."
+    "boardStoryPoints": 52,
+    "note": "Se conserva la línea base, responsables, fechas y las nueve historias del tablero personal. La planeación de otro repositorio no redefine estos criterios. Esta revisión no altera estados del tablero ni marca módulos pendientes como terminados."
   },
   "verifiedIncrement": {
-    "commit": "edca4639cad9e0f403df1920efe9c6d2897cb1cf",
-    "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513",
-    "build": "6ebedf77-bbd0-47fe-a4a5-d0298629b511",
-    "clientPassed": 96,
-    "httpPassed": 4,
+    "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
+    "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
+    "build": "4779586e-a274-45b7-a1e5-a3c85e5f543b",
+    "clientPassed": 122,
+    "httpPassedPerEnvironment": 4,
+    "uniqueHttpCases": 4,
     "androidPassed": 2,
-    "scope": "Catálogo público y detalle básicos; no certifica módulos pendientes."
+    "scope": "Última candidata Android verificada antes de corregir disparadores. Catálogo y detalle básicos, sin certificar módulos privados."
   },
   "localInfrastructureVerification": {
     "clientAndInfrastructurePassed": 112,

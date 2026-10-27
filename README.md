@@ -9,7 +9,7 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. Autenticación permanece pendiente de integración. Selección completa de variantes, carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente.
+La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. Autenticación permanece pendiente de integración. Carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
 
 ## Entorno y arranque
 
@@ -62,7 +62,7 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los flujos Maestro de catálogo y detalle se ejecutan sobre un APK candidato en un emulador Android API 34 de GitHub. Los PR a develop/main y las comprobaciones de main exigen aceptación; después de un merge a develop se ejecuta regresión del cliente y HTTP sin repetir Android. La ejecución manual permite incluir Android en develop. Un fallo de calidad o HTTP impide compilar y ejecutar aceptación.
+Los flujos Maestro de catálogo y detalle se ejecutan sobre un APK candidato en un emulador Android API 34 de GitHub. Un PR en borrador ejecuta calidad e integración sin generar APK. Al marcarlo listo, Android es obligatorio si cambia la aplicación, dependencias, compilación o flujos de aceptación; también es obligatorio para entregas a main. Un PR sólo de informes, pruebas de herramientas o documentación no recompila; después de un merge a develop se ejecuta regresión del cliente y HTTP sin repetir Android. La ejecución manual permite incluir Android en develop. Un fallo de calidad o HTTP impide compilar y ejecutar aceptación.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
@@ -70,14 +70,15 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 
 | Evento | Rama o destino | Comprobaciones |
 | --- | --- | --- |
-| Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Lint, TypeScript, unitarias/componentes, integración simulada, regresión y configuración |
-| PR | develop o main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
+| Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Calidad si no hay PR para ese commit; con PR se evita repetirla |
+| PR en borrador | develop o main | Calidad, contratos HTTP e inspección k6; sin compilar APK |
+| PR listo | develop o main | Lo anterior; Android para cambios de app/build/aceptación o entrega a main |
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
 | Medición manual | develop o ramas de trabajo | Referencia, carga y esfuerzo con backend y datos aislados en el runner |
 
-El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama.
+El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama. En una rama con PR abierto pueden aparecer dos eventos de GitHub: el push sólo consulta si el PR se hace cargo y omite el trabajo duplicado. No hay ejecuciones programadas ni reintentos automáticos de Android.
 
 El resumen de calidad incluye versión, código de salida y diagnósticos de ESLint y TypeScript. TypeScript se ejecuta aunque ESLint falle para informar ambos resultados; las pruebas posteriores e integración continúan bloqueadas. Un informe ausente, de otra ejecución o de una etapa omitida se señala explícitamente. Los JSON se incluyen en el mismo `client-evidence`, sin añadir artefactos.
 
@@ -93,9 +94,11 @@ flowchart LR
   C[PR a develop o main] --> D[Calidad]
   D --> E[Contratos HTTP compartidos y locales]
   D --> F[Inspección k6]
-  E --> G[Build EAS y aceptación Android]
+  E --> G[Candidata lista con cambios de app: EAS y Android]
   F --> G
-  G --> H[Resultado de integración]
+  E --> H[Resultado de integración]
+  F --> H
+  G --> H
   H --> I[Candidata con evidencia: entrega interna]
   J[Medición manual] --> K[Backend y datos aislados]
   K --> L[Referencia, carga y recuperación]
@@ -104,9 +107,11 @@ flowchart LR
 
 ### Android comprobado en CI
 
+La [última candidata Android comprobada](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133), commit `ac6bf53`, aprobó 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna. Las correcciones posteriores de política se comprueban sin generar otro APK mientras el PR esté en borrador.
+
 El proyecto EAS es `anth.oi/sport-center-mobile` y el paquete Android es `com.markadw.sportcenter`. GitHub tiene configurado `EXPO_TOKEN`; las credenciales de firma se administran en EAS.
 
-La [revisión de referencia edca463](https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513) aprobó calidad, 96 pruebas del cliente e infraestructura, cuatro contratos HTTP y dos recorridos Android. Su APK terminó en EAS y fue instalada en el emulador API 34. Estos resultados acreditan el incremento de catálogo y detalle básicos.
+Como evidencia histórica, la [revisión de referencia edca463](https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513) aprobó calidad, 96 pruebas del cliente e infraestructura, cuatro contratos HTTP y dos recorridos Android. Su APK terminó en EAS y fue instalada en el emulador API 34. Estos resultados acreditan el incremento de catálogo y detalle básicos.
 
 - `API_TEST_URL` elige el backend de los contratos y del APK; `API_TEST_PRODUCT_ID` fija el producto HTTP y `ANDROID_TEST_PRODUCT_NAME` el producto de Maestro.
 - La preparación comprueba que la API responda y que Android tenga una red validada. Los flujos arrancan con estado limpio.
@@ -152,6 +157,12 @@ La aplicación usa rutas en `src/app/`, vistas y estado por función en `src/fea
 [DeepWiki del repositorio](https://deepwiki.com/Markadw/SportCenter-mobile) sigue mostrando el índice del commit `f24ccc` de `main`, según la revisión del 26 de octubre. Ese índice aún no documenta este PR. El código, los workflows y este README son la referencia actual; la actualización de DeepWiki queda pendiente de una indexación de la versión integrada. No se modifica `main` para adelantarla.
 
 
+## Alcance de las historias
+
+Los criterios de HU-03 (#9) y HU-04 (#10) del tablero actual cubren catálogo y detalle públicos con datos reales y manejo de estados. Las acciones de compra se desarrollan en las historias correspondientes y se validan contra sus contratos reales de API.
+
+La matriz `tests/plan.json` referencia las nueve issues vigentes. Los estados del tablero requieren conciliación con las entregas: una issue cerrada o una fecha vencida no sustituye la evidencia de implementación.
+
 ## Ramas y revisión
 
 - `main`: versiones terminadas y comprobadas.
@@ -159,6 +170,8 @@ La aplicación usa rutas en `src/app/`, vistas y estado por función en `src/fea
 - `feature/<tarea>`, `fix/<tarea>` y `chore/<tarea>`: trabajo con alcance concreto desde develop; PR hacia develop.
 - `release/<version>`: opcional para preparar una entrega desde develop; PR a main y reintegración de sus correcciones a develop.
 - `hotfix/<problema>`: corrección urgente desde una versión publicada en main; integrar también en develop.
+
+Las versiones de entrega utilizarán SemVer (`MAJOR.MINOR.PATCH`) y tags `vX.Y.Z` sobre versiones revisadas e integradas en `main`.
 
 Cada tarea incluye el código, las pruebas y la configuración que necesita. Las ramas muestran el proyecto completo; los commits y la pestaña Files changed del PR delimitan el trabajo realizado. Si hay dependencias entre tareas, integrar primero la base y después continuar desde develop actualizado.
 
