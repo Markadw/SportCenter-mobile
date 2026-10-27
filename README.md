@@ -9,11 +9,11 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. El cliente incorpora registro, verificación de correo y reenvío en el PR #36. El inicio de sesión se desarrolla por separado en el PR #37 y continúa pendiente de integración. Carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+El cliente incluye registro, verificación de correo, reenvío e inicio de sesión con control de acceso y sesión en memoria. Las pruebas cubren componentes, servicios y su combinación con transporte simulado, además de contratos HTTP públicos y recorridos públicos Android. Almacenamiento seguro, restauración y renovación de sesión corresponden a MOB-005. Carrito, direcciones, compra/pago, pedidos y gestión del perfil siguen pendientes. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
 
 ## Registro de clientes (HU-01)
 
-El icono de usuario abre el registro. Se solicitan nombre, ambos apellidos, correo, teléfono de 10 dígitos y contraseña con confirmación. Cada contraseña permite mostrar u ocultar su contenido mediante un botón. La contraseña requiere al menos 12 caracteres, mayúscula, minúscula, número y un símbolo admitido por el backend; la ayuda del formulario muestra la lista.
+El icono de usuario abre Iniciar sesión cuando no hay sesión activa; desde allí, «Crear cuenta» abre el registro. Se solicitan nombre, ambos apellidos, correo, teléfono de 10 dígitos y contraseña con confirmación. Cada contraseña permite mostrar u ocultar su contenido mediante un botón. La contraseña requiere al menos 12 caracteres, mayúscula, minúscula, número y un símbolo admitido por el backend; la ayuda del formulario muestra la lista.
 
 El servicio usa los endpoints públicos POST /users/create-user, /users/verify-email y /users/resend-code. Solo envía los seis campos de registro aceptados; la confirmación de contraseña es local. El contrato se revisó en AlexisYazir/back-sport, commit 31ee304d902ec5ec5a9c0fc702eca5e1a531bc16.
 
@@ -21,7 +21,7 @@ Después del registro se introduce el código recibido por correo. El backend es
 
 Las peticiones tienen un límite de espera de 45 segundos y no se repiten automáticamente. Un timeout puede ocurrir después de que el servidor haya procesado el registro: la pantalla indica revisar el correo antes de reintentar. Se bloquean envíos simultáneos y se cancela la espera al salir de la pantalla. La aplicación no guarda contraseñas ni códigos en almacenamiento y descarta el hash y el código presentes en la respuesta actual del backend.
 
-Jest comprueba validaciones, contrato de envío, errores, registro/verificación/reenvío y concurrencia con transporte simulado; estas pruebas automatizadas no crean cuentas en Render. El usuario confirmó en su Android, mediante Expo Go y la API real, el registro, la recepción del primer correo, el rechazo del código incorrecto, la recepción del reenvío y la verificación de la cuenta. El alcance y las limitaciones de esa comprobación están en [el registro manual](tests/manual/registro-cliente.md). El recorrido manual corresponde a HU-01 antes de incorporar la nueva base. Las comprobaciones del PR #36 registrarán los resultados de su actualización; la integración sigue pendiente.
+Jest comprueba validaciones, contrato de envío, errores, registro/verificación/reenvío y concurrencia con transporte simulado; estas pruebas automatizadas no crean cuentas en Render. El usuario confirmó en su Android, mediante Expo Go y la API real, el registro, la recepción del primer correo, el rechazo del código incorrecto, la recepción del reenvío y la verificación de la cuenta. El alcance y las limitaciones de esa comprobación están en [el registro manual](tests/manual/registro-cliente.md). El recorrido manual corresponde a HU-01 antes de incorporar la nueva base. El PR #36 conserva las comprobaciones de registro y su actualización. Tras verificar el correo se puede abrir Iniciar sesión; el registro también permite volver a login mediante «Ya tengo una cuenta».
 
 ## Entorno y arranque
 
@@ -37,6 +37,16 @@ Escanear con Expo Go el QR que muestre esa terminal. Mantener el teléfono y la 
 La API predeterminada es https://back-sport-ghxk.onrender.com. Para cambiarla, copiar `.env.example` a `.env.local` y definir `EXPO_PUBLIC_API_URL`. Recargar completamente la aplicación después del cambio. Los valores EXPO_PUBLIC_ son públicos en el bundle; no guardar secretos allí.
 
 Instalar paquetes con `npx expo install <paquete>` para resolver versiones compatibles con el SDK. Las carpetas android/ e ios/ se generan con Expo; la configuración nativa se mantiene mediante app.json y plugins.
+
+## Inicio de sesión
+
+El icono de usuario abre login o Mi cuenta según la sesión. El formulario usa POST /users/login-user, valida correo y contraseña, admite mostrar/ocultar y presenta los errores sin mostrar detalles internos. Mi cuenta confirma la autenticación; la consulta y edición del perfil corresponden a HU-09.
+
+Los tokens permanecen únicamente en memoria. Al cerrar sesión se retira el acceso local y se solicita el cierre al backend; al vencer el acceso también se retira la sesión. Una recarga completa o un nuevo arranque exige volver a entrar. Almacenamiento seguro, restauración y renovación coordinada quedan en MOB-005. Registro, verificación y reenvío se conectan con este flujo desde HU-01.
+
+Las pruebas Android confirmadas y los casos específicos pendientes están en tests/manual/inicio-sesion.md. Las pruebas automatizadas usan transporte simulado; no acreditan una autenticación real en el teléfono.
+
+La prueba `tests/integration/AuthenticationFlow.test.tsx` recorre registro, reenvío, verificación, login y cierre con transporte simulado. No envía correos ni comprueba un teléfono real.
 
 ## Verificación
 

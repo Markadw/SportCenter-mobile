@@ -1,4 +1,8 @@
 export const ENDPOINTS = {
+  auth: {
+    login: "/users/login-user",
+    logout: "/users/logout",
+  },
   products: {
     list: "/products/get-all-products",
     detail: (id: number | string) => `/products/get-product-details/${id}`,

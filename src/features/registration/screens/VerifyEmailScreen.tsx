@@ -8,8 +8,9 @@ export function VerifyEmailScreen() {
   const vm = useVerificationViewModel(typeof params.email === "string" ? params.email : "");
   if (vm.verified) {
     return (
-      <Form title="Cuenta verificada" description="Tu correo quedó confirmado. Gracias por registrarte en Sport Center.">
-        <FormButton label="Volver a la tienda" onPress={() => router.replace("/")} />
+      <Form title="Cuenta verificada" description="Tu correo quedó confirmado. Ya puedes iniciar sesión en Sport Center.">
+        <FormButton label="Iniciar sesión" onPress={() => router.replace("/login")} />
+        <FormButton label="Volver a la tienda" onPress={() => router.replace("/")} secondary />
       </Form>
     );
   }

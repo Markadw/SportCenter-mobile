@@ -80,7 +80,9 @@
         "__tests__/release-infrastructure.test.js",
         "__tests__/registrationApi.test.ts",
         "__tests__/registrationValidation.test.ts",
-        "__tests__/axiosLogging.test.ts"
+        "__tests__/axiosLogging.test.ts",
+        "__tests__/authApi.test.ts",
+        "__tests__/authLogging.test.ts"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },
@@ -105,9 +107,11 @@
       "files": [
         "tests/integration/Storefront.test.tsx",
         "tests/api/public-contracts.test.js",
-        "tests/integration/Registration.test.tsx"
+        "tests/integration/Registration.test.tsx",
+        "tests/integration/Login.test.tsx",
+        "tests/integration/AuthenticationFlow.test.tsx"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; registro, verificación y reenvío con transporte simulado",
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; registro, verificación y reenvío con transporte simulado; autenticación con transporte simulado: registro, reenvío, verificación, inicio, cierre y sesión en memoria, incluyendo la conexión entre pantallas",
       "environment": {
         "source": "tests/environment/backend-source.json",
         "configuration": "tests/environment/compose.yml",
@@ -225,7 +229,7 @@
       "iteration": "I1",
       "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "partial",
-      "reason": "El recorrido principal de HU-01 fue confirmado por el usuario en Android. La actualización local con la política actual de develop aprobó lint, TypeScript, configuración y 214 pruebas en 15 suites. El commit, la publicación, las comprobaciones remotas y la integración del PR #36 siguen pendientes.",
+      "reason": "Registro, verificación y reenvío integrados mediante PR #36. Se conserva la aceptación manual anterior y se comprueba su conexión con login mediante transporte simulado. Queda por confirmar el recorrido combinado en Android.",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
       "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
       "manualAcceptance": {
@@ -238,19 +242,49 @@
         "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
       },
       "pending": [
-        "Commit, publicación y comprobaciones de la actualización del PR #36 con la política actual de develop",
-        "Revisión de cambios e integración del PR #36"
+        "Confirmar en Android el recorrido combinado de HU-01 y HU-02"
       ],
-      "updateBase": "935725aa7b7a56fe594c0f994437b6dd25abece9"
+      "updateBase": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3"
     },
     {
       "group": "CP-02",
       "story": "HU-02",
       "iteration": "I1",
       "expected": "Credenciales validadas, autenticación con API, sesión establecida, errores controlados y reconocimiento de sesión en rutas privadas.",
-      "status": "not_executed",
-      "reason": "Sesión móvil no disponible",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8"
+      "status": "partial",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8",
+      "available": "Formulario, API, sesión en memoria y conexión con registro implementados. Lint, TypeScript, configuración y 264 pruebas en 19 suites aprobados. La exportación JavaScript Android aprobó; se conserva la comprobación manual anterior del usuario. Las pruebas nuevas del recorrido combinado usan transporte simulado.",
+      "pending": [
+        "Confirmar en Android el recorrido combinado de registro, verificación, inicio y cierre",
+        "Entrada directa, vencimiento natural y cuenta no verificada: casos específicos pendientes en Android",
+        "MOB-005: almacenamiento seguro, restauración y renovación coordinada de sesión"
+      ],
+      "evidence": [
+        "__tests__/authApi.test.ts",
+        "tests/integration/Login.test.tsx",
+        "tests/manual/inicio-sesion.md",
+        "__tests__/authLogging.test.ts"
+      ],
+      "manual": {
+        "executor": "Markadw",
+        "source": "Confirmación del usuario y logs compartidos",
+        "passed": [
+          "Inicio de sesión con cuenta verificada",
+          "Navegación durante la sesión",
+          "Cierre de sesión",
+          "Recarga de la aplicación",
+          "Ajuste del aviso amarillo, con inicio y cierre funcionando"
+        ],
+        "observed": [
+          "Login con respuestas HTTP 400 y posteriores respuestas HTTP 201",
+          "Advertencias LogBox observadas antes del ajuste; ausencia posterior confirmada por el usuario"
+        ],
+        "not_confirmed": [
+          "Entrada directa a /account sin sesión",
+          "Vencimiento natural en Android",
+          "Cuenta no verificada en Android"
+        ]
+      }
     },
     {
       "group": "CP-03",
@@ -282,7 +316,7 @@
       "iteration": "I3",
       "expected": "Consultar y modificar los campos permitidos del perfil propio, validar datos, sincronizar cambios y controlar errores de actualización.",
       "status": "not_executed",
-      "reason": "Perfil y logout móviles no disponibles",
+      "reason": "Consulta y modificación del perfil pendientes. El cierre de sesión en memoria se comprueba dentro de CP-02.",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15"
     },
     {
@@ -372,5 +406,18 @@
     "transport": "simulated",
     "scope": "Verificación local de HU-01 combinada con la política actual de develop. No crea cuentas, no solicita APK y no acredita una nueva comprobación Android. La evidencia manual anterior se conserva por separado.",
     "routerTypes": "Regenerados con Expo CLI para las rutas actuales; archivo local ignorado por Git."
+  },
+  "loginUpdateVerification": {
+    "sourceCommit": "abec61eb16fcdb2af63c60499c5837ce84369703",
+    "developCommit": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3",
+    "lint": "passed",
+    "typecheck": "passed",
+    "configuration": "passed",
+    "clientPassed": 264,
+    "clientSuites": 19,
+    "androidJavaScriptExport": "passed",
+    "combinedFlow": "tests/integration/AuthenticationFlow.test.tsx",
+    "transport": "simulated",
+    "scope": "Combinación de HU-01 y HU-02. Las pruebas no envían correos ni crean cuentas en Render. La exportación no es un APK ni una nueva aceptación en teléfono."
   }
 }

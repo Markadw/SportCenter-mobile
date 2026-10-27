@@ -23,7 +23,7 @@ describe("Registro seguro de rechazos HTTP", () => {
     axiosClient.defaults.adapter = jest.fn().mockRejectedValue(failure);
     await expect(axiosClient.post("/users/create-user?email=privado@example.test", { passw: "clave-ficticia" }))
       .rejects.toBe(failure);
-    expect(info).toHaveBeenCalledWith("[API] ✕ HTTP 400 /users/create-user");
+    expect(info).toHaveBeenCalledWith("[API] ← HTTP 400 /users/create-user");
     expect(warn).not.toHaveBeenCalled();
     expect(JSON.stringify(info.mock.calls)).not.toMatch(/privado|clave-ficticia|SMTP|detalle-interno/);
   });

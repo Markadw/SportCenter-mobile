@@ -8,6 +8,8 @@ module.exports = {
   collectCoverageFrom: [
     'src/api/registrationApi.ts',
     'src/features/registration/**/*.{ts,tsx}',
+    'src/api/authApi.ts',
+    'src/features/auth/**/*.{ts,tsx}',
     'src/api/productsApi.ts',
     'src/api/catalogApi.ts',
     'src/features/catalog/context/FiltersContext.tsx',

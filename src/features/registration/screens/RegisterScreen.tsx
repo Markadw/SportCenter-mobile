@@ -1,9 +1,11 @@
+import { useRouter } from "expo-router";
 import { Field, Form, FormButton, FormMessage } from "../components/Form";
 import { useRegisterViewModel } from "../hooks/useRegisterViewModel";
 import { PASSWORD_HELP } from "../validation";
 
 export function RegisterScreen() {
   const vm = useRegisterViewModel();
+  const router = useRouter();
   return (
     <Form title="Crear cuenta" description="Todos los campos son obligatorios. Al registrarte recibirás un código por correo para verificar tu cuenta.">
       <Field label="Nombre" autoCapitalize="words" autoComplete="given-name"
@@ -31,6 +33,7 @@ export function RegisterScreen() {
         returnKeyType="done" onSubmitEditing={() => void vm.submit()} />
       <FormMessage text={vm.error} error />
       <FormButton label="Crear cuenta" onPress={() => void vm.submit()} busy={vm.pending} />
+      <FormButton label="Ya tengo una cuenta" onPress={() => router.replace("/login")} disabled={vm.pending} secondary />
       <FormButton label="Ya tengo un código" onPress={vm.resumeVerification} disabled={vm.pending} secondary />
     </Form>
   );
