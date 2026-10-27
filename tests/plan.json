@@ -55,7 +55,7 @@
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR en borrador: calidad, HTTP e inspección sin APK. PR listo con cambios de aplicación, dependencias, build o aceptación: Android obligatorio; un PR sólo de herramientas/documentación no recompila. Main y candidatas manuales mantienen Android. Fallos de etapas requeridas bloquean; no hay reintentos ni builds programados."
+      "execution": "PR a develop, en borrador o listo: lint, TypeScript, pruebas del cliente, HTTP e inspección obligatorios, sin APK ni Android automáticos. Android puede solicitarse mediante ejecución manual en develop; si se solicita, exige compilación EAS y aceptación aprobadas. Main y candidatas manuales conservan su política Android. Fallos u omisiones de etapas requeridas bloquean; no hay reintentos ni builds programados."
     },
     {
       "id": 3,
@@ -225,7 +225,7 @@
       "iteration": "I1",
       "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "partial",
-      "reason": "El recorrido principal de HU-01 fue confirmado por el usuario en Android. La combinación local con develop aprobó lint, TypeScript, configuración y 213 pruebas en 15 suites; las comprobaciones remotas y la integración del PR #36 siguen pendientes.",
+      "reason": "El recorrido principal de HU-01 fue confirmado por el usuario en Android. La actualización local con la política actual de develop aprobó lint, TypeScript, configuración y 214 pruebas en 15 suites. El commit, la publicación, las comprobaciones remotas y la integración del PR #36 siguen pendientes.",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
       "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
       "manualAcceptance": {
@@ -238,10 +238,10 @@
         "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
       },
       "pending": [
-        "Publicación y comprobaciones de la actualización del PR #36 sobre develop",
+        "Commit, publicación y comprobaciones de la actualización del PR #36 con la política actual de develop",
         "Revisión de cambios e integración del PR #36"
       ],
-      "updateBase": "d5c842a95122372d5c6f6c401d88cd7efc759c78"
+      "updateBase": "935725aa7b7a56fe594c0f994437b6dd25abece9"
     },
     {
       "group": "CP-02",
@@ -362,15 +362,15 @@
     "scope": "Verificación local; el resultado remoto del nuevo commit debe consultarse en GitHub Actions."
   },
   "registrationUpdateVerification": {
-    "sourceCommit": "a2a9676aa259538ff208a7af27d831ac79dd60a5",
-    "developCommit": "d5c842a95122372d5c6f6c401d88cd7efc759c78",
-    "clientTestsPassed": 213,
+    "sourceCommit": "f0327aa578d86af2f7a95bdffc55a8b9904ba7b7",
+    "developCommit": "935725aa7b7a56fe594c0f994437b6dd25abece9",
+    "clientTestsPassed": 214,
     "suitesPassed": 15,
     "lint": "passed",
     "typecheck": "passed",
     "configuration": "passed",
     "transport": "simulated",
-    "scope": "Verificación de la combinación local de HU-01 y develop. No crea cuentas ni acredita una nueva comprobación Android.",
+    "scope": "Verificación local de HU-01 combinada con la política actual de develop. No crea cuentas, no solicita APK y no acredita una nueva comprobación Android. La evidencia manual anterior se conserva por separado.",
     "routerTypes": "Regenerados con Expo CLI para las rutas actuales; archivo local ignorado por Git."
   }
 }
