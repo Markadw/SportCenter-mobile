@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const YAML = require('yaml');
-const { executionPlan, evaluateChecks, applicationChanged, pushQuality } = require('../scripts/pipeline-policy');
+const { executionPlan, evaluateChecks, pushQuality } = require('../scripts/pipeline-policy');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const { clientSummary } = require('../scripts/write-test-summary');
 const { apiSummary } = require('../scripts/write-api-summary');
@@ -21,9 +21,9 @@ describe('Matriz y bloqueo de integración', () => {
     'el push a %s sólo exige calidad rápida', (branch) => {
       expect(executionPlan({ event: 'push', branch })).toEqual({ stage: 'trabajo', android: false, evidence: false });
     });
-  test('el PR a develop exige Android y evita artefactos ordinarios', () => {
+  test('el PR a develop omite APK y Android y evita artefactos ordinarios', () => {
     expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'feature/catalogo' }))
-      .toEqual({ stage: 'revision', android: true, evidence: false });
+      .toEqual({ stage: 'revision', android: false, evidence: false });
   });
   test('el merge a develop comprueba integración sin repetir Android', () => {
     expect(executionPlan({ event: 'push', branch: 'develop' }))
@@ -42,11 +42,13 @@ describe('Matriz y bloqueo de integración', () => {
   test('rechaza ramas fuera del flujo', () => {
     expect(() => executionPlan({ event: 'push', branch: 'otra' })).toThrow('fuera');
   });
-  test.each(['failure', 'skipped', 'cancelled', undefined])('bloquea una API con resultado %s', (api) => {
-    expect(evaluateChecks({ plan: 'success', quality: 'success', api, performance: 'success', android: 'success' }, true))
-      .toEqual(['api']);
+  test.each(['plan', 'quality', 'api', 'performance'])('la comprobación %s sigue siendo obligatoria sin Android', (name) => {
+    const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
+    for (const result of ['failure', 'skipped', 'cancelled', undefined]) {
+      expect(evaluateChecks({ ...results, [name]: result }, false)).toEqual([name]);
+    }
   });
-  test('una aceptación omitida bloquea el PR pero es opcional después del merge a develop', () => {
+  test('Android omitido permite integrar en develop pero bloquea una ejecución que lo exige', () => {
     const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
     expect(evaluateChecks(results, true)).toEqual(['android']);
     expect(evaluateChecks(results, false)).toEqual([]);
@@ -63,6 +65,13 @@ describe('Matriz y bloqueo de integración', () => {
       const passed = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'gate'],
         { env: { ...env, RESULT_API: 'success', RESULT_ANDROID: 'success' }, encoding: 'utf8' });
       expect(passed.status).toBe(0);
+      const withoutAndroid = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'gate'],
+        { env: { ...env, REQUIRE_ANDROID: 'false', RESULT_API: 'success' }, encoding: 'utf8' });
+      expect(withoutAndroid.status).toBe(0);
+      expect(fs.readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8')).toContain('| android | skipped |');
+      const failedHttp = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'gate'],
+        { env: { ...env, REQUIRE_ANDROID: 'false' }, encoding: 'utf8' });
+      expect(failedHttp.status).toBe(1);
     } finally {
       if (path.dirname(path.resolve(temp)) !== path.resolve(os.tmpdir()) || !path.basename(temp).startsWith('sport-pipeline-')) {
         throw new Error('Ruta temporal de prueba inesperada.');
@@ -86,6 +95,31 @@ describe('Dependencias reales de los YAML', () => {
     const config = workflows();
     config.get('api-android.yml').jobs.api.needs = ['plan'];
     expect(() => validateWorkflows(config)).toThrow('HTTP requiere calidad');
+  });
+  test.each(['lint', 'types', 'tests'])('no permite omitir %s del workflow de calidad', (id) => {
+    const config = workflows();
+    config.get('ci.yml').jobs.validate.steps = config.get('ci.yml').jobs.validate.steps.filter((step) => step.id !== id);
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+  test('no permite ocultar fallos de calidad mediante continue-on-error', () => {
+    const config = workflows();
+    config.get('api-android.yml').jobs.quality['continue-on-error'] = true;
+    expect(() => validateWorkflows(config)).toThrow('No ocultar fallos del job');
+  });
+  test('no permite exigir Android al margen de la matriz', () => {
+    const config = workflows();
+    config.get('api-android.yml').jobs.integration.steps[1].env.REQUIRE_ANDROID = 'true';
+    expect(() => validateWorkflows(config)).toThrow('bloqueo Android debe seguir la matriz');
+  });
+  test('no permite sustituir el resultado HTTP por un éxito fijo', () => {
+    const config = workflows();
+    config.get('api-android.yml').jobs.integration.steps[1].env.RESULT_API = 'success';
+    expect(() => validateWorkflows(config)).toThrow('comprobación real: api');
+  });
+  test('no permite ejecutar Android automáticamente fuera de la matriz', () => {
+    const config = workflows();
+    config.get('api-android.yml').jobs.android.if = 'always()';
+    expect(() => validateWorkflows(config)).toThrow('Android sólo se ejecuta');
   });
   test('rechaza guardar capturas en una carpeta oculta que no se conserva como evidencia', () => {
     const config = workflows();
@@ -215,29 +249,47 @@ describe('Evitar trabajo duplicado sin omitir cambios de aplicación', () => {
   test('una consulta fallida no produce una omisión aprobada', async () => {
     await expect(pushQuality({ repository: 'owner/repo', branch: 'feature/app', sha: 'actual' }, async () => { throw new Error('HTTP 403'); })).rejects.toThrow('HTTP 403');
   });
-  test('un PR en borrador no compila; la candidata lista con app sí', () => {
-    const event = { event: 'pull_request', base: 'develop', head: 'feature/app', appChanged: true };
-    expect(executionPlan({ ...event, draft: true }).android).toBe(false);
-    expect(executionPlan({ ...event, draft: false }).android).toBe(true);
+});
+
+describe('Android opcional en develop', () => {
+  test.each([true, false])('un PR a develop con draft=%s no solicita APK aunque incluya evidencia', (draft) => {
+    expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'feature/app', draft, evidence: true }))
+      .toEqual({ stage: draft ? 'borrador' : 'revision', android: false, evidence: true });
   });
-  test('un PR sólo de herramientas no compila Android', () => {
-    expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'chore/ci', appChanged: false }).android).toBe(false);
+  test.each([false, true])('la ejecución manual de develop respeta run_android=%s', (android) => {
+    expect(executionPlan({ event: 'workflow_dispatch', branch: 'develop', android }))
+      .toEqual({ stage: 'integracion', android, evidence: false });
   });
-  test.each(['src/app/index.tsx', 'assets/logo.png', 'app.json', 'eas.json', 'package-lock.json', '.maestro/catalogo-publico.yaml', 'scripts/android-ci.js', 'scripts/wait-for-service.js', 'plugin-desconocido.js'])(
-    'el cambio %s requiere Android al preparar candidata', (file) => expect(applicationChanged([file], () => '')).toBe(true));
-  test('pruebas, informes y documentación no modifican el APK', () => {
-    expect(applicationChanged(['README.md','tests/plan.json','scripts/run-static-analysis.js','__tests__/pipelines.test.js','.github/workflows/ci.yml'], () => '')).toBe(false);
+  test.each(['release/1.0', 'hotfix/1.0'])('la candidata manual %s sigue exigiendo Android', (branch) => {
+    expect(executionPlan({ event: 'workflow_dispatch', branch, android: false }))
+      .toEqual({ stage: 'candidata', android: true, evidence: true });
   });
-  test('scripts de informes en package.json no equivalen a dependencias nuevas', () => {
-    const before = { dependencies: { expo: '57' }, scripts: { lint: 'expo lint' } };
-    const after = { ...before, scripts: { ...before.scripts, 'lint:report': 'node report.js' } };
-    expect(applicationChanged(['package.json'], (side) => JSON.stringify(side === 'base' ? before : after))).toBe(false);
-    after.dependencies = { expo: '58' };
-    expect(applicationChanged(['package.json'], (side) => JSON.stringify(side === 'base' ? before : after))).toBe(true);
+  test('main conserva Android obligatorio en push y omisión mientras el PR es borrador', () => {
+    expect(executionPlan({ event: 'push', branch: 'main' }))
+      .toEqual({ stage: 'entrega', android: true, evidence: true });
+    expect(executionPlan({ event: 'pull_request', base: 'main', head: 'develop', draft: true }))
+      .toEqual({ stage: 'borrador', android: false, evidence: true });
   });
-  test('cambiar compilación o aceptación sí requiere otro APK', () => {
-    const before = 'jobs:\n  plan:\n    name: anterior\n  android:\n    name: aceptar\n  integration:\n    name: final\n';
-    expect(applicationChanged(['.github/workflows/api-android.yml'], (side) => side === 'base' ? before : before.replace('anterior','nuevo'))).toBe(false);
-    expect(applicationChanged(['.github/workflows/api-android.yml'], (side) => side === 'base' ? before : before.replace('aceptar','compilar y aceptar'))).toBe(true);
+  test('el plan real de PR a develop no necesita clasificar archivos para omitir Android', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'sport-pipeline-'));
+    try {
+      const event = path.join(temp, 'event.json');
+      const output = path.join(temp, 'output.txt');
+      const summary = path.join(temp, 'summary.md');
+      fs.writeFileSync(event, JSON.stringify({ pull_request: { draft: false } }));
+      const result = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'plan'], {
+        env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_BASE_REF: 'develop',
+          GITHUB_HEAD_REF: 'feature/app', GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
+          GITHUB_STEP_SUMMARY: summary, RUN_ANDROID: 'false', KEEP_EVIDENCE: 'false' }, encoding: 'utf8',
+      });
+      expect(result.status).toBe(0);
+      expect(fs.readFileSync(output, 'utf8')).toBe('android=false\nevidence=false\n');
+      expect(fs.readFileSync(summary, 'utf8')).toContain('No se acredita aceptación Android');
+    } finally {
+      if (path.dirname(path.resolve(temp)) !== path.resolve(os.tmpdir()) || !path.basename(temp).startsWith('sport-pipeline-')) {
+        throw new Error('Ruta temporal de prueba inesperada.');
+      }
+      fs.rmSync(temp, { recursive: true });
+    }
   });
 });

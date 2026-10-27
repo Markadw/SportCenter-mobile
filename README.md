@@ -62,7 +62,9 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los flujos Maestro de catálogo y detalle se ejecutan sobre un APK candidato en un emulador Android API 34 de GitHub. Un PR en borrador ejecuta calidad e integración sin generar APK. Al marcarlo listo, Android es obligatorio si cambia la aplicación, dependencias, compilación o flujos de aceptación; también es obligatorio para entregas a main. Un PR sólo de informes, pruebas de herramientas o documentación no recompila; después de un merge a develop se ejecuta regresión del cliente y HTTP sin repetir Android. La ejecución manual permite incluir Android en develop. Un fallo de calidad o HTTP impide compilar y ejecutar aceptación.
+Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, contratos HTTP e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar una candidata Android de develop, se puede ejecutar manualmente **Integración y aceptación móvil**, seleccionar la rama `develop` y activar `run_android`. El push posterior a un merge tampoco repite Android. Un fallo de calidad o HTTP bloquea la integración.
+
+Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. Cuando se solicita Android manualmente, deben aprobar tanto la compilación EAS como Maestro. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
@@ -72,7 +74,8 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 | --- | --- | --- |
 | Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Calidad si no hay PR para ese commit; con PR se evita repetirla |
 | PR en borrador | develop o main | Calidad, contratos HTTP e inspección k6; sin compilar APK |
-| PR listo | develop o main | Lo anterior; Android para cambios de app/build/aceptación o entrega a main |
+| PR listo | develop | Calidad, contratos HTTP e inspección k6; sin APK ni Android automáticos |
+| PR listo | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
@@ -82,7 +85,7 @@ El merge se atiende mediante push a su destino. No se añade un segundo disparad
 
 El resumen de calidad incluye versión, código de salida y diagnósticos de ESLint y TypeScript. TypeScript se ejecuta aunque ESLint falle para informar ambos resultados; las pruebas posteriores e integración continúan bloqueadas. Un informe ausente, de otra ejecución o de una etapa omitida se señala explícitamente. Los JSON se incluyen en el mismo `client-evidence`, sin añadir artefactos.
 
-Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main, en candidatas manuales y en PR marcados con la etiqueta `evidencia`. La etiqueta permite guardar una candidata concreta sin archivar cada push ordinario. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva un único paquete con sus JSON y resumen. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
+Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main, en candidatas manuales y en PR marcados con la etiqueta `evidencia`. La etiqueta `evidencia` conserva informes; en los PR a develop no activa APK ni Android. La entrega interna requiere además una ejecución con Android aprobado. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva un único paquete con sus JSON y resumen. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
 
 Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
 
@@ -94,12 +97,12 @@ flowchart LR
   C[PR a develop o main] --> D[Calidad]
   D --> E[Contratos HTTP compartidos y locales]
   D --> F[Inspección k6]
-  E --> G[Candidata lista con cambios de app: EAS y Android]
+  E --> G[Entrega o Android manual solicitado: EAS y Maestro]
   F --> G
   E --> H[Resultado de integración]
   F --> H
   G --> H
-  H --> I[Candidata con evidencia: entrega interna]
+  H --> I[Candidata con evidencia y Android aprobado: entrega interna]
   J[Medición manual] --> K[Backend y datos aislados]
   K --> L[Referencia, carga y recuperación]
 ```
@@ -107,7 +110,7 @@ flowchart LR
 
 ### Android comprobado en CI
 
-La [última candidata Android comprobada](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133), commit `ac6bf53`, aprobó 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna. Las correcciones posteriores de política se comprueban sin generar otro APK mientras el PR esté en borrador.
+Como evidencia histórica, la [candidata ac6bf53](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133) aprobó 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna. Esta evidencia cubre catálogo y detalle. La matriz anterior describe la política actual: los PR hacia develop comprueban calidad y HTTP sin generar APK automáticamente.
 
 El proyecto EAS es `anth.oi/sport-center-mobile` y el paquete Android es `com.markadw.sportcenter`. GitHub tiene configurado `EXPO_TOKEN`; las credenciales de firma se administran en EAS.
 
@@ -175,7 +178,7 @@ Las versiones de entrega utilizarán SemVer (`MAJOR.MINOR.PATCH`) y tags `vX.Y.Z
 
 Cada tarea incluye el código, las pruebas y la configuración que necesita. Las ramas muestran el proyecto completo; los commits y la pestaña Files changed del PR delimitan el trabajo realizado. Si hay dependencias entre tareas, integrar primero la base y después continuar desde develop actualizado.
 
-`develop` exige PR, una aprobación de otro integrante, conversaciones resueltas y el check `Resultado de integración` aprobado y actualizado con la base. La regla también se aplica a administradores e impide force-push y borrado. `main` conserva su configuración y contenido actuales; su protección se atenderá al preparar la versión terminada.
+`develop` exige PR, conversaciones resueltas y el check `Resultado de integración` aprobado y actualizado con la base. La aprobación humana de otro colaborador es opcional, conforme al flujo acordado. La regla también se aplica a administradores e impide force-push y borrado. `main` conserva su configuración y contenido actuales; su protección se atenderá al preparar la versión terminada.
 
 ## Carpetas
 
