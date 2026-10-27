@@ -1,6 +1,23 @@
 {
   "build": {
-    "preview": { "distribution": "internal", "android": { "buildType": "apk" } },
-    "production": { "android": { "buildType": "app-bundle" } }
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "node": "22.20.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://back-sport-ghxk.onrender.com"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "node": "22.20.0"
+    }
+  },
+  "cli": {
+    "appVersionSource": "local"
   }
 }
