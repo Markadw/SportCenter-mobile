@@ -14,8 +14,16 @@ import { registrationForm } from "../../__tests__/fixtures/registration";
 type Target = string | { pathname: string; params?: Record<string, string> };
 let mockNavigate: ((target: Target) => void) | undefined;
 let mockParams: Record<string, string> = {};
-const mockPush = jest.fn((target: Target) => mockNavigate?.(target));
-const mockReplace = jest.fn((target: Target) => mockNavigate?.(target));
+let mockHistory: string[] = [];
+const mockPath = (target: Target) => typeof target === "string" ? target : target.pathname;
+const mockPush = jest.fn((target: Target) => {
+  mockHistory.push(mockPath(target));
+  mockNavigate?.(target);
+});
+const mockReplace = jest.fn((target: Target) => {
+  mockHistory.splice(-1, 1, mockPath(target));
+  mockNavigate?.(target);
+});
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useLocalSearchParams: () => mockParams,
@@ -25,7 +33,7 @@ jest.mock("expo-router", () => ({
   },
   Redirect: ({ href }: { href: string }) => {
     const { useEffect: effectHook } = jest.requireActual("react");
-    effectHook(() => { mockNavigate?.(href); }, [href]);
+    effectHook(() => { mockReplace(href); }, [href]);
     return null;
   },
 }));
@@ -54,6 +62,7 @@ function response(config: InternalAxiosRequestConfig, data: unknown) {
 }
 beforeEach(() => {
   mockParams = {};
+  mockHistory = ["/login"];
   mockPush.mockClear();
   mockReplace.mockClear();
   adapter = jest.fn(async (config) => {
@@ -109,6 +118,7 @@ describe("HU-01 y HU-02: conexión entre las funciones con transporte simulado",
     await fireEvent.press(screen.getByRole("button", { name: "Iniciar sesión" }));
     await waitFor(() => expect(screen.getByText("Has iniciado sesión en Sport Center.")).toBeTruthy());
     expect(JSON.parse(adapter.mock.calls[3][0].data)).toEqual({ email: registrationForm.email, passw: registrationForm.passw });
+    expect(mockHistory).toEqual(["/account"]);
     await fireEvent.press(screen.getByRole("button", { name: "Cerrar sesión" }));
     await waitFor(() => expect(screen.getByLabelText("Contraseña")).toBeTruthy());
     expect(screen.getByLabelText("Contraseña").props.value).toBe("");
@@ -128,6 +138,7 @@ describe("HU-01 y HU-02: conexión entre las funciones con transporte simulado",
     expect(screen.getByLabelText("Contraseña").props.value).toBe("");
     expect(screen.queryByLabelText("Confirmar contraseña")).toBeNull();
     expect(adapter).not.toHaveBeenCalled();
+    expect(mockHistory).toEqual(["/login"]);
     await view.unmount();
   });
 });
