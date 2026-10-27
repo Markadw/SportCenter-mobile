@@ -23,6 +23,7 @@ name: CP-04 detalle publico en Android
     element:
       text: "Categoría"
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - assertVisible: "Categoría"
 - takeScreenshot: cp04-categoria
@@ -30,6 +31,7 @@ name: CP-04 detalle publico en Android
     element:
       text: "Descripción"
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - assertVisible: "Descripción"
 - takeScreenshot: cp04-descripcion
