@@ -60,7 +60,7 @@ export function LoginScreen() {
               <Text style={styles.buttonLabel}>{vm.pending ? "Ingresando…" : "Iniciar sesión"}</Text>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Crear cuenta"
-              disabled={vm.pending} onPress={() => router.push("/register")} style={styles.guest}>
+              disabled={vm.pending} onPress={() => router.replace("/register")} style={styles.guest}>
               <Text style={styles.link}>Crear cuenta</Text>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => router.replace("/catalog")} style={styles.guest}>
