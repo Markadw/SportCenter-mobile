@@ -56,7 +56,9 @@ export const AppHeader = ({ showSearch = true }: Props) => {
 
         <Pressable
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          onPress={() => router.push("/catalog")}
+          onPress={() => router.push("/register")}
+          accessibilityRole="button"
+          accessibilityLabel="Crear cuenta"
           hitSlop={6}
         >
           <User size={20} color={colors.white} />

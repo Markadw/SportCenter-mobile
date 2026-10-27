@@ -9,7 +9,19 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
 
-La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. Autenticación permanece pendiente de integración. Carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+La infraestructura de pruebas cubre lógica, componentes e integración del cliente con transporte simulado. El cliente incorpora registro, verificación de correo y reenvío en el PR #36. El inicio de sesión se desarrolla por separado en el PR #37 y continúa pendiente de integración. Carrito, direcciones, compra/pago, historial y gestión de datos personales forman parte del desarrollo pendiente. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+
+## Registro de clientes (HU-01)
+
+El icono de usuario abre el registro. Se solicitan nombre, ambos apellidos, correo, teléfono de 10 dígitos y contraseña con confirmación. Cada contraseña permite mostrar u ocultar su contenido mediante un botón. La contraseña requiere al menos 12 caracteres, mayúscula, minúscula, número y un símbolo admitido por el backend; la ayuda del formulario muestra la lista.
+
+El servicio usa los endpoints públicos POST /users/create-user, /users/verify-email y /users/resend-code. Solo envía los seis campos de registro aceptados; la confirmación de contraseña es local. El contrato se revisó en AlexisYazir/back-sport, commit 31ee304d902ec5ec5a9c0fc702eca5e1a531bc16.
+
+Después del registro se introduce el código recibido por correo. El backend establece vigencia de 24 horas y 3 intentos; reenviar genera un código nuevo. La verificación no inicia sesión. «Ya tengo un código» permite retomar el proceso después de salir de la app o perder la conexión.
+
+Las peticiones tienen un límite de espera de 45 segundos y no se repiten automáticamente. Un timeout puede ocurrir después de que el servidor haya procesado el registro: la pantalla indica revisar el correo antes de reintentar. Se bloquean envíos simultáneos y se cancela la espera al salir de la pantalla. La aplicación no guarda contraseñas ni códigos en almacenamiento y descarta el hash y el código presentes en la respuesta actual del backend.
+
+Jest comprueba validaciones, contrato de envío, errores, registro/verificación/reenvío y concurrencia con transporte simulado; estas pruebas automatizadas no crean cuentas en Render. El usuario confirmó en su Android, mediante Expo Go y la API real, el registro, la recepción del primer correo, el rechazo del código incorrecto, la recepción del reenvío y la verificación de la cuenta. El alcance y las limitaciones de esa comprobación están en [el registro manual](tests/manual/registro-cliente.md). El recorrido manual corresponde a HU-01 antes de incorporar la nueva base. Las comprobaciones del PR #36 registrarán los resultados de su actualización; la integración sigue pendiente.
 
 ## Entorno y arranque
 
@@ -110,7 +122,13 @@ flowchart LR
 
 ### Android comprobado en CI
 
-Como evidencia histórica, la [candidata ac6bf53](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133) aprobó 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna. Esta evidencia cubre catálogo y detalle. La matriz anterior describe la política actual: los PR hacia develop comprueban calidad y HTTP sin generar APK automáticamente.
+La [candidata del PR #35](https://github.com/Markadw/SportCenter-mobile/actions/runs/40506781998), sobre `ee736e8`, aprobó 140 pruebas, cuatro contratos por entorno y dos recorridos públicos Android. El APK preview terminó en EAS con el identificador `812e78fa-1511-40c7-89d9-de796a8fba01`. Esta aceptación comprueba catálogo y detalle.
+
+La [validación de la base integrada](https://github.com/Markadw/SportCenter-mobile/actions/runs/40537859651), commit `d5c842a`, aprobó calidad, 140 pruebas, contratos HTTP e inspección k6 después del merge a develop, sin repetir APK ni Android. La comprobación manual de registro se conserva por separado en HU-01.
+
+La [candidata histórica ac6bf53](https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133) conserva su evidencia de 122 pruebas, cuatro contratos por entorno, dos recorridos Android y entrega interna.
+
+La [validación de la política integrada en develop](https://github.com/Markadw/SportCenter-mobile/actions/runs/40563479112), commit `935725a`, aprobó lint, TypeScript, 141 pruebas, cuatro contratos HTTP por entorno e inspección k6. Resultado de integración aprobó sin APK ni Android. Esa ejecución comprueba la base de automatización; las pruebas de HU-01 y su aceptación manual se mantienen por separado.
 
 El proyecto EAS es `anth.oi/sport-center-mobile` y el paquete Android es `com.markadw.sportcenter`. GitHub tiene configurado `EXPO_TOKEN`; las credenciales de firma se administran en EAS.
 

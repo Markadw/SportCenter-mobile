@@ -70,7 +70,14 @@ if (__DEV__) {
           ? `HTTP ${error.response.status}`
           : "Sin respuesta del servidor";
 
-        console.warn(`[API] ✕ ${status} ${safeEndpoint(error.config?.url)}`);
+        const message = `[API] ✕ ${status} ${safeEndpoint(error.config?.url)}`;
+        // Los rechazos 4xx se presentan en el formulario y siguen rechazando
+        // la promesa. Registrarlos sin activar LogBox en cada intento inválido.
+        if (error.response && error.response.status >= 400 && error.response.status < 500) {
+          console.info(message);
+        } else {
+          console.warn(message);
+        }
       } else {
         console.warn("[API] ✕ Error inesperado");
       }
