@@ -45,7 +45,10 @@
       "files": [
         "__tests__/productsApi.test.ts",
         "__tests__/catalogApi.test.ts",
-        "__tests__/FiltersModal.test.tsx"
+        "__tests__/FiltersModal.test.tsx",
+        "__tests__/registrationApi.test.ts",
+        "__tests__/registrationValidation.test.ts",
+        "__tests__/axiosLogging.test.ts"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },
@@ -69,7 +72,8 @@
       ],
       "files": [
         "tests/integration/Storefront.test.tsx",
-        "tests/api/public-contracts.test.js"
+        "tests/api/public-contracts.test.js",
+        "tests/integration/Registration.test.tsx"
       ],
       "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión"
     },
@@ -82,10 +86,11 @@
       ],
       "files": [
         ".maestro/catalogo-publico.yaml",
-        ".maestro/detalle-producto.yaml"
+        ".maestro/detalle-producto.yaml",
+        "tests/manual/registro-cliente.md"
       ],
-      "status": "not_executed",
-      "reason": "Faltan APK instalado, identificador real y dispositivo configurado. Los demás módulos aún no están implementados."
+      "status": "partial",
+      "reason": "HU-01: recorrido manual con API real confirmado por el usuario en Android/Expo Go. Los flujos Maestro requieren APK y runner Android; no se ejecutaron en esta comprobación."
     },
     {
       "type": "regresion",
@@ -124,8 +129,22 @@
       "story": "HU-01",
       "iteration": "I1",
       "expected": "Registro, activación y reenvío sin iniciar sesión antes de activar",
-      "status": "not_executed",
-      "reason": "Registro y activación móviles no disponibles"
+      "status": "partial",
+      "reason": "Recorrido principal aprobado manualmente en Android por el usuario el 2026-10-27; pendiente commit, revisión e integración.",
+      "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
+      "pending": [
+        "Commit, revisión e integración de feature/registro-cliente"
+      ],
+      "manualAcceptance": {
+        "status": "passed_user_reported",
+        "date": "2026-10-27",
+        "environment": "Android físico con Expo Go compatible con SDK 57",
+        "record": "tests/manual/registro-cliente.md",
+        "scope": "Registro, recepción de correo, rechazo del código incorrecto, reenvío y verificación",
+        "source": "Confirmación textual del usuario; sin observación directa ni capturas nuevas",
+        "baseCommit": "509a050188cc4cc9c9a4b432473f107d69bab4ee",
+        "commit": null
+      }
     },
     {
       "group": "CP-02",

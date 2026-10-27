@@ -23,6 +23,8 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: colors.white },
             }}>
             <Stack.Screen name="index" />
+            <Stack.Screen name="register" options={{ headerTitle: "Crear cuenta" }} />
+            <Stack.Screen name="verify-email" options={{ headerTitle: "Verificar correo" }} />
             <Stack.Screen name="catalog" options={{ headerShown: false }} />
             <Stack.Screen
               name="product/[id]"

@@ -6,6 +6,11 @@ export const ENDPOINTS = {
     brands: "/products/get-all-marcas",
     sports: "/products/menu/sports",
   },
+  registration: {
+    create: "/users/create-user",
+    verify: "/users/verify-email",
+    resend: "/users/resend-code",
+  },
   banners: {
     list: "/company/banner",
   },
