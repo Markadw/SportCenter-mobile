@@ -17,12 +17,18 @@ function validateWorkflows(workflows) {
   assert.deepEqual(integration.on.push.branches, ['develop', 'main']);
   assert.equal(integration.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');
+  assert.ok(integration.jobs.api.steps.some((step) => step.id === 'readiness'
+    && step.run === 'node scripts/wait-for-service.js'), 'HTTP requiere comprobar disponibilidad de la API');
   assert.deepEqual(integration.jobs.android.needs, ['plan', 'quality', 'api', 'performance'], 'Android requiere calidad, API e inspección aprobadas');
   assert.equal(integration.jobs.android['runs-on'], 'ubuntu-latest', 'Android debe disponer de un runner alojado');
   assert.ok(integration.jobs.android.steps.some((step) => step.run?.includes('--wait --json')), 'Debe esperar el resultado real del build');
   const acceptance = integration.jobs.android.steps.find((step) => step.id === 'acceptance');
   assert.ok(acceptance?.with?.script?.includes('--test-output-dir test-results/maestro'),
     'Maestro debe conservar capturas en el directorio de evidencia sin carpetas ocultas');
+  const androidScript = acceptance.with.script;
+  assert.ok(androidScript.indexOf('node scripts/wait-for-service.js --android') >= 0
+    && androidScript.indexOf('node scripts/wait-for-service.js --android') < androidScript.indexOf('maestro test'),
+  'Android requiere comprobar red y API antes de Maestro');
   const androidEvidence = integration.jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(androidEvidence?.with?.path?.split('\n').includes('test-results/maestro/'),
     'El artefacto Android debe incluir las capturas de Maestro');

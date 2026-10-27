@@ -64,6 +64,11 @@ jobs:
       - name: Instalar dependencias del lockfile
         id: install
         run: npm ci --no-audit --no-fund
+      - name: Esperar disponibilidad del catálogo antes de los contratos
+        id: readiness
+        run: node scripts/wait-for-service.js
+        env:
+          API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
       - name: Integración de catálogo, detalle y acceso privado sin sesión
         id: tests
         run: npm run test:api
@@ -82,6 +87,7 @@ jobs:
         with:
           name: api-evidence
           path: |
+            test-results/readiness-api.json
             test-results/api-summary.md
             test-results/api.json
           if-no-files-found: error
@@ -149,6 +155,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
+            node scripts/wait-for-service.js --android
             adb install -r "$RUNNER_TEMP/sport-center.apk"
             maestro test -e APP_ID="$APP_ID" -e PRODUCT_NAME="$PRODUCT_NAME" --format junit --output test-results/maestro.xml --test-output-dir test-results/maestro .maestro
             node scripts/android-ci.js verify
@@ -165,6 +172,7 @@ jobs:
         with:
           name: android-evidence
           path: |
+            test-results/readiness-android.json
             test-results/android-summary.md
             test-results/android-build.json
             test-results/maestro.xml

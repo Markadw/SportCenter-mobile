@@ -2,7 +2,7 @@
  * @jest-environment node
  * @jest-environment-options {"customExportConditions":["node","node-addons"]}
  */
-const { describe, test, expect } = require('@jest/globals');
+const { describe, test, expect, jest } = require('@jest/globals');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,6 +13,7 @@ const { validateWorkflows } = require('../scripts/validate-test-configs');
 const { clientSummary } = require('../scripts/write-test-summary');
 const { apiSummary } = require('../scripts/write-api-summary');
 const { validateAndroidSetup, selectAndroidBuild, assertAndroidReport } = require('../scripts/android-ci');
+const { validatedAndroidNetwork, waitForService } = require('../scripts/wait-for-service');
 const root = path.resolve(__dirname, '..');
 
 describe('Matriz y bloqueo de integración', () => {
@@ -153,5 +154,48 @@ describe('Precondiciones y procedencia del APK candidato', () => {
     'un informe vacío o fallido no acredita aceptación: %s', (xml) => expect(() => assertAndroidReport(xml)).toThrow());
   test('un informe con casos aprobados acredita la ejecución de aceptación', () => {
     expect(assertAndroidReport('<testsuite><testcase name="catálogo"/><testcase name="detalle"/></testsuite>')).toBe(2);
+  });
+});
+
+
+describe('Preparación limitada del entorno antes de probar', () => {
+  const network = (id, capabilities) => `NetworkAgentInfo{network{${id}} nc{[Transports: WIFI Capabilities: ${capabilities}]}}`;
+  const validated = `Active default network: 100\n${network(100, 'INTERNET&VALIDATED')}`;
+  function clock() {
+    let time = 0;
+    return { now: () => time, pause: jest.fn(async (ms) => { time += ms; }) };
+  }
+  const ready = () => ({ status: 200, json: async () => [{ id_producto: 66 }] });
+  test('exige que la red predeterminada tenga Internet validado', () => {
+    expect(validatedAndroidNetwork(validated)).toBe(true);
+    expect(validatedAndroidNetwork('Active default network: none')).toBe(false);
+    expect(validatedAndroidNetwork(`Active default network: 100\n${network(100, 'INTERNET')}\n${network(101, 'INTERNET&VALIDATED')}`)).toBe(false);
+  });
+  test.each([502, 503, 504])('espera recuperación de HTTP %s sin repetir las pruebas', async (status) => {
+    const fetchApi = jest.fn().mockResolvedValueOnce({ status }).mockResolvedValueOnce(ready());
+    const result = await waitForService({ apiUrl: 'https://example.test', fetchApi, ...clock() });
+    expect(result).toMatchObject({ ready: true, attempts: 2, elapsedMs: 3000 });
+  });
+  test('no consulta la API hasta que el emulador tiene red validada', async () => {
+    const readNetwork = jest.fn().mockReturnValueOnce('Active default network: none').mockReturnValue(validated);
+    const fetchApi = jest.fn().mockResolvedValue(ready());
+    const result = await waitForService({ apiUrl: 'https://example.test', android: true, readNetwork, fetchApi, ...clock() });
+    expect(result).toMatchObject({ ready: true, attempts: 1, elapsedMs: 3000 });
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+  });
+  test('el límite de preparación falla si la API nunca conecta', async () => {
+    const fetchApi = jest.fn().mockRejectedValue(new TypeError('fallo de red'));
+    await expect(waitForService({ apiUrl: 'https://example.test', timeout: 6000, fetchApi, ...clock() }))
+      .rejects.toThrow('Preparación agotó 6 segundos');
+    expect(fetchApi).toHaveBeenCalledTimes(2);
+  });
+  test('un rechazo HTTP no transitorio detiene la preparación sin reintentos', async () => {
+    const fetchApi = jest.fn().mockResolvedValue({ status: 403 });
+    await expect(waitForService({ apiUrl: 'https://example.test', fetchApi, ...clock() })).rejects.toThrow('HTTP 403');
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+  });
+  test('un HTTP 200 sin productos no acredita un entorno listo', async () => {
+    const fetchApi = jest.fn().mockResolvedValue({ status: 200, json: async () => [] });
+    await expect(waitForService({ apiUrl: 'https://example.test', fetchApi, ...clock() })).rejects.toThrow('catálogo JSON con productos');
   });
 });
