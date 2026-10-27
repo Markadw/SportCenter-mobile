@@ -45,7 +45,9 @@
       "files": [
         "__tests__/productsApi.test.ts",
         "__tests__/catalogApi.test.ts",
-        "__tests__/FiltersModal.test.tsx"
+        "__tests__/FiltersModal.test.tsx",
+        "__tests__/authApi.test.ts",
+        "__tests__/authLogging.test.ts"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },
@@ -69,9 +71,10 @@
       ],
       "files": [
         "tests/integration/Storefront.test.tsx",
-        "tests/api/public-contracts.test.js"
+        "tests/api/public-contracts.test.js",
+        "tests/integration/Login.test.tsx"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión"
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; CP-02 con API simulada: login, sesión en memoria, cierre, vencimiento y acceso privado"
     },
     {
       "type": "aceptacion",
@@ -132,8 +135,39 @@
       "story": "HU-02",
       "iteration": "I1",
       "expected": "Login, refresh coordinado, un reintento, restauración y limpieza de sesión",
-      "status": "not_executed",
-      "reason": "Sesión móvil no disponible"
+      "status": "partial",
+      "available": "Login y sesión en memoria implementados. Lint, typecheck y configuración aprobados; 98 pruebas de cliente en 11 suites con transporte simulado. El usuario confirmó en Android inicio de sesión con cuenta verificada, navegación, cierre y recarga; logs de login/logout con HTTP 201. El usuario confirmó también la ausencia del aviso amarillo y que inicio y cierre siguen funcionando tras el ajuste del logger. Pendientes casos específicos y revisión/integración.",
+      "pending": [
+        "Entrada directa y vencimiento: casos específicos no confirmados en Android",
+        "MOB-005: almacenamiento seguro, restauración y renovación coordinada de sesión",
+        "Revisión e integración mediante PR"
+      ],
+      "evidence": [
+        "__tests__/authApi.test.ts",
+        "tests/integration/Login.test.tsx",
+        "tests/manual/inicio-sesion.md",
+        "__tests__/authLogging.test.ts"
+      ],
+      "manual": {
+        "executor": "Markadw",
+        "source": "Confirmación del usuario y logs compartidos",
+        "passed": [
+          "Inicio de sesión con cuenta verificada",
+          "Navegación durante la sesión",
+          "Cierre de sesión",
+          "Recarga de la aplicación",
+          "Ajuste del aviso amarillo, con inicio y cierre funcionando"
+        ],
+        "observed": [
+          "Login con respuestas HTTP 400 y posteriores respuestas HTTP 201",
+          "Advertencias LogBox observadas antes del ajuste; ausencia posterior confirmada por el usuario"
+        ],
+        "not_confirmed": [
+          "Entrada directa a /account sin sesión",
+          "Vencimiento natural en Android",
+          "Cuenta no verificada en Android"
+        ]
+      }
     },
     {
       "group": "CP-03",
@@ -166,7 +200,7 @@
       "iteration": "I3",
       "expected": "Perfil propio, logout, limpieza local y cambio de cuenta",
       "status": "not_executed",
-      "reason": "Perfil y logout móviles no disponibles"
+      "reason": "Consulta y modificación del perfil pendientes. El cierre de sesión en memoria se comprueba dentro de CP-02."
     },
     {
       "group": "CP-05",

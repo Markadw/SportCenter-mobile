@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { colors, radius, spacing } from "../constants/theme";
 
+import { useSession } from "../features/auth/context/SessionContext";
+
 const LOGO = require("../../assets/logo/logo-sport.png");
 
 interface Props {
@@ -13,6 +15,7 @@ interface Props {
 
 export const AppHeader = ({ showSearch = true }: Props) => {
   const router = useRouter();
+  const { session } = useSession();
   const [query, setQuery] = useState("");
 
   return (
@@ -56,7 +59,9 @@ export const AppHeader = ({ showSearch = true }: Props) => {
 
         <Pressable
           style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          onPress={() => router.push("/catalog")}
+          accessibilityRole="button"
+          accessibilityLabel={session ? "Abrir mi cuenta" : "Abrir inicio de sesión"}
+          onPress={() => router.push(session ? "/account" : "/login")}
           hitSlop={6}
         >
           <User size={20} color={colors.white} />

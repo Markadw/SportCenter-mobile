@@ -3,3 +3,4 @@ export * from "./bannersApi";
 export * from "./catalogApi";
 export * from "./endpoints";
 export * from "./productsApi";
+export * from "./authApi";

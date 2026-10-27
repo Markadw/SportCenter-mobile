@@ -17,6 +17,17 @@ const SAFE_ENDPOINTS = new Set([
   "/users/logout",
 ]);
 
+// Rechazos de autenticación que la interfaz presenta como mensajes del formulario.
+const EXPECTED_AUTH_STATUSES: Record<string, readonly number[]> = {
+  "/users/login-user": [400, 401, 429],
+  "/users/create-user": [400, 429],
+  "/users/verify-email": [400, 429],
+  "/users/resend-code": [400, 429],
+  "/users/refresh-token": [400, 401, 429],
+  "/users/profile": [401],
+  "/users/logout": [401],
+};
+
 // Evita registrar parámetros, identificadores o tokens en URLs.
 function safeEndpoint(url?: string): string {
   if (!url) return "[ruta desconocida]";
@@ -70,7 +81,12 @@ if (__DEV__) {
           ? `HTTP ${error.response.status}`
           : "Sin respuesta del servidor";
 
-        console.warn(`[API] ✕ ${status} ${safeEndpoint(error.config?.url)}`);
+        const endpoint = safeEndpoint(error.config?.url);
+        if (error.response && EXPECTED_AUTH_STATUSES[endpoint]?.includes(error.response.status)) {
+          console.info(`[API] ← ${status} ${endpoint}`);
+        } else {
+          console.warn(`[API] ✕ ${status} ${endpoint}`);
+        }
       } else {
         console.warn("[API] ✕ Error inesperado");
       }
