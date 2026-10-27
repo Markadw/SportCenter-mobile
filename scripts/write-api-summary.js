@@ -17,7 +17,14 @@ function apiSummary(report, env = {}) {
 module.exports = { apiSummary };
 if (require.main === module) {
   const file = 'test-results/api.json';
-  const text = apiSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
+  let text = apiSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
+  if (process.env.LOCAL_TEST_OUTCOME) {
+    const localFile = 'test-results/api-local.json';
+    text += '\n## Contratos contra la copia local reproducible\n\n';
+    text += apiSummary(fs.existsSync(localFile) ? JSON.parse(fs.readFileSync(localFile, 'utf8')) : null,
+      { TEST_OUTCOME: process.env.LOCAL_TEST_OUTCOME });
+    text += '\nSon los mismos cuatro contratos en otro entorno; no se cuentan como casos únicos adicionales.\n';
+  }
   fs.mkdirSync('test-results', { recursive: true });
   fs.writeFileSync('test-results/api-summary.md', text);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);

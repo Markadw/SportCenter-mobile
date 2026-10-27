@@ -65,10 +65,14 @@ async function main(mode) {
     await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(apkPath));
     const hash = createHash('sha256');
     for await (const chunk of fs.createReadStream(apkPath)) hash.update(chunk);
-    fs.writeFileSync('test-results/android-build.json', JSON.stringify({
-      buildId: build.id, commit: build.commit, api: process.env.API_BASE_URL,
-      sha256: hash.digest('hex'), emulatorApi: 34, maestro: '2.12.0',
-    }, null, 2) + '\n');
+    const meta = { buildId: build.id, commit: build.commit, api: process.env.API_BASE_URL,
+      sha256: hash.digest('hex'), emulatorApi: 34, maestro: '2.12.0' };
+    fs.writeFileSync('test-results/android-build.json', JSON.stringify(meta, null, 2) + '\n');
+    if (process.env.GITHUB_OUTPUT) {
+      const outputs = { build_id: build.id, commit: build.commit, apk_url: build.url, apk_sha256: meta.sha256 };
+      for (const value of Object.values(outputs)) assert.ok(!/[\r\n]/.test(value), 'Salida de APK inválida.');
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([key, value]) => key + '=' + value).join('\n') + '\n');
+    }
     return;
   }
   if (mode === 'verify') {

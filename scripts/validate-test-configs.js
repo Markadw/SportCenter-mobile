@@ -35,6 +35,9 @@ function validateWorkflows(workflows) {
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'api', 'performance', 'android']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   assert.equal(integration.jobs.performance.uses, './.github/workflows/performance.yml');
+  assert.deepEqual(integration.jobs.delivery.needs, ['plan', 'android', 'integration'], 'La entrega exige integración y Android aprobados');
+  assert.equal(integration.jobs.delivery.if, "needs.plan.outputs.evidence == 'true'", 'La entrega sólo se prepara para una candidata con evidencia');
+  assert.equal(integration.jobs.delivery.environment.name, 'qa-interna');
   const performance = workflows.get('performance.yml');
   assert.ok(Object.hasOwn(performance.on, 'workflow_call'));
   assert.ok(!performance.on.push && !performance.on.pull_request, 'La inspección debe reutilizarse desde el orquestador');

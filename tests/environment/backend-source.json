@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/AlexisYazir/back-sport.git",
+  "commit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "scope": "Backend real con PostgreSQL local y 100 productos sintéticos; TLS desactivado sólo en esta copia aislada."
+}

@@ -41,7 +41,7 @@ jobs:
         run: node scripts/pipeline-policy.js plan
         env:
           RUN_ANDROID: ${{ inputs.run_android }}
-          KEEP_EVIDENCE: ${{ inputs.keep_evidence }}
+          KEEP_EVIDENCE: ${{ inputs.keep_evidence || contains(github.event.pull_request.labels.*.name, 'evidencia') }}
 
   quality:
     name: Calidad previa a integración
@@ -54,7 +54,7 @@ jobs:
     name: Integración HTTP real y regresión de contratos
     needs: [plan, quality]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,12 +75,22 @@ jobs:
         env:
           API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
           API_PRODUCT_ID: ${{ vars.API_TEST_PRODUCT_ID }}
+      - name: Preparar backend y datos sintéticos reproducibles
+        run: node scripts/test-environment.js start
+      - name: Ejecutar los contratos contra la copia local
+        id: local_tests
+        run: npm run test:api
+        env:
+          API_BASE_URL: http://127.0.0.1:3011
+          API_PRODUCT_ID: '66'
+          API_REPORT_NAME: api-local
       - name: Mostrar resultados HTTP y motivo si no hay informe
         if: always()
         run: node scripts/write-api-summary.js
         env:
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           TEST_OUTCOME: ${{ steps.tests.outcome }}
+          LOCAL_TEST_OUTCOME: ${{ steps.local_tests.outcome }}
       - name: Conservar diagnóstico o evidencia HTTP de entrega
         if: ${{ !cancelled() && (failure() || needs.plan.outputs.evidence == 'true') }}
         uses: actions/upload-artifact@v4
@@ -90,8 +100,13 @@ jobs:
             test-results/readiness-api.json
             test-results/api-summary.md
             test-results/api.json
+            test-results/api-local.json
+            test-results/local-environment.json
           if-no-files-found: error
           retention-days: 14
+      - name: Detener la copia de integración
+        if: always()
+        run: node scripts/test-environment.js stop
 
   performance:
     name: Comprobar configuración de rendimiento y estrés
@@ -104,6 +119,11 @@ jobs:
     if: needs.plan.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      build_id: ${{ steps.apk.outputs.build_id }}
+      commit: ${{ steps.apk.outputs.commit }}
+      apk_url: ${{ steps.apk.outputs.apk_url }}
+      apk_sha256: ${{ steps.apk.outputs.apk_sha256 }}
     env:
       API_BASE_URL: ${{ vars.API_TEST_URL || 'https://back-sport-ghxk.onrender.com' }}
       PRODUCT_NAME: ${{ vars.ANDROID_TEST_PRODUCT_NAME }}
@@ -128,6 +148,7 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       - name: Verificar procedencia y descargar APK de esta ejecución
+        id: apk
         run: node scripts/android-ci.js download
       - uses: actions/setup-java@v4
         with:
@@ -196,3 +217,29 @@ jobs:
           RESULT_API: ${{ needs.api.result }}
           RESULT_PERFORMANCE: ${{ needs.performance.result }}
           RESULT_ANDROID: ${{ needs.android.result }}
+
+  delivery:
+    name: Entregar candidata interna aprobada
+    needs: [plan, android, integration]
+    if: needs.plan.outputs.evidence == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: qa-interna
+      url: ${{ needs.android.outputs.apk_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - name: Registrar entrega del mismo APK después de las comprobaciones
+        run: node scripts/publish-internal-candidate.js
+        env:
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          CANDIDATE_BUILD_ID: ${{ needs.android.outputs.build_id }}
+          CANDIDATE_COMMIT: ${{ needs.android.outputs.commit }}
+          CANDIDATE_APK_URL: ${{ needs.android.outputs.apk_url }}
+          CANDIDATE_SHA256: ${{ needs.android.outputs.apk_sha256 }}

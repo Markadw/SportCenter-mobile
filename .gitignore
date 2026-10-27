@@ -46,3 +46,6 @@ yarn-error.*
 # Generated test reports
 coverage/
 test-results/
+
+# Copia local del backend de pruebas
+.qa/

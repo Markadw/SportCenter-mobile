@@ -24,15 +24,15 @@
       "id": 2,
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
-      "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias",
-      "execution": "PR develop/main exige Android. Push develop ejecuta regresión y HTTP; main también exige Android. Build y emulador pendientes de comprobar con vinculación EAS, firma, secreto y datos reales. No publica Google Play."
+      "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
+      "execution": "PR a develop/main exige calidad, contratos HTTP compartidos y locales, inspección y aceptación Android. Push a develop omite Android; main lo exige. Candidatas con evidencia y Android aprobado registran el mismo APK en qa-interna después del resultado de integración. No publica Google Play."
     },
     {
       "id": 3,
       "name": "Carga esperada y estrés de la API",
       "workflow": ".github/workflows/performance.yml",
       "scope": "Inspección k6 automática; medición solo en backend propio aislado",
-      "execution": "Inspección reutilizable desde integración sin artefactos. Medición manual sólo desde develop/release en API aislada confirmada; conserva resultados medidos."
+      "execution": "Inspección reutilizable desde integración sin artefactos. Medición manual desde develop o ramas de trabajo: referencia, carga y esfuerzo contra el backend fijado con datos sintéticos, preparado en el runner. Un paquete de evidencia por medición; fallo de umbrales devuelve error."
     }
   ],
   "activities": [
@@ -46,7 +46,8 @@
         "__tests__/productsApi.test.ts",
         "__tests__/catalogApi.test.ts",
         "__tests__/FiltersModal.test.tsx",
-        "__tests__/pipelines.test.js"
+        "__tests__/pipelines.test.js",
+        "__tests__/release-infrastructure.test.js"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },
@@ -72,7 +73,14 @@
         "tests/integration/Storefront.test.tsx",
         "tests/api/public-contracts.test.js"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión"
+      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión",
+      "environment": {
+        "source": "tests/environment/backend-source.json",
+        "configuration": "tests/environment/compose.yml",
+        "products": 100,
+        "variants": 200,
+        "verification": "Copia detenida y recreada; los mismos cuatro contratos aprobaron. No se contabilizan como ocho casos únicos."
+      }
     },
     {
       "type": "aceptacion",
@@ -85,8 +93,17 @@
         ".maestro/catalogo-publico.yaml",
         ".maestro/detalle-producto.yaml"
       ],
-      "status": "not_executed",
-      "reason": "Pipeline preparado con EAS y emulador de GitHub. Falta configurar proyecto, identificador, token, firma y producto conocido, y ejecutar aceptación real. No certifica módulos pendientes."
+      "status": "passed",
+      "scope": "Dos recorridos básicos en Android API 34; registro, sesión, carrito y compra quedan fuera de esta evidencia.",
+      "evidence": {
+        "commit": "edca4639cad9e0f403df1920efe9c6d2897cb1cf",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513",
+        "build": "6ebedf77-bbd0-47fe-a4a5-d0298629b511",
+        "clientPassed": 96,
+        "httpPassed": 4,
+        "androidPassed": 2,
+        "scope": "Catálogo público y detalle básicos; no certifica módulos pendientes."
+      }
     },
     {
       "type": "regresion",
@@ -99,24 +116,63 @@
       "type": "rendimiento",
       "tools": [
         "k6",
-        "medición manual Android"
+        "Docker",
+        "backend NestJS real y PostgreSQL aislados"
       ],
       "files": [
-        "tests/performance/load.js"
+        "tests/performance/load.js",
+        "tests/performance/profile.json"
       ],
-      "status": "not_executed",
-      "reason": "La medición requiere entorno propio aislado y línea base/criterios justificados. Inspeccionar un guion no mide rendimiento."
+      "status": "passed_for_local_api_scope",
+      "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+      "evidence": "evidence/performance-local-2026-10-26.json",
+      "profile": "tests/performance/profile.json",
+      "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+      "actual": {
+        "name": "load",
+        "exitCode": 0,
+        "requests": 80,
+        "p95Ms": 8.248826749999997,
+        "errorRate": 0,
+        "passed": true
+      },
+      "reference": {
+        "name": "baseline",
+        "exitCode": 0,
+        "requests": 20,
+        "p95Ms": 10.07882875,
+        "errorRate": 0,
+        "passed": true
+      }
     },
     {
       "type": "estres",
       "tools": [
-        "k6"
+        "k6",
+        "Docker",
+        "backend NestJS real y PostgreSQL aislados"
       ],
       "files": [
         "tests/performance/stress.js"
       ],
-      "status": "not_executed",
-      "reason": "Solo guion y recuperación preparados; no se genera carga sobre Render compartido o Mercado Pago."
+      "status": "passed_for_local_api_scope",
+      "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+      "evidence": "evidence/performance-local-2026-10-26.json",
+      "profile": "tests/performance/profile.json",
+      "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+      "actual": {
+        "name": "stress",
+        "exitCode": 0,
+        "requests": 262,
+        "p95Ms": 6.8959171999999995,
+        "errorRate": 0.4122137404580153,
+        "passed": true,
+        "rateLimitedResponses": 86,
+        "recoveryMs": 35906,
+        "recoverySamples": 12,
+        "recoveryErrorRate": 0
+      },
+      "interpretation": "Los 429 durante sobrecarga y observación son rechazos de admisión; la verificación final exige cero errores. El P95 de esfuerzo incluye rechazos rápidos y no acredita mayor capacidad."
     }
   ],
   "cases": [
@@ -142,11 +198,11 @@
       "iteration": "I2",
       "expected": "Catálogo público, datos, carga/vacío/error/reintento, navegación correcta y precio desde cuando aplique",
       "status": "partial",
-      "available": "Unitarias/componentes e integración del cliente; suite HTTP real separada",
+      "available": "Unitarias/componentes e integración del cliente; suite HTTP real separada; aceptación Android básica aprobada en la revisión de referencia",
       "pending": [
-        "Precio desde entre variantes",
-        "Aceptación Android"
-      ]
+        "Precio desde entre variantes"
+      ],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513"
     },
     {
       "group": "CP-04",
@@ -154,12 +210,12 @@
       "iteration": "I3",
       "expected": "Detalle, id_variante válido y cantidad entre 1, stock y máximo 99",
       "status": "partial",
-      "available": "Detalle, datos, errores y límites de cantidad según implementación actual",
+      "available": "Detalle, datos, errores y límites de cantidad según implementación actual; aceptación Android básica aprobada en la revisión de referencia",
       "pending": [
         "Selección de variante",
-        "Límite máximo de 99",
-        "Aceptación Android"
-      ]
+        "Límite máximo de 99"
+      ],
+      "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513"
     },
     {
       "group": "CP-09",
@@ -224,5 +280,21 @@
     "documentStoryPoints": 60,
     "existingBoardStoryPoints": 52,
     "note": "El documento pertenece originalmente al repositorio organizacional. Se usa para configurar tipos de pruebas en el repositorio confirmado; la conciliación de SP, responsables y códigos QA queda registrada, sin reasignar historias ni duplicar esfuerzo."
+  },
+  "verifiedIncrement": {
+    "commit": "edca4639cad9e0f403df1920efe9c6d2897cb1cf",
+    "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513",
+    "build": "6ebedf77-bbd0-47fe-a4a5-d0298629b511",
+    "clientPassed": 96,
+    "httpPassed": 4,
+    "androidPassed": 2,
+    "scope": "Catálogo público y detalle básicos; no certifica módulos pendientes."
+  },
+  "localInfrastructureVerification": {
+    "clientAndInfrastructurePassed": 112,
+    "httpContractsPassed": 4,
+    "dateLocal": "2026-10-26",
+    "performanceEvidence": "evidence/performance-local-2026-10-26.json",
+    "scope": "Verificación local; el resultado remoto del nuevo commit debe consultarse en GitHub Actions."
   }
 }

@@ -10,7 +10,7 @@ function executionPlan({ event, branch, base, head, android = false, evidence = 
     if (base === 'main' && head !== 'develop' && !/^(release|hotfix)\/.+/.test(head)) {
       throw new Error('Main recibe entregas desde develop, release/* o hotfix/*.');
     }
-    return { stage: base === 'main' ? 'entrega' : 'revision', android: true, evidence: base === 'main' };
+    return { stage: base === 'main' ? 'entrega' : 'revision', android: true, evidence: base === 'main' || evidence };
   }
   if (['push', 'workflow_dispatch'].includes(event) && ['develop', 'main'].includes(branch)) {
     return { stage: branch === 'main' ? 'entrega' : 'integracion',

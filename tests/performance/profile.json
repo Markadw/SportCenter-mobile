@@ -1,0 +1,31 @@
+{
+  "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+  "agreement": {
+    "confirmed": true,
+    "date": "2026-10-26",
+    "scope": "Copia local con datos sintéticos"
+  },
+  "baseline": {
+    "vus": 1,
+    "durationSeconds": 30
+  },
+  "load": {
+    "vus": 2,
+    "durationSeconds": 60,
+    "p95LimitMs": 500,
+    "errorRateLimit": 0
+  },
+  "stress": {
+    "normalVus": 2,
+    "peakVus": 8,
+    "rampSeconds": 10,
+    "holdSeconds": 20,
+    "downSeconds": 10,
+    "stopSeconds": 5,
+    "observeRecoverySeconds": 70,
+    "verifyRecoverySeconds": 20,
+    "recoveryLimitMs": 65000
+  },
+  "iterationPauseSeconds": 3,
+  "reason": "La API limita 50 solicitudes/minuto por IP y endpoint. Dos usuarios con pausa de tres segundos permanecen por debajo de ese límite; ocho lo superan. Se conserva el límite real y se mide su recuperación."
+}

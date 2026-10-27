@@ -2,7 +2,10 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "types": ["react-native", "jest"],
+    "types": [
+      "react-native",
+      "jest"
+    ],
     "paths": {
       "@/*": [
         "./src/*"
@@ -17,5 +20,12 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    ".qa",
+    "node_modules",
+    "dist",
+    "coverage",
+    "test-results"
   ]
 }

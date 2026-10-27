@@ -53,7 +53,11 @@
     "test:load": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/load.js",
     "test:stress": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && k6 run tests/performance/stress.js",
     "test:ci": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && jest --ci --runInBand --coverage --verbose --json --outputFile=test-results/jest.json",
-    "validate": "npm run lint && npm run typecheck && npm run test:ci && npm run test:config"
+    "validate": "npm run lint && npm run typecheck && npm run test:ci && npm run test:config",
+    "env:start": "node scripts/test-environment.js start",
+    "env:stop": "node scripts/test-environment.js stop",
+    "env:status": "node scripts/test-environment.js status",
+    "test:performance": "node scripts/run-performance.js"
   },
   "private": true,
   "engines": {

@@ -49,6 +49,8 @@ La validación del cliente usa transporte HTTP simulado. No consulta la API desp
 | `npm run test:ci` | Jest con cobertura y reporte JSON en test-results/ |
 | `npm run test:config` | Coherencia de workflows, flujos Maestro, perfil EAS y plan de pruebas |
 | `npm run test:api` | Contratos HTTP reales de lectura; requiere API_BASE_URL explícita |
+| `npm run env:start` / `npm run env:stop` | Preparar o detener backend y datos sintéticos locales |
+| `npm run test:performance -- all` | Referencia, carga y esfuerzo en la copia local |
 
 Para ejecutar las consultas HTTP públicas desde PowerShell:
 
@@ -72,26 +74,80 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
-| Medición manual | develop o release/* | Carga o estrés contra API aislada confirmada |
+| Medición manual | develop o ramas de trabajo | Referencia, carga y esfuerzo con backend y datos aislados en el runner |
 
-El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; marcarla como requerida en GitHub sigue pendiente de configurar. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama.
+El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama.
 
-Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main y en candidatas manuales. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva su JSON. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
+Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin subir informes de pruebas. Se conservan paquetes compactos ante fallos, en PR hacia main, en main, en candidatas manuales y en PR marcados con la etiqueta `evidencia`. La etiqueta permite guardar una candidata concreta sin archivar cada push ordinario. Todos tienen retención de 14 días. Una simple inspección k6 no genera artefactos; una medición real conserva un único paquete con sus JSON y resumen. Los APK permanecen en EAS y no se duplican en los artefactos de GitHub.
 
 Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
 
-### Configuración pendiente de Android en CI
+Una candidata con evidencia y aceptación Android aprobada se registra en el entorno `qa-interna` de GitHub después de `Resultado de integración`. La entrega reutiliza el enlace EAS y el SHA256 del mismo APK comprobado; no vuelve a compilarlo. Si una comprobación obligatoria falla o se omite, no se entrega la candidata. Este registro permite una instalación interna; no publica Google Play ni modifica ramas.
 
-- Vincular app.json a un proyecto EAS mediante extra.eas.projectId y definir android.package.
-- Configurar el secreto EXPO_TOKEN en GitHub y las credenciales de firma Android en EAS.
-- Definir ANDROID_TEST_PRODUCT_NAME con un producto conocido del entorno de pruebas.
-- API_TEST_URL selecciona el backend HTTP y el incorporado al APK; API_TEST_PRODUCT_ID permite fijar el producto del contrato HTTP. La preparación sólo ajusta el perfil preview en la copia de CI para usar la misma API.
-- EAS debe terminar el APK del mismo commit; CI verifica su procedencia, calcula SHA256, lo instala y ejecuta Maestro 2.12.0. La descarga de Maestro verifica el checksum de su versión.
-- Si faltan precondiciones, Android falla antes de solicitar el build. Esta configuración todavía necesita comprobarse en GitHub con credenciales y un APK real.
-- El entorno HTTP con datos sembrados y reiniciables sigue pendiente. La suite actual conserva el primer producto como alternativa cuando no se fija un ID.
-- Estos workflows no publican en Google Play ni certifican rendimiento por inspeccionar guiones; la promoción y sus evidencias de medición se preparan por separado.
+```mermaid
+flowchart LR
+  A[Push de trabajo] --> B[Calidad y pruebas del cliente]
+  C[PR a develop o main] --> D[Calidad]
+  D --> E[Contratos HTTP compartidos y locales]
+  D --> F[Inspección k6]
+  E --> G[Build EAS y aceptación Android]
+  F --> G
+  G --> H[Resultado de integración]
+  H --> I[Candidata con evidencia: entrega interna]
+  J[Medición manual] --> K[Backend y datos aislados]
+  K --> L[Referencia, carga y recuperación]
+```
 
-eas.json define preview (APK interno) y production (AAB). Generar una compilación requiere vincular Expo, confirmar identificadores y credenciales de firma; la presencia del perfil no acredita un APK construido.
+
+### Android comprobado en CI
+
+El proyecto EAS es `anth.oi/sport-center-mobile` y el paquete Android es `com.markadw.sportcenter`. GitHub tiene configurado `EXPO_TOKEN`; las credenciales de firma se administran en EAS.
+
+La [revisión de referencia edca463](https://github.com/Markadw/SportCenter-mobile/actions/runs/40435769513) aprobó calidad, 96 pruebas del cliente e infraestructura, cuatro contratos HTTP y dos recorridos Android. Su APK terminó en EAS y fue instalada en el emulador API 34. Estos resultados acreditan el incremento de catálogo y detalle básicos.
+
+- `API_TEST_URL` elige el backend de los contratos y del APK; `API_TEST_PRODUCT_ID` fija el producto HTTP y `ANDROID_TEST_PRODUCT_NAME` el producto de Maestro.
+- La preparación comprueba que la API responda y que Android tenga una red validada. Los flujos arrancan con estado limpio.
+- EAS debe terminar el APK del commit comprobado. CI verifica procedencia y SHA256 antes de instalarlo.
+- `preview` genera APK para distribución interna y `production` prepara AAB. La publicación en Google Play sigue pendiente.
+- Las capturas y el informe Maestro se conservan ante fallos o cuando se solicita evidencia de una candidata; el APK permanece en EAS.
+
+### Copia local del backend para pruebas
+
+Requiere Docker Desktop en modo de contenedores Linux, Git y Node. El backend real se fija al commit indicado en `tests/environment/backend-source.json`; la copia descargada queda en `.qa/`, fuera de Git.
+
+```powershell
+node scripts/test-environment.js start
+$env:API_BASE_URL = 'http://127.0.0.1:3011'
+$env:API_PRODUCT_ID = '66'
+npm run test:api
+node scripts/test-environment.js stop
+```
+
+El entorno crea PostgreSQL temporal con 100 productos y 200 variantes sintéticos; el producto conocido es el 66. Al detenerlo se descarta esta base de pruebas y el siguiente arranque la vuelve a preparar. No utiliza datos ni credenciales del servidor compartido.
+
+API, PostgreSQL y k6 comparten una red interna. Una entrada de sólo lectura permite consultar la API desde Windows en `127.0.0.1:3011`. Las lecturas de catálogo y detalle usan los controladores y consultas del backend real. Correo, pagos y funciones que dependan de procedimientos SQL externos no forman parte del alcance comprobado.
+
+El esquema local se crea desde las entidades del backend. Esta preparación pertenece únicamente al entorno aislado; no sustituye las migraciones del servidor desplegado.
+
+### Rendimiento y recuperación comprobados
+
+```powershell
+npm run test:performance -- all
+npm run env:stop
+```
+
+El comando prepara la copia local, reinicia la API antes de cada escenario para separar las ventanas del limitador y guarda los resultados en `test-results/performance/<ejecución>/`. El perfil acordado está en `tests/performance/profile.json`: referencia de un usuario; carga de dos usuarios, P95 menor de 500 ms y cero errores; esfuerzo de hasta ocho usuarios y recuperación en un máximo de 65 segundos. Cada usuario consulta catálogo y detalle, con tres segundos entre iteraciones.
+
+La [medición local del 26 de octubre](evidence/performance-local-2026-10-26.json) obtuvo referencia P95 de **10,08 ms** (20 solicitudes), carga P95 de **8,25 ms** (80 solicitudes, cero errores) y recuperación en **35,91 segundos**. La verificación final obtuvo 12 pares de consultas correctos y cero errores. El esfuerzo activó el límite real de solicitudes: hubo 86 respuestas 429 durante la fase de sobrecarga; también se observaron rechazos mientras se recuperaba la ventana de admisión. El P95 de esfuerzo incluye rechazos y no se compara con el objetivo de carga normal.
+
+Estos resultados corresponden al backend fijado, con 100 productos y 200 variantes sintéticos y los recursos anotados en la evidencia. No miden fluidez Android ni la capacidad del servidor compartido. Los JSON completos de cada medición permanecen fuera de Git; CI los conserva en un solo artefacto por medición. Un fallo de k6 devuelve error y conserva su diagnóstico.
+
+### Documentación de arquitectura
+
+La aplicación usa rutas en `src/app/`, vistas y estado por función en `src/features/`, y acceso HTTP en `src/api/`. Las pruebas del cliente simulan el transporte para comprobar estados y errores; los contratos HTTP comprueban el backend real; Maestro comprueba los dos recorridos básicos sobre el APK.
+
+[DeepWiki del repositorio](https://deepwiki.com/Markadw/SportCenter-mobile) sigue mostrando el índice del commit `f24ccc` de `main`, según la revisión del 26 de octubre. Ese índice aún no documenta este PR. El código, los workflows y este README son la referencia actual; la actualización de DeepWiki queda pendiente de una indexación de la versión integrada. No se modifica `main` para adelantarla.
+
 
 ## Ramas y revisión
 
@@ -103,7 +159,7 @@ eas.json define preview (APK interno) y production (AAB). Generar una compilaci�
 
 Cada tarea incluye el código, las pruebas y la configuración que necesita. Las ramas muestran el proyecto completo; los commits y la pestaña Files changed del PR delimitan el trabajo realizado. Si hay dependencias entre tareas, integrar primero la base y después continuar desde develop actualizado.
 
-Las protecciones de main y develop todavía deben configurarse en GitHub para exigir PR y verificaciones. Documentar el flujo no bloquea por sí solo los pushes directos.
+`develop` exige PR, una aprobación de otro integrante, conversaciones resueltas y el check `Resultado de integración` aprobado y actualizado con la base. La regla también se aplica a administradores e impide force-push y borrado. `main` conserva su configuración y contenido actuales; su protección se atenderá al preparar la versión terminada.
 
 ## Carpetas
 
