@@ -2,10 +2,10 @@ const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 
 module.exports = defineConfig([
-  { ignores: ['node_modules/**', '.expo/**', 'dist/**', 'web-build/**', 'coverage/**', 'test-results/**'] },
+  { ignores: ['node_modules/**', '.qa/**', '.expo/**', 'dist/**', 'web-build/**', 'coverage/**', 'test-results/**'] },
   expoConfig,
   {
-    files: ['scripts/**/*.{js,cjs}', '*.config.js'],
+    files: ['scripts/**/*.{js,cjs}', '*.config.js', '__tests__/**/*.test.js', 'tests/environment/**/*.cjs'],
     languageOptions: {
       globals: { __dirname: 'readonly', module: 'readonly', require: 'readonly',
         process: 'readonly', Buffer: 'readonly', console: 'readonly' },
@@ -18,6 +18,6 @@ module.exports = defineConfig([
   {
     files: ['tests/performance/**/*.js'],
     languageOptions: { globals: { __ENV: 'readonly' } },
-    settings: { 'import/core-modules': ['k6', 'k6/http'] },
+    settings: { 'import/core-modules': ['k6', 'k6/http', 'k6/metrics', 'k6/execution'] },
   },
 ]);

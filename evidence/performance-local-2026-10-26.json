@@ -1,0 +1,97 @@
+{
+  "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+  "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "agreement": {
+    "confirmed": true,
+    "date": "2026-10-26",
+    "scope": "Copia local con datos sintéticos"
+  },
+  "profile": {
+    "scope": "Lecturas públicas del backend real en la copia local; no mide fluidez Android ni capacidad del Render compartido.",
+    "agreement": {
+      "confirmed": true,
+      "date": "2026-10-26",
+      "scope": "Copia local con datos sintéticos"
+    },
+    "baseline": {
+      "vus": 1,
+      "durationSeconds": 30
+    },
+    "load": {
+      "vus": 2,
+      "durationSeconds": 60,
+      "p95LimitMs": 500,
+      "errorRateLimit": 0
+    },
+    "stress": {
+      "normalVus": 2,
+      "peakVus": 8,
+      "rampSeconds": 10,
+      "holdSeconds": 20,
+      "downSeconds": 10,
+      "stopSeconds": 5,
+      "observeRecoverySeconds": 70,
+      "verifyRecoverySeconds": 20,
+      "recoveryLimitMs": 65000
+    },
+    "iterationPauseSeconds": 3,
+    "reason": "La API limita 50 solicitudes/minuto por IP y endpoint. Dos usuarios con pausa de tres segundos permanecen por debajo de ese límite; ocho lo superan. Se conserva el límite real y se mide su recuperación."
+  },
+  "seed": {
+    "products": 100,
+    "variants": 200
+  },
+  "stages": [
+    {
+      "name": "baseline",
+      "exitCode": 0,
+      "requests": 20,
+      "p95Ms": 10.07882875,
+      "errorRate": 0,
+      "passed": true
+    },
+    {
+      "name": "load",
+      "exitCode": 0,
+      "requests": 80,
+      "p95Ms": 8.248826749999997,
+      "errorRate": 0,
+      "passed": true
+    },
+    {
+      "name": "stress",
+      "exitCode": 0,
+      "requests": 262,
+      "p95Ms": 6.8959171999999995,
+      "errorRate": 0.4122137404580153,
+      "passed": true,
+      "rateLimitedResponses": 86,
+      "recoveryMs": 35906,
+      "recoverySamples": 12,
+      "recoveryErrorRate": 0
+    }
+  ],
+  "comparison": {
+    "baselineP95Ms": 10.07882875,
+    "loadP95Ms": 8.248826749999997,
+    "changePercent": -18.156891493964533
+  },
+  "verdict": "passed_for_executed_scope",
+  "createdAt": "2026-10-27T03:36:20.888Z",
+  "sourceFiles": {
+    "tests/performance/common.js": "a0ce481916a14d6572d43485acb761b014cb610d5a757257cb73346360794302",
+    "tests/performance/load.js": "2f984f205889546e81cb242aa2a90462edd42e80ee87ddb34015b3ce1d9b366e",
+    "tests/performance/stress.js": "db152393c1df3ec8de41aac81c243598046ce93d7083eb8e5defccda0862dc94",
+    "tests/performance/profile.json": "6399f908d01e7325f417c30d5da4e0f81c791fbb6a896c208d6945b82937d1fa",
+    "tests/environment/backend-source.json": "8cc04dd9cf19fb1f24d2c22ae8aa5a01d85d3add20ff380bdc44e812db2cb78c"
+  },
+  "execution": {
+    "location": "Windows / Docker Desktop, ejecución local",
+    "dateLocal": "2026-10-26",
+    "apiCpuLimit": 1,
+    "apiMemoryMiB": 512,
+    "databaseCpuLimit": 1,
+    "databaseMemoryMiB": 512,
+    "notes": "Referencia y carga se comparan dentro de esta ejecución. No representan capacidad de producción. Los 429 del esfuerzo son rechazos de admisión; el P95 de esfuerzo incluye esos rechazos."
+  }
+}

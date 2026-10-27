@@ -1,10 +1,16 @@
 appId: ${APP_ID}
 name: CP-03 catalogo publico en Android
 ---
-- launchApp
+- launchApp:
+    clearState: true
 - extendedWaitUntil:
-    visible: "Destacados"
+    visible: "Marcas"
     timeout: 45000
+- assertVisible: "Ver todas"
+- takeScreenshot: cp03-inicio
 - tapOn: "Ver todas"
-- assertVisible: "Catálogo de Productos"
+- extendedWaitUntil:
+    visible: "Catálogo de Productos"
+    timeout: 30000
 - assertVisible: "Filtros"
+- takeScreenshot: cp03-catalogo

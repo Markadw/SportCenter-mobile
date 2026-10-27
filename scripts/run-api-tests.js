@@ -10,7 +10,10 @@ if (!['http:', 'https:'].includes(target.protocol) || target.username || target.
   throw new Error('API_BASE_URL debe ser una URL HTTP sin credenciales ni parámetros.');
 }
 fs.mkdirSync('test-results', { recursive: true });
-fs.rmSync('test-results/api.json', { force: true });
+const reportName = process.env.API_REPORT_NAME || 'api';
+if (!['api', 'api-local'].includes(reportName)) throw new Error('Nombre de informe HTTP inválido.');
+const reportFile = 'test-results/' + reportName + '.json';
+fs.rmSync(reportFile, { force: true });
 const result = spawnSync(process.execPath, [require.resolve('jest/bin/jest'), '--config', 'jest.api.config.js',
-  '--ci', '--runInBand', '--verbose', '--json', '--outputFile=test-results/api.json'], { stdio: 'inherit' });
+  '--ci', '--runInBand', '--verbose', '--json', '--outputFile=' + reportFile], { stdio: 'inherit' });
 process.exit(result.status ?? 1);

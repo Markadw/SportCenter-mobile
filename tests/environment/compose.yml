@@ -1,0 +1,76 @@
+name: sportcenter-mobile-qa
+services:
+  db:
+    image: postgres@sha256:5fe8ca7fc662071188c30271cb870d1ce9a6ec4578c934b064697ae77a9241e1
+    environment:
+      POSTGRES_DB: sportcenter_qa
+      POSTGRES_USER: qa_admin
+      POSTGRES_PASSWORD: qa-admin-local
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=268435456
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qa_admin -d sportcenter_qa"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    cpus: 1
+    mem_limit: 512m
+    networks: [isolated]
+  api:
+    image: sportcenter-local-qa:31ee304d902e
+    build:
+      context: ../../.qa/backend
+      dockerfile: ../../tests/environment/backend.Dockerfile
+      additional_contexts:
+        qa: .
+    environment:
+      ISOLATED_TEST_ENV: "true"
+      DATABASE_URL_ADMIN: postgres://qa_admin:qa-admin-local@db:5432/sportcenter_qa
+      DATABASE_URL_EDITOR: postgres://qa_editor:qa-editor-local@db:5432/sportcenter_qa
+      DATABASE_URL_READER: postgres://qa_reader:qa-reader-local@db:5432/sportcenter_qa
+      DATABASE_URL_BACKUP: postgres://qa_backup:qa-backup-local@db:5432/sportcenter_qa
+      JWT_SECRET: qa-local-access-secret
+      JWT_REFRESH_SECRET: qa-local-refresh-secret
+      R2_ENDPOINT: http://storage.invalid
+      R2_ACCESS_KEY_ID: qa-local
+      R2_SECRET_ACCESS_KEY: qa-local
+      R2_BUCKET_NAME: qa-local
+    depends_on:
+      db:
+        condition: service_healthy
+    cpus: 1
+    mem_limit: 512m
+    networks: [isolated]
+  access:
+    image: node:22.20.0-bookworm-slim@sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e
+    command: ["node", "/qa/access.cjs"]
+    volumes:
+      - ./access.cjs:/qa/access.cjs:ro
+    depends_on: [api]
+    ports: ["127.0.0.1:3011:3000"]
+    cpus: 0.25
+    mem_limit: 64m
+    networks: [isolated, access]
+  k6:
+    image: grafana/k6@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
+    profiles: [measurement]
+    user: "0:0"
+    working_dir: /work
+    volumes:
+      - ../performance:/work/tests/performance:ro
+      - ../../test-results:/work/test-results
+    environment:
+      API_BASE_URL: http://api:3000
+      PRODUCT_ID: "66"
+      BACKEND_COMMIT: 31ee304d902ec5ec5a9c0fc702eca5e1a531bc16
+      ISOLATED_API: "true"
+      K6_NO_USAGE_REPORT: "true"
+    cpus: 1
+    mem_limit: 256m
+    networks: [isolated]
+networks:
+  isolated:
+    internal: true
+  access: {}

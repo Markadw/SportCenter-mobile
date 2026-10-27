@@ -1,4 +1,4 @@
-// src/types/index.ts
+// Modelos de producto compartidos por el acceso a datos y la interfaz.
 
 // --- Tipos CRUDOS del backend (como llegan) ---
 export interface VariantRaw {

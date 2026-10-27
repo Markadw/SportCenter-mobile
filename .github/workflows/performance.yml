@@ -1,45 +1,27 @@
-name: 'Pipeline 3 - Configuración rendimiento y estrés'
-
+# Tipos: inspección automática; referencia, carga y esfuerzo sólo en la copia aislada.
+# Las mediciones usan el backend fijado y los criterios acordados del perfil versionado.
+name: Rendimiento y estrés
 on:
-  pull_request:
-    branches: [develop, main]
-  push:
-    branches: [develop, main]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      scenario:
-        type: choice
-        options: [load, stress]
-        default: load
-      api_base_url:
-        description: API propia en entorno aislado; no Render compartido ni Mercado Pago
-        type: string
-      product_id:
-        description: ID de producto conocido
-        type: string
-      backend_commit:
-        description: Commit desplegado en la API comprobada
-        type: string
-      isolated_api:
-        description: Confirmo que el objetivo es un entorno propio y aislado
+      run_measurement:
         type: boolean
         default: false
-      p95_limit_ms:
-        description: Umbral P95 justificado; vacío para línea base
-        type: string
-      error_rate_limit:
-        description: Tasa máxima de errores justificada de 0 a 1
-        type: string
-      threshold_reason:
-        description: Justificación de los umbrales a partir de línea base
-        type: string
-
+  workflow_dispatch:
+    inputs:
+      run_measurement:
+        description: Ejecutar mediciones reales en la copia local de CI
+        type: boolean
+        default: true
+      scenario:
+        type: choice
+        options: [all, baseline, load, stress]
+        default: all
 permissions:
   contents: read
-
 jobs:
   inspect:
-    name: Validar guiones k6 sin generar carga
+    name: Inspeccionar guiones sin ejecutar carga
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,46 +29,39 @@ jobs:
       - uses: grafana/setup-k6-action@v1
         with:
           k6-version: '2.3.0'
-      - run: |
-          mkdir -p test-results
-          k6 inspect tests/performance/load.js > test-results/load-config.json
-          k6 inspect tests/performance/stress.js > test-results/stress-config.json
-          echo '## Rendimiento y estrés' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Guiones validados por k6. No se ejecutó carga ni se midió la capacidad del backend.' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: performance-configuration
-          path: test-results/
-
-  measure:
-    name: Medición controlada en API aislada
-    needs: inspect
-    if: github.event_name == 'workflow_dispatch' && inputs.isolated_api
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: grafana/setup-k6-action@v1
-        with:
-          k6-version: '2.3.0'
-      - name: Ejecutar escenario seleccionado
-        env:
-          API_BASE_URL: ${{ inputs.api_base_url }}
-          PRODUCT_ID: ${{ inputs.product_id }}
-          BACKEND_COMMIT: ${{ inputs.backend_commit }}
-          ISOLATED_API: 'true'
-          SCENARIO: ${{ inputs.scenario }}
-          P95_LIMIT_MS: ${{ inputs.p95_limit_ms }}
-          ERROR_RATE_LIMIT: ${{ inputs.error_rate_limit }}
-          THRESHOLD_REASON: ${{ inputs.threshold_reason }}
+      - name: Validar guiones y mostrar su alcance
         run: |
-          mkdir -p test-results
-          case "$SCENARIO" in load|stress) ;; *) exit 2 ;; esac
-          k6 run "tests/performance/$SCENARIO.js"
-      - uses: actions/upload-artifact@v4
-        if: always()
+          k6 inspect tests/performance/load.js
+          k6 inspect tests/performance/stress.js
+          echo '## Rendimiento y estrés' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Guiones válidos. La inspección no mide capacidad ni recuperación.' >> "$GITHUB_STEP_SUMMARY"
+  measure:
+    name: Medir escenario y comprobar umbrales
+    needs: inspect
+    if: github.event_name == 'workflow_dispatch' && inputs.run_measurement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - name: Medir contra el backend y PostgreSQL aislados de esta ejecución
+        env:
+          SCENARIO: ${{ inputs.scenario || 'all' }}
+        run: |
+          case "$GITHUB_REF_NAME" in develop|feature/*|fix/*|chore/*|test/*|release/*|hotfix/*) ;; *) echo 'Medir desde integración o una rama de trabajo.'; exit 2 ;; esac
+          node scripts/run-performance.js
+      - name: Conservar resultados medidos, incluidos fallos
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
         with:
           name: performance-measurement
-          path: test-results/
+          path: |
+            test-results/performance/
+            test-results/local-environment.json
           if-no-files-found: warn
+          retention-days: 14
+      - name: Detener la copia aislada
+        if: always()
+        run: node scripts/test-environment.js stop
