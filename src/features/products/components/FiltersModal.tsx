@@ -7,7 +7,6 @@ import {
 import { useEffect, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Easing,
   Image,
   Modal,
@@ -17,6 +16,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import {
   colors,
@@ -25,9 +25,9 @@ import {
   shadow,
   spacing,
 } from "../../../constants/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFilters } from "../../catalog";
 
-const { height: SCREEN_H } = Dimensions.get("window");
 const ANIM_MS = 260;
 
 interface Props {
@@ -38,6 +38,8 @@ interface Props {
 export const FiltersModal = ({ visible, onClose }: Props) => {
   const {
     categories,
+    sports,
+    setSport,
     brands,
     filters,
     setCategory,
@@ -46,7 +48,9 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     activeCount,
   } = useFilters();
 
-  const [openSection, setOpenSection] = useState<"category" | "brand" | null>(
+  const { height: SCREEN_H } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [openSection, setOpenSection] = useState<"category" | "brand" | "sport" | null>(
     "category",
   );
 
@@ -78,7 +82,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
 
   const allCategories = categories;
 
-  const toggle = (s: "category" | "brand") =>
+  const toggle = (s: "category" | "brand" | "sport") =>
     setOpenSection((prev) => (prev === s ? null : s));
 
   // Interpolaciones
@@ -178,10 +182,14 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 />
               ))}
             </Section>
+            <Section title="Deporte" open={openSection === "sport"} onToggle={() => toggle("sport")}>
+              <RadioRow label="Todos" selected={filters.sportName === null} onPress={() => setSport(null)} />
+              {sports.map(s => <RadioRow key={s.id} label={s.name} selected={filters.sportName === s.name} onPress={() => setSport(s.name)} />)}
+            </Section>
           </ScrollView>
 
           {/* Footer */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: Math.max(12, insets.bottom) }]}>
             <Pressable
               style={({ pressed }) => [
                 styles.clearBtn,

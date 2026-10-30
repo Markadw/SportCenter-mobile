@@ -15,7 +15,4 @@ export const ENDPOINTS = {
     verify: "/users/verify-email",
     resend: "/users/resend-code",
   },
-  banners: {
-    list: "/company/banner",
-  },
 } as const;

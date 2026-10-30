@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 // src/features/home/components/SportsRow.tsx
 import { Activity, Bike, CircleDot, Dumbbell, Trophy, Zap } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -14,7 +15,8 @@ const SPORT_ICONS: Record<string, React.ComponentType<{ size?: number; color?: s
 };
 
 export const SportsRow = () => {
-  const { sports, setSport, filters } = useFilters();
+  const { sports, setSport, filters, clearFilters, requestCatalog } = useFilters();
+  const router = useRouter();
 
   if (sports.length === 0) return null;
 
@@ -36,7 +38,8 @@ export const SportsRow = () => {
               active && styles.chipActive,
               pressed && { opacity: 0.85 },
             ]}
-            onPress={() => setSport(active ? null : s.name)}
+            accessibilityRole="button" accessibilityLabel={`Ver productos de ${s.name}`}
+            onPress={() => { clearFilters(); requestCatalog(); setSport(s.name); router.push({ pathname: "/catalog", params: { q: "" } }); }}
           >
             <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
               <Icon size={18} color={active ? colors.white : colors.primary} />
@@ -63,6 +66,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    minHeight: 48,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
