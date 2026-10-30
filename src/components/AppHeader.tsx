@@ -1,117 +1,37 @@
-// src/components/AppHeader.tsx
 import { useRouter } from "expo-router";
-import { Search, ShoppingBag, User } from "lucide-react-native";
+import { Search, User } from "lucide-react-native";
 import { useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
-import { colors, radius, spacing } from "../constants/theme";
-
+import { colors } from "../constants/theme";
 import { useSession } from "../features/auth/context/SessionContext";
 
-const LOGO = require("../../assets/logo/logo-sport.png");
-
-interface Props {
-  showSearch?: boolean;
-}
-
-export const AppHeader = ({ showSearch = true }: Props) => {
+export function AppHeader({ showSearch = true, onSearch }: { showSearch?: boolean; onSearch?: (query: string) => void }) {
   const router = useRouter();
   const { session } = useSession();
   const [query, setQuery] = useState("");
-
-  return (
-    <View style={styles.wrap}>
-      {/* Logo */}
-      <Pressable onPress={() => router.replace("/")} hitSlop={6}>
-  <Image source={LOGO} style={styles.logo} resizeMode="contain" />
-</Pressable>
-
-      {/* Búsqueda */}
-      {showSearch && (
-        <View style={styles.searchWrap}>
-          <Search size={16} color="rgba(255,255,255,0.8)" />
-          <TextInput
-            placeholder="Buscar productos…"
-            placeholderTextColor="rgba(255,255,255,0.7)"
-            style={styles.input}
-            value={query}
-            onChangeText={setQuery}
-            returnKeyType="search"
-            onSubmitEditing={() => {
-              if (!query.trim()) return;
-              router.push({
-                pathname: "/catalog",
-                params: { q: query.trim() },
-              });
-            }}
-          />
-        </View>
-      )}
-
-      {/* Acciones */}
-      <View style={styles.actions}>
-        <Pressable
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          onPress={() => router.push("/catalog")}
-          hitSlop={6}
-        >
-          <ShoppingBag size={20} color={colors.white} />
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={session ? "Abrir mi cuenta" : "Abrir inicio de sesión"}
-          onPress={() => router.push(session ? "/account" : "/login")}
-          hitSlop={6}
-        >
-          <User size={20} color={colors.white} />
-        </Pressable>
-      </View>
+  const search = () => { if (query.trim()) { onSearch?.(query.trim()); router.push({ pathname: "/catalog", params: { q: query.trim() } }); } };
+  return <View style={styles.root}>
+    <View style={styles.row}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Ir al inicio" onPress={() => router.replace("/")} style={styles.logoButton}>
+        <Image source={require("../../assets/logo/logo-sport.png")} style={styles.logo} resizeMode="contain" />
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={session ? "Abrir mi cuenta" : "Abrir inicio de sesión"}
+        onPress={() => router.push(session ? "/account" : "/login")} style={styles.icon}>
+        <User size={23} color={colors.text} />
+      </Pressable>
     </View>
-  );
-};
-
+    {showSearch && <View style={styles.search}>
+      <Search size={20} color={colors.textMuted} />
+      <TextInput accessibilityLabel="Buscar productos" placeholder="Producto, marca o deporte" placeholderTextColor={colors.textMuted}
+        style={styles.input} value={query} onChangeText={setQuery} onSubmitEditing={search} returnKeyType="search" maxLength={100} />
+    </View>}
+  </View>;
+}
 const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.md,
-    gap: spacing.sm,
-    width: "100%",
-    height: 52,
-  },
-  logo: {
-    width: 40,
-    height: 40,
-  },
-  searchWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    height: 40,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-  },
-  input: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.white,
-    paddingVertical: 0,
-  },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  root: { paddingHorizontal: 16, paddingBottom: 16, backgroundColor: colors.white, gap: 8 },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 60 },
+  logoButton: { minHeight: 48, justifyContent: "center" }, logo: { width: 126, height: 54 },
+  icon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: colors.lightBg },
+  search: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, borderRadius: 12, backgroundColor: colors.lightBg, paddingHorizontal: 14 },
+  input: { flex: 1, minHeight: 48, fontSize: 15, color: colors.text },
 });

@@ -3,6 +3,7 @@ import { Animated } from 'react-native';
 import { useFilters } from '../src/features/catalog';
 import { FiltersModal } from '../src/features/products/components/FiltersModal';
 
+jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 jest.mock('../src/features/catalog', () => ({ useFilters: jest.fn() }));
 jest.mock('lucide-react-native', () => ({ ChevronDown: () => null, ChevronUp: () => null,
   SlidersHorizontal: () => null, X: () => null }));
@@ -16,7 +17,7 @@ beforeEach(() => {
     filters: { categoryId: null, brandId: null, sportName: null },
     categories: [{ id: 1, name: 'Balones', parentId: null }],
     brands: [], sports: [], activeCount: 0,
-    setCategory: jest.fn(), setBrand: jest.fn(), setSport: jest.fn(), clearFilters: jest.fn(),
+    setCategory: jest.fn(), setBrand: jest.fn(), setSport: jest.fn(), catalogRequest: null, requestCatalog: jest.fn(), clearFilters: jest.fn(),
   });
   jest.spyOn(Animated, 'timing').mockImplementation(() => {
     const pending: PendingAnimation = { stop: jest.fn() };

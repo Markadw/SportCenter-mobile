@@ -13,7 +13,7 @@ export const FeaturedProducts = ({ products }: Props) => {
   const router = useRouter();
 
   if (products.length === 0) {
-    return <Text style={styles.empty}>Aún no hay productos destacados.</Text>;
+    return <Text style={styles.empty}>Aún no hay productos disponibles.</Text>;
   }
 
   return (
@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   cardWrap: {
-    width: 200,
+    width: 174,
   },
   empty: {
     paddingHorizontal: spacing.lg,

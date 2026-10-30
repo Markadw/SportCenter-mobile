@@ -7,9 +7,25 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 ## Estado del proyecto
 
-El proyecto está en desarrollo. La base disponible incluye inicio, catálogo, filtros por categoría y marca, y detalle de producto con consumo del backend.
+El proyecto está en desarrollo. La base disponible incluye carga inicial con la marca Sport Center, navegación inferior, inicio, búsqueda y catálogo con filtros y orden, y detalle de producto por variante con consumo del backend.
 
 El cliente incluye registro, verificación de correo, reenvío e inicio de sesión con control de acceso y sesión en memoria. Las pruebas cubren componentes, servicios y su combinación con transporte simulado, además de contratos HTTP públicos y recorridos públicos Android. Almacenamiento seguro, restauración y renovación de sesión corresponden a MOB-005. Carrito, direcciones, compra/pago, pedidos y gestión del perfil siguen pendientes. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+
+## Interfaces móviles
+
+El primer bloque de interfaces está en `feature/interfaces-moviles`: Inicio, Catálogo y Cuenta son las pestañas principales. Las URL `/`, `/catalog` y `/account` se mantienen; registro, verificación, login y detalle se abren sobre esas pestañas. Cuenta muestra el acceso al usuario invitado y solo renderiza la vista autenticada si existe sesión.
+
+Inicio muestra el buscador, deportes, productos más recientes y marcas, en ese orden, con opciones de la API. Se retiraron el banner y su consulta al backend. Marca y deporte abren su catálogo filtrado. La búsqueda funciona por nombre, descripción, marca, categoría y deporte, sin distinguir acentos. El catálogo admite orden por precio o nombre y el orden reciente que entrega el servidor, rango de precio y carga acumulada de 20 productos. Volver desde el detalle conserva la búsqueda; una selección nueva desde Inicio comienza otra consulta.
+
+El detalle selecciona una combinación real de atributos; precio, fotos y existencias pertenecen a esa misma variante. Las tarjetas muestran su rango de precios. Compartir abre la herramienta del dispositivo con la URL real del sitio web. Se retiraron los controles de favoritos y el botón de carrito que no realizaban operaciones, junto con las promesas fijas de envío y devolución que no provenían de la API. La acción de compra se incorporará con HU-05 y el contrato del carrito; esta revisión no da por terminada esa historia.
+
+La arquitectura sigue MVVM por funcionalidad: los servicios convierten la respuesta del backend; los modelos de vista de Inicio, Catálogo y Detalle manejan selección, consultas y filtros; las pantallas presentan sus estados. Los proveedores conservan los datos compartidos. El detalle sigue enviando el ID real a la API; la codificación del enlace público se usa únicamente al compartir.
+
+El splash nativo usa el logotipo existente. En JavaScript, la carga inicial espera solo la primera consulta del catálogo, sin demora artificial. Si falla, permite llegar al error con reintento; filtros e imágenes no bloquean la entrada. Una actualización posterior no vuelve a cubrir la app. La apariencia final del splash nativo requiere comprobar una compilación instalada, pues Expo Go no reproduce todos sus detalles.
+
+[Prototipo editable en Figma](https://www.figma.com/design/Ae3JMeVAfcs6ulXI7dpx5k?node-id=5-50). Documenta el primer bloque y sus estados; no sustituye las comprobaciones en el dispositivo. El usuario confirmó el recorrido básico en Android; el alcance y los casos adicionales pendientes están en la [guía de comprobación móvil](tests/manual/interfaces-moviles.md).
+
+Recuperación de contraseña y reseñas se incluyen en el alcance acordado de los siguientes bloques. Google, recomendaciones y Alexa quedan fuera. Las pantallas de perfil y del flujo de compra también están pendientes; este prototipo no acredita su implementación.
 
 ## Registro de clientes (HU-01)
 
@@ -206,7 +222,7 @@ Las versiones de entrega utilizarán SemVer (`MAJOR.MINOR.PATCH`) y tags `vX.Y.Z
 
 Cada tarea incluye el código, las pruebas y la configuración que necesita. Las ramas muestran el proyecto completo; los commits y la pestaña Files changed del PR delimitan el trabajo realizado. Si hay dependencias entre tareas, integrar primero la base y después continuar desde develop actualizado.
 
-`develop` exige PR, conversaciones resueltas y el check `Resultado de integración` aprobado y actualizado con la base. La aprobación humana de otro colaborador es opcional, conforme al flujo acordado. La regla también se aplica a administradores e impide force-push y borrado. `main` conserva su configuración y contenido actuales; su protección se atenderá al preparar la versión terminada.
+`develop` exige PR, conversaciones resueltas y el check `Resultado de integración` aprobado y actualizado con la base. La aprobación humana de otro colaborador es opcional, conforme al flujo acordado. La regla también se aplica a administradores e impide force-push y borrado. `main` exige PR, al menos una aprobación de otro colaborador, conversaciones resueltas y `Resultado de integración` aprobado con la base actualizada. La protección se aplica también a administradores y bloquea push forzado y borrado. Configurar esta protección no modifica el contenido de la rama.
 
 ## Carpetas
 

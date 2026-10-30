@@ -32,11 +32,15 @@ interface FiltersContextType {
   setSport: (name: string | null) => void;
   clearFilters: () => void;
   activeCount: number;
+  catalogRequest: { key: number; query: string } | null;
+  requestCatalog: (query?: string) => void;
 }
 
 const FiltersContext = createContext<FiltersContextType | undefined>(undefined);
 
 export const FiltersProvider = ({ children }: { children: ReactNode }) => {
+  const [catalogRequest, setCatalogRequest] = useState<{ key: number; query: string } | null>(null);
+  const requestCatalog = useCallback((query = "") => setCatalogRequest(previous => ({ key: (previous?.key ?? 0) + 1, query })), []);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [sports, setSports] = useState<Sport[]>([]);
@@ -99,6 +103,8 @@ export const FiltersProvider = ({ children }: { children: ReactNode }) => {
         setSport,
         clearFilters,
         activeCount,
+        catalogRequest,
+        requestCatalog,
       }}
     >
       {children}

@@ -33,16 +33,13 @@ export const ProductsProvider = ({ children }: { children: ReactNode }) => {
       setError(null);
       const data = await productsApi.getAll();
       setProducts(data);
-    } catch (e: any) {
-      setError(e?.message ?? "Error al cargar productos");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error al cargar productos");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // useEffect(() => {
-  //   refresh();
-  // }, [refresh]);
 
 
   useEffect(() => {
