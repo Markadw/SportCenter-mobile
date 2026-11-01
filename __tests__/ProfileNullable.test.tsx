@@ -1,0 +1,22 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import axiosClient from "../src/api/axios";
+import { ProfileScreen } from "../src/features/profile/screens/ProfileScreen";
+jest.mock("../src/api/axios", () => ({ __esModule: true, default: { get: jest.fn(), patch: jest.fn() } }));
+jest.mock("expo-router", () => ({ Redirect: () => null }));
+jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => ({ session: { sessionId: "nullable-contact", accessToken: "token" } }) }));
+it("permite completar correo y teléfono NULL en el editor y sólo guarda valores validados", async () => {
+  const profile = { nombre: "Ana", aPaterno: "López", aMaterno: "García", email: null, telefono: null };
+  jest.mocked(axiosClient.get).mockResolvedValue({ data: profile });
+  jest.mocked(axiosClient.patch).mockResolvedValue({ data: { user: { ...profile, email: "ana@example.com", telefono: "5512345678" } } });
+  await render(<ProfileScreen />);
+  await waitFor(() => expect(screen.getByLabelText("Teléfono")).toBeTruthy());
+  expect(screen.getByLabelText("Teléfono").props.value).toBe("");
+  expect(screen.getByLabelText("Correo").props.value).toBe("");
+  await fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(axiosClient.patch).not.toHaveBeenCalled();
+  await fireEvent.changeText(screen.getByLabelText("Correo"), "ana@example.com");
+  await fireEvent.changeText(screen.getByLabelText("Teléfono"), "5512345678");
+  await fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  await waitFor(() => expect(screen.getByText("Tu perfil se actualizó correctamente.")).toBeTruthy());
+  expect(axiosClient.patch).toHaveBeenCalledWith("/users/update-profile", { ...profile, email: "ana@example.com", telefono: "5512345678" }, expect.objectContaining({ headers: { Authorization: "Bearer token" } }));
+});
