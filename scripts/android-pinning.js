@@ -30,8 +30,12 @@ function candidate(meta, actualHash, env) {
 }
 // Only the small release NSC shape emitted by this app is accepted. Unknown XML/configurations fail closed.
 function xmlTree(source) {
-  assert.ok(typeof source === 'string' && source.length < 2_000_000 && !/<!DOCTYPE|<!ENTITY|<!\[CDATA\[/i.test(source), 'XML no admitido.');
-  const input = source.replace(/<\?xml[^?]*\?>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(typeof source === 'string' && source.length < 2_000_000 && !source.includes('<!'),
+    'Comentarios, DTD, entidades y CDATA no admitidos en XML compilado.');
+  // AAPT emite una declaración inicial; no se sanea ni elimina contenido XML arbitrario.
+  const declaration = source.match(/^<\?xml\s+version\s*=\s*(?:"1\.0"|'1\.0')(?:\s+encoding\s*=\s*(?:"[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*'))?(?:\s+standalone\s*=\s*(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>/);
+  const input = declaration ? source.slice(declaration[0].length) : source;
+  assert.ok(!input.includes('<?'), 'Instrucciones XML no admitidas.');
   const root = { name: '#root', attrs: {}, children: [], text: '' }, stack = [root];
   let offset = 0;
   for (const match of input.matchAll(/<[^>]+>|[^<]+/g)) {
@@ -50,13 +54,23 @@ function xmlTree(source) {
     if (!opening[3]) stack.push(node);
   }
   assert.equal(offset, input.length); assert.equal(stack.length, 1); assert.equal(root.children.length, 1);
+  assert.equal(root.text.trim(), '', 'Texto fuera de la raíz XML.');
   return root.children[0];
 }
 function compiledPolicy(manifest, nsc, api, image, expectedPins) {
   hostname(api); hostname(image); assert.notEqual(api, image, 'El control de imagen debe quedar fuera del dominio pinned.');
-  const appTag = manifest.replace(/<!--[\s\S]*?-->/g, '').match(/<application\b[^>]*>/);
-  assert.ok(appTag && /\bandroid:networkSecurityConfig="@xml\/network_security_config"/.test(appTag[0]), 'No se resolvió la NSC compilada del manifiesto.');
-  assert.ok(!/\bandroid:debuggable="true"/.test(appTag[0]), 'No se admite APK debuggable.');
+  const manifestRoot = xmlTree(manifest);
+  assert.equal(manifestRoot.name, 'manifest', 'Raíz de manifiesto compilado inválida.');
+  const pending = [manifestRoot], applications = [];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.name === 'application') applications.push(node);
+    for (const child of node.children) pending.push(child);
+  }
+  assert.ok(applications.length === 1 && manifestRoot.children.includes(applications[0]), 'Se requiere un único application directo del manifiesto.');
+  const application = applications[0];
+  assert.equal(application.attrs['android:networkSecurityConfig'], '@xml/network_security_config', 'No se resolvió la NSC compilada del manifiesto.');
+  assert.notEqual(application.attrs['android:debuggable'], 'true', 'No se admite APK debuggable.');
   const root = xmlTree(nsc); assert.equal(root.name, 'network-security-config'); assert.equal(root.text.trim(), '');
   assert.deepEqual(root.attrs, {}); assert.equal(root.children.length, 2, 'NSC desconocida o bypass adicional.');
   const base = root.children.find(n => n.name === 'base-config'), domain = root.children.find(n => n.name === 'domain-config');

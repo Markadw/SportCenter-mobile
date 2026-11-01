@@ -320,3 +320,60 @@ addons = [pilot, Checks()]
     fs.rmSync(directory, { recursive: true, force: true });
   }
 }, 65000);
+
+
+test.each([
+  '<?xml version="1.0"?>',
+  '<?xml version="1.0" encoding="utf-8"?>',
+  "<?xml version = '1.0' encoding = 'UTF-8' standalone = 'yes'?>",
+])('compiled XML accepts only a single initial declaration without sanitizing content: %s', declaration => {
+  expect(compiledPolicy(declaration + '\n' + manifest, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toMatchObject({ compiled: true });
+});
+test.each([
+  '<!-- ordinary comment -->',
+  '<!-- <!-- nested --> comment -->',
+  '<!DOCTYPE manifest>',
+  '<!ENTITY app "application">',
+  '<![CDATA[<application android:networkSecurityConfig="@xml/network_security_config"/>]]>',
+  '<?unexpected instruction?>',
+])('comments and declarations are rejected in both compiled inputs: %s', unsupported => {
+  expect(() => compiledPolicy(unsupported + manifest, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow();
+  expect(() => compiledPolicy(manifest, unsupported + nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow();
+});
+test.each([
+  '<manifest><!-- <application android:networkSecurityConfig="@xml/network_security_config"/> --><application android:networkSecurityConfig="@xml/other"/></manifest>',
+  '<manifest><!-- <!-- --> <application android:networkSecurityConfig="@xml/network_security_config"/> --><application android:networkSecurityConfig="@xml/other"/></manifest>',
+  '<manifest><application android:networkSecurityConfig="@xml/network_security_config"><!-- <application/> --></application></manifest>',
+])('a fake application inside ordinary or nested comments cannot supply the policy: %#', source => {
+  expect(() => compiledPolicy(source, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow('Comentarios');
+});
+test.each([
+  '<manifest/>',
+  '<manifest><queries><application android:networkSecurityConfig="@xml/network_security_config"/></queries></manifest>',
+  '<manifest><application android:networkSecurityConfig="@xml/network_security_config"/><application android:networkSecurityConfig="@xml/network_security_config"/></manifest>',
+  '<manifest><application android:networkSecurityConfig="@xml/network_security_config"><application/></application></manifest>',
+  '<other><application android:networkSecurityConfig="@xml/network_security_config"/></other>',
+  'unexpected text' + manifest,
+  manifest + '<manifest/>',
+])('the real manifest tree requires exactly one direct application: %#', source => {
+  expect(() => compiledPolicy(source, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow();
+});
+test.each([
+  '\n<?xml version="1.0"?>' + manifest,
+  '<?xml version="1.0"?><?xml version="1.0"?>' + manifest,
+  '<manifest><?xml version="1.0"?><application android:networkSecurityConfig="@xml/network_security_config"/></manifest>',
+  '<?xml version="1.0" unexpected="value"?>' + manifest,
+])('XML declarations outside the supported initial position cannot be stripped into validity: %#', source => {
+  expect(() => compiledPolicy(source, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow();
+});
+test('the compiled manifest retains its own namespace, attributes, permissions and activity tree', () => {
+  const source = '<?xml version="1.0" encoding="utf-8"?>\n'
+    + '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.markadw.sportcenter" android:versionCode="1" android:versionName="1.0.0">'
+    + '<uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36"/><uses-permission android:name="android.permission.INTERNET"/>'
+    + '<queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries>'
+    + '<application android:name=".MainApplication" android:label="Sport Center" android:icon="@mipmap/ic_launcher" android:networkSecurityConfig="@xml/network_security_config" android:debuggable="false">'
+    + '<activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>'
+    + '<meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/></application></manifest>';
+  expect(compiledPolicy(source, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toMatchObject({ compiled: true, systemOnly: true });
+  expect(() => compiledPolicy(source.replace('android:debuggable="false"', 'android:debuggable="true"'), nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow('debuggable');
+});
