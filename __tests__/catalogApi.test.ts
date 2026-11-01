@@ -51,3 +51,17 @@ describe('HU-03 / MOB-004: datos disponibles para los filtros', () => {
     },
   );
 });
+
+
+test.each([
+  ['getCategories', '/products/get-all-categories'],
+  ['getBrands', '/products/get-all-marcas'],
+  ['getSports', '/products/menu/sports'],
+] as const)('%s transmite la señal para cancelar su petición sin cambiar el endpoint', async (method, url) => {
+  get.mockResolvedValueOnce({ data: [] });
+  const controller = new AbortController();
+  await catalogApi[method](controller.signal);
+  expect(get).toHaveBeenCalledWith(url, { signal: controller.signal });
+  controller.abort();
+  expect(get.mock.calls[0][1]?.signal?.aborted).toBe(true);
+});

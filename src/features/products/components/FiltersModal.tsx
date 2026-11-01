@@ -46,6 +46,9 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
     setBrand,
     clearFilters,
     activeCount,
+    loading = false,
+    loadError,
+    retryLoad,
   } = useFilters();
 
   const { height: SCREEN_H } = useWindowDimensions();
@@ -140,6 +143,16 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
             contentContainerStyle={{ paddingBottom: spacing.xl }}
             showsVerticalScrollIndicator={false}
           >
+            {loading && !loadError && <Text accessibilityLiveRegion="polite" style={styles.loadMessage}>Cargando opciones de filtros…</Text>}
+            {loadError && <View style={styles.loadFailure}>
+              <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.loadError}>{loadError}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Reintentar opciones de filtros"
+                accessibilityState={{ disabled: loading, busy: loading }} disabled={loading}
+                onPress={() => { void retryLoad?.(); }}
+                style={({ pressed }) => [styles.retryButton, (pressed || loading) && { opacity: 0.6 }]}>
+                <Text style={styles.retryLabel}>{loading ? "Reintentando…" : "Reintentar opciones de filtros"}</Text>
+              </Pressable>
+            </View>}
             {/* Categorías */}
             <Section
               title="Categoría"
@@ -326,6 +339,12 @@ const styles = StyleSheet.create({
   },
   closeBtn: { padding: 4 },
 
+  loadMessage: { margin: spacing.lg, color: colors.textMuted, fontSize: fontSize.sm },
+  loadFailure: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
+  loadError: { color: "#B91C1C", fontSize: fontSize.sm, lineHeight: 21 },
+  retryButton: { minHeight: 48, padding: spacing.md, backgroundColor: colors.brandChipBg,
+    borderRadius: radius.sm, justifyContent: "center", alignItems: "center" },
+  retryLabel: { color: colors.secondary, fontWeight: "700", fontSize: fontSize.sm },
   // Secciones
   section: {
     marginHorizontal: spacing.lg,

@@ -65,3 +65,19 @@ test('seleccionar, limpiar y aplicar comunica las acciones al contexto y al padr
   await fireEvent.press(screen.getByText('Aplicar'));
   expect(onClose).toHaveBeenCalledTimes(1);
 });
+
+
+test('informa un fallo de opciones, conserva las cargadas y ofrece reintento accesible', async () => {
+  const retryLoad = jest.fn().mockResolvedValue(undefined);
+  jest.mocked(useFilters).mockReturnValue({ ...jest.mocked(useFilters)(), loading: false,
+    loadError: 'No pudimos cargar estas opciones: marcas.', retryLoad });
+  const view = await render(<FiltersModal visible onClose={jest.fn()} />);
+  expect(screen.getByRole('alert')).toHaveTextContent(/marcas/);
+  expect(screen.getByText('Balones')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Reintentar opciones de filtros' }));
+  expect(retryLoad).toHaveBeenCalledTimes(1);
+  jest.mocked(useFilters).mockReturnValue({ ...jest.mocked(useFilters)(), loading: true });
+  await view.rerender(<FiltersModal visible onClose={jest.fn()} />);
+  expect(screen.getByRole('button', { name: 'Reintentar opciones de filtros' })).toBeDisabled();
+  expect(screen.getByText('Reintentando…')).toBeTruthy();
+});
