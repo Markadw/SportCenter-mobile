@@ -11,6 +11,8 @@ on:
     branches: [develop, main]
   push:
     branches: [develop, main]
+    # Crear una etiqueta inmutable sólo después de congelar el SHA de la candidata.
+    tags: ['candidate/android-*']
   workflow_dispatch:
     inputs:
       run_android:
@@ -50,6 +52,17 @@ jobs:
     name: Calidad previa a integración
     needs: plan
     uses: ./.github/workflows/ci.yml
+    with:
+      keep_evidence: ${{ needs.plan.outputs.evidence == 'true' }}
+
+  security:
+    name: Seguridad previa a integración y APK
+    needs: plan
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/security.yml
     with:
       keep_evidence: ${{ needs.plan.outputs.evidence == 'true' }}
 
@@ -118,7 +131,7 @@ jobs:
 
   android:
     name: Compilar y aceptar APK candidato
-    needs: [plan, quality, api, performance]
+    needs: [plan, quality, security, api, performance]
     if: needs.plan.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -145,6 +158,9 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       - name: Instalar dependencias del APK candidato
         run: npm ci --no-audit --no-fund
+      - name: Verificar la cadena TLS real y los pines antes del APK
+        id: tls_pins
+        run: node scripts/verify-api-pins.js
       - name: Compilar APK en EAS y esperar el resultado real
         id: build
         run: npx eas-cli@latest build --platform android --profile preview --non-interactive --wait --json > test-results/eas-build.json
@@ -157,11 +173,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Inspeccionar firma, manifiesto, ABI, alineación y clases del APK real
+        id: artifact_inspection
+        timeout-minutes: 10
+        run: node scripts/inspect-android-artifact.js
       - name: Instalar Maestro 2.12.0 y verificar su SHA256
         env:
           MAESTRO_SHA256: a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e
         run: |
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/maestro.zip" https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          curl --fail --location --output "$RUNNER_TEMP/maestro.zip" https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
           echo "$MAESTRO_SHA256  $RUNNER_TEMP/maestro.zip" | sha256sum --check
           unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
           echo "$RUNNER_TEMP/maestro-cli/maestro/bin" >> "$GITHUB_PATH"
@@ -199,6 +219,9 @@ jobs:
             test-results/readiness-android.json
             test-results/android-summary.md
             test-results/android-build.json
+            test-results/api-tls-pins.json
+            test-results/android-inspection.json
+            test-results/android-inspection.txt
             test-results/maestro.xml
             test-results/maestro/
           if-no-files-found: error
@@ -206,7 +229,7 @@ jobs:
 
   integration:
     name: Resultado de integración
-    needs: [plan, quality, api, performance, android]
+    needs: [plan, quality, security, api, performance, android]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -218,13 +241,14 @@ jobs:
           RESULT_PLAN: ${{ needs.plan.result }}
           RESULT_QUALITY: ${{ needs.quality.result }}
           RESULT_API: ${{ needs.api.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
           RESULT_PERFORMANCE: ${{ needs.performance.result }}
           RESULT_ANDROID: ${{ needs.android.result }}
 
   delivery:
     name: Entregar candidata interna aprobada
     needs: [plan, android, integration]
-    if: needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'
+    if: github.ref_type == 'branch' && needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

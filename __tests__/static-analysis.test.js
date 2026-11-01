@@ -81,7 +81,7 @@ describe('Evidencia del workflow sin aprobaciones falsas', () => {
   });
   test('el validador rechaza perder los informes del artefacto existente', () => {
     const root = path.resolve(__dirname, '..');
-    const workflows = new Map(['ci.yml','api-android.yml','performance.yml'].map((file) => [file, YAML.parse(fs.readFileSync(path.join(root,'.github/workflows',file),'utf8'))]));
+    const workflows = new Map(['ci.yml','api-android.yml','performance.yml','security.yml'].map((file) => [file, YAML.parse(fs.readFileSync(path.join(root,'.github/workflows',file),'utf8'))]));
     const evidence = workflows.get('ci.yml').jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     evidence.with.path = evidence.with.path.replace('test-results/static-analysis/','');
     expect(() => validateWorkflows(workflows)).toThrow('informes estáticos');

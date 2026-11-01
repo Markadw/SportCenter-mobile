@@ -10,6 +10,8 @@ function validateWorkflows(workflows) {
   assert.ok(!client.on.pull_request, 'El orquestador debe evitar una segunda ejecución de calidad en PR');
   assert.equal(client.jobs.push_policy.steps.find((step) => step.id === 'policy')?.run, 'node scripts/pipeline-policy.js push',
     'El push debe deduplicar la calidad con el PR abierto');
+  assert.equal(client.jobs.push_policy.if, "github.event_name == 'push' && github.ref_type == 'branch' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'",
+    'La deduplicación de push sólo corresponde a ramas, no a tags candidatos');
   assert.equal(client.jobs.validate.needs, 'push_policy');
   assert.equal(client.jobs.validate.if, "${{ !cancelled() && (needs.push_policy.result == 'skipped' || needs.push_policy.outputs.run_quality == 'true') }}",
     'Calidad debe respetar la deduplicación y los fallos de la política');
@@ -35,15 +37,71 @@ function validateWorkflows(workflows) {
   assert.equal(integration.on.workflow_dispatch.inputs.run_android.type, 'boolean');
   assert.equal(integration.on.workflow_dispatch.inputs.run_android.default, false, 'Android manual debe solicitarse explícitamente');
   assert.deepEqual(integration.on.push.branches, ['develop', 'main']);
+  assert.deepEqual(integration.on.push.tags, ['candidate/android-*'], 'La candidata explícita exige un tag con el prefijo autorizado');
   assert.equal(integration.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.equal(integration.jobs.quality.needs, 'plan', 'La calidad debe respetar la matriz');
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');
   assert.ok(integration.jobs.api.steps.some((step) => step.id === 'readiness'
     && step.run === 'node scripts/wait-for-service.js'), 'HTTP requiere comprobar disponibilidad de la API');
-  assert.deepEqual(integration.jobs.android.needs, ['plan', 'quality', 'api', 'performance'], 'Android requiere calidad, API e inspección aprobadas');
+  const security = workflows.get('security.yml');
+  assert.ok(security, 'Falta el workflow de seguridad obligatorio');
+  assert.deepEqual(Object.keys(security.on), ['workflow_call'], 'Seguridad sólo debe reutilizarse desde integración');
+  assert.equal(security.on.workflow_call.inputs.keep_evidence.default, false);
+  assert.equal(security.permissions, undefined, 'Los permisos de seguridad deben limitarse al job');
+  assert.equal(integration.permissions?.['security-events'], undefined, 'No otorgar security-events globalmente');
+  const permissions = { contents: 'read', 'security-events': 'write', actions: 'read' };
+  assert.deepEqual(integration.jobs.security.permissions, permissions, 'El caller requiere permisos mínimos de seguridad');
+  assert.equal(integration.jobs.security.uses, './.github/workflows/security.yml');
+  assert.equal(integration.jobs.security.needs, 'plan');
+  assert.equal(integration.jobs.security.with.keep_evidence, "${{ needs.plan.outputs.evidence == 'true' }}");
+  const callers = [...workflows.values()].flatMap(workflow => Object.values(workflow.jobs))
+    .filter(job => job.uses === './.github/workflows/security.yml');
+  assert.equal(callers.length, 1, 'Seguridad debe llamarse una sola vez');
+  const scan = security.jobs.scan;
+  assert.deepEqual(scan.permissions, permissions, 'CodeQL requiere permisos mínimos del job');
+  const step = id => scan.steps.find(item => item.id === id);
+  assert.equal(step('install')?.run, 'npm ci --no-audit --no-fund');
+  assert.ok(step('audit')?.run.includes('npm audit --json --audit-level=critical'), 'Auditoría npm obligatoria');
+  assert.ok(step('audit').run.includes('|| audit_exit=$?') && step('audit').run.includes('"$audit_exit"'),
+    'La auditoría debe conservar su código real de salida');
+  assert.ok(step('audit').run.includes('node scripts/evaluate-security.js audit'), 'La auditoría debe evaluarse');
+  assert.equal(step('audit').if, "${{ !cancelled() && steps.install.outcome == 'success' }}");
+  assert.equal(step('init')?.uses, 'github/codeql-action/init@v4');
+  assert.deepEqual(step('init').with, { languages: 'javascript-typescript', 'build-mode': 'none', queries: 'security-extended' },
+    'CodeQL oficial debe analizar JavaScript/TypeScript sin build ni tokens externos');
+  assert.equal(step('init').if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
+    'CodeQL debe ejecutarse también si la auditoría falla');
+  assert.equal(step('analyze')?.uses, 'github/codeql-action/analyze@v4');
+  assert.equal(step('analyze').if, "${{ !cancelled() && steps.init.outcome == 'success' }}");
+  assert.equal(step('analyze').with.output, 'test-results/security/codeql');
+  assert.equal(step('analyze').with.upload, 'always', 'SARIF debe subirse a GitHub Security');
+  assert.equal(step('analyze').with['wait-for-processing'], true);
+  assert.equal(step('analyze').with['upload-database'], false, 'No duplicar bases CodeQL como evidencia');
+  assert.equal(step('sast')?.run, 'node scripts/evaluate-security.js sast test-results/security/codeql');
+  assert.equal(step('sast').if, '${{ !cancelled() }}', 'El gate debe detectar un análisis omitido o fallido');
+  assert.equal(step('sast').env.ANALYZE_OUTCOME, '${{ steps.analyze.outcome }}');
+  const securitySummary = scan.steps.find(item => item.run === 'node scripts/evaluate-security.js summary');
+  assert.equal(securitySummary?.if, 'always()', 'Seguridad debe informar también sin resultados');
+  for (const id of ['install', 'audit', 'init', 'analyze', 'sast']) {
+    assert.equal(securitySummary.env[id.toUpperCase() + '_OUTCOME'], '${{ steps.' + id + '.outcome }}',
+      'El resumen debe evaluar el resultado real de seguridad: ' + id);
+  }
+  const securityEvidence = scan.steps.find(item => item.uses?.startsWith('actions/upload-artifact@'));
+  assert.deepEqual(securityEvidence.with.path.trim().split('\n'), ['test-results/security/summary.md',
+    'test-results/security/audit-gate.json', 'test-results/security/sast-gate.json'], 'Conservar sólo diagnóstico compacto de seguridad');
+  assert.deepEqual(integration.jobs.android.needs, ['plan', 'quality', 'security', 'api', 'performance'], 'Android requiere calidad, seguridad, API e inspección aprobadas');
   assert.equal(integration.jobs.android.if, "needs.plan.outputs.android == 'true'", 'Android sólo se ejecuta cuando lo solicita la matriz');
   assert.equal(integration.jobs.android['runs-on'], 'ubuntu-latest', 'Android debe disponer de un runner alojado');
   assert.ok(integration.jobs.android.steps.some((step) => step.run?.includes('--wait --json')), 'Debe esperar el resultado real del build');
+  const nativeInspection = integration.jobs.android.steps.filter(step => step.id === 'artifact_inspection');
+  assert.equal(nativeInspection.length, 1, 'La candidata requiere una sola inspección APK real');
+  assert.equal(nativeInspection[0].run, 'node scripts/inspect-android-artifact.js');
+  assert.equal(nativeInspection[0].if, undefined, 'La inspección de la candidata no puede omitirse');
+  assert.equal(nativeInspection[0]['timeout-minutes'], 10, 'La inspección debe tener un límite de ejecución');
+  const stepPosition = id => integration.jobs.android.steps.findIndex(step => step.id === id);
+  const javaPosition = integration.jobs.android.steps.findIndex(step => step.uses?.startsWith('actions/setup-java@'));
+  assert.ok(stepPosition('artifact_inspection') > stepPosition('apk') && stepPosition('artifact_inspection') > javaPosition
+    && stepPosition('artifact_inspection') < stepPosition('acceptance'), 'Inspeccionar el APK descargado con Java listo antes de aceptarlo');
   const acceptance = integration.jobs.android.steps.find((step) => step.id === 'acceptance');
   assert.ok(acceptance?.with?.script?.includes('--test-output-dir test-results/maestro'),
     'Maestro debe conservar capturas en el directorio de evidencia sin carpetas ocultas');
@@ -54,18 +112,21 @@ function validateWorkflows(workflows) {
   const androidEvidence = integration.jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(androidEvidence?.with?.path?.split('\n').includes('test-results/maestro/'),
     'El artefacto Android debe incluir las capturas de Maestro');
-  assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'api', 'performance', 'android']);
+  for (const file of ['test-results/android-inspection.json', 'test-results/android-inspection.txt']) {
+    assert.ok(androidEvidence.with.path.split('\n').includes(file), 'Falta evidencia compacta de inspección APK: ' + file);
+  }
+  assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'security', 'api', 'performance', 'android']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');
   assert.ok(gate, 'El resultado final debe ejecutar el bloqueo de integración');
   assert.equal(gate.env.REQUIRE_ANDROID, '${{ needs.plan.outputs.android }}', 'El bloqueo Android debe seguir la matriz');
-  for (const id of ['plan', 'quality', 'api', 'performance', 'android']) {
+  for (const id of ['plan', 'quality', 'security', 'api', 'performance', 'android']) {
     assert.equal(gate.env[`RESULT_${id.toUpperCase()}`], '${{ needs.' + id + '.result }}',
       'El resultado final debe evaluar la comprobación real: ' + id);
   }
   assert.equal(integration.jobs.performance.uses, './.github/workflows/performance.yml');
   assert.deepEqual(integration.jobs.delivery.needs, ['plan', 'android', 'integration'], 'La entrega exige integración y Android aprobados');
-  assert.equal(integration.jobs.delivery.if, "needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'", 'La entrega requiere evidencia y una candidata Android solicitada');
+  assert.equal(integration.jobs.delivery.if, "github.ref_type == 'branch' && needs.plan.outputs.evidence == 'true' && needs.plan.outputs.android == 'true'", 'La entrega requiere evidencia y una candidata Android solicitada');
   assert.equal(integration.jobs.delivery.environment.name, 'qa-interna');
   const performance = workflows.get('performance.yml');
   assert.ok(Object.hasOwn(performance.on, 'workflow_call'));

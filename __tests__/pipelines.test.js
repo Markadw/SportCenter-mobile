@@ -42,14 +42,14 @@ describe('Matriz y bloqueo de integración', () => {
   test('rechaza ramas fuera del flujo', () => {
     expect(() => executionPlan({ event: 'push', branch: 'otra' })).toThrow('fuera');
   });
-  test.each(['plan', 'quality', 'api', 'performance'])('la comprobación %s sigue siendo obligatoria sin Android', (name) => {
-    const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
+  test.each(['plan', 'quality', 'security', 'api', 'performance'])('la comprobación %s sigue siendo obligatoria sin Android', (name) => {
+    const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'skipped' };
     for (const result of ['failure', 'skipped', 'cancelled', undefined]) {
       expect(evaluateChecks({ ...results, [name]: result }, false)).toEqual([name]);
     }
   });
   test('Android omitido permite integrar en develop pero bloquea una ejecución que lo exige', () => {
-    const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
+    const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'skipped' };
     expect(evaluateChecks(results, true)).toEqual(['android']);
     expect(evaluateChecks(results, false)).toEqual([]);
   });
@@ -58,7 +58,7 @@ describe('Matriz y bloqueo de integración', () => {
     try {
       const env = { ...process.env, GITHUB_STEP_SUMMARY: path.join(temp, 'summary.md'),
         REQUIRE_ANDROID: 'true', RESULT_PLAN: 'success', RESULT_QUALITY: 'success',
-        RESULT_API: 'failure', RESULT_PERFORMANCE: 'success', RESULT_ANDROID: 'skipped' };
+        RESULT_SECURITY: 'success', RESULT_API: 'failure', RESULT_PERFORMANCE: 'success', RESULT_ANDROID: 'skipped' };
       const failed = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'gate'], { env, encoding: 'utf8' });
       expect(failed.status).toBe(1);
       expect(fs.readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8')).toContain('Bloqueada');
@@ -80,13 +80,13 @@ describe('Matriz y bloqueo de integración', () => {
     }
   });
   test('un Android ejecutado y fallido bloquea aunque fuera opcional', () => {
-    expect(evaluateChecks({ plan: 'success', quality: 'success', api: 'success',
+    expect(evaluateChecks({ plan: 'success', quality: 'success', security: 'success', api: 'success',
       performance: 'success', android: 'failure' }, false)).toEqual(['android']);
   });
 });
 
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml'].map((file) =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml'].map((file) =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Dependencias reales de los YAML', () => {
@@ -278,7 +278,7 @@ describe('Android opcional en develop', () => {
       const summary = path.join(temp, 'summary.md');
       fs.writeFileSync(event, JSON.stringify({ pull_request: { draft: false } }));
       const result = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'plan'], {
-        env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_BASE_REF: 'develop',
+        env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF_TYPE: 'branch', GITHUB_BASE_REF: 'develop',
           GITHUB_HEAD_REF: 'feature/app', GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
           GITHUB_STEP_SUMMARY: summary, RUN_ANDROID: 'false', KEEP_EVIDENCE: 'false' }, encoding: 'utf8',
       });
