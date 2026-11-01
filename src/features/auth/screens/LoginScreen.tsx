@@ -6,10 +6,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, fontSize, radius, spacing } from "../../../constants/theme";
 import { useLoginViewModel } from "../hooks/useLoginViewModel";
+import { useSession } from "../context/SessionContext";
+import { ScreenState } from "../../../components/ScreenState";
 
 export function LoginScreen() {
   const vm = useLoginViewModel();
   const router = useRouter();
+  const { isRestoring } = useSession();
+  if (isRestoring) return <ScreenState title="Restaurando sesión" loading />;
   if (vm.session) return <Redirect href="/account" />;
 
   return (
@@ -58,6 +62,10 @@ export function LoginScreen() {
               style={({ pressed }) => [styles.button, (pressed || vm.pending) && styles.dimmed]}>
               {vm.pending && <ActivityIndicator color={colors.white} />}
               <Text style={styles.buttonLabel}>{vm.pending ? "Ingresando…" : "Iniciar sesión"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="link" accessibilityLabel="Olvidé mi contraseña"
+              disabled={vm.pending} onPress={() => router.push("/forgot-password")} style={styles.guest}>
+              <Text style={styles.link}>Olvidé mi contraseña</Text>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Crear cuenta"
               disabled={vm.pending} onPress={() => router.replace("/register")} style={styles.guest}>
