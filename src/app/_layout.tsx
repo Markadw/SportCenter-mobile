@@ -30,6 +30,9 @@ function Navigation() {
         <Stack.Screen name="orders/index" options={{ title: "Mis pedidos" }} />
         <Stack.Screen name="orders/[id]" options={{ title: "Detalle del pedido" }} />
         <Stack.Screen name="reviews/[id]" options={{ title: "Reseñas del producto" }} />
+        <Stack.Screen name="cart" options={{ title: "Mi carrito" }} />
+        <Stack.Screen name="checkout" options={{ title: "Finalizar compra" }} />
+        <Stack.Screen name="checkout-status" options={{ title: "Estado del pago" }} />
         <Stack.Screen name="privacy" options={{ title: "Privacidad y términos" }} />
       </Stack>
     </StartupGate>

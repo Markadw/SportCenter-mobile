@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Search, User } from "lucide-react-native";
+import { Search, ShoppingBag, User } from "lucide-react-native";
 import { useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { colors } from "../constants/theme";
@@ -15,10 +15,15 @@ export function AppHeader({ showSearch = true, onSearch }: { showSearch?: boolea
       <Pressable accessibilityRole="button" accessibilityLabel="Ir al inicio" onPress={() => router.replace("/")} style={styles.logoButton}>
         <Image source={require("../../assets/logo/logo-sport.png")} style={styles.logo} resizeMode="contain" />
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={session ? "Abrir mi cuenta" : "Abrir inicio de sesión"}
-        onPress={() => router.push(session ? "/account" : "/login")} style={styles.icon}>
-        <User size={23} color={colors.text} />
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Abrir carrito" onPress={() => router.push("/cart")} style={styles.icon}>
+          <ShoppingBag size={23} color={colors.text} />
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={session ? "Abrir mi cuenta" : "Abrir inicio de sesión"}
+          onPress={() => router.push(session ? "/account" : "/login")} style={styles.icon}>
+          <User size={23} color={colors.text} />
+        </Pressable>
+      </View>
     </View>
     {showSearch && <View style={styles.search}>
       <Search size={20} color={colors.textMuted} />
@@ -30,6 +35,7 @@ export function AppHeader({ showSearch = true, onSearch }: { showSearch?: boolea
 const styles = StyleSheet.create({
   root: { paddingHorizontal: 16, paddingBottom: 16, backgroundColor: colors.white, gap: 8 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 60 },
+  actions: { flexDirection: "row", gap: 8 },
   logoButton: { minHeight: 48, justifyContent: "center" }, logo: { width: 126, height: 54 },
   icon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: colors.lightBg },
   search: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, borderRadius: 12, backgroundColor: colors.lightBg, paddingHorizontal: 14 },

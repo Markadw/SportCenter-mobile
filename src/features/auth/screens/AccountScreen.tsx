@@ -20,6 +20,9 @@ export function AccountScreen() {
           <Pressable accessibilityRole="button" onPress={() => router.push("/profile")} style={styles.menuItem}>
             <Text style={styles.link}>Mi perfil</Text>
           </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => router.push("/cart")} style={styles.menuItem}>
+            <Text style={styles.link}>Mi carrito</Text>
+          </Pressable>
           <Pressable accessibilityRole="button" onPress={() => router.push("/orders")} style={styles.menuItem}>
             <Text style={styles.link}>Mis pedidos</Text>
           </Pressable>

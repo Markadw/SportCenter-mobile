@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Search, SlidersHorizontal, X } from "lucide-react-native";
+import { Search, ShoppingBag, SlidersHorizontal, X } from "lucide-react-native";
 import { useState } from "react";
 import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,7 +18,12 @@ export function CatalogScreen() {
   if (vm.error && !vm.products.length) return <ScreenState title="No se pudo cargar el catálogo" message={vm.error} action="Reintentar" onAction={() => void vm.refresh()} />;
   return <SafeAreaView style={styles.root} edges={["top", "left", "right"]}>
     <View style={styles.header}>
-      <Text style={styles.title} accessibilityRole="header">Catálogo</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title} accessibilityRole="header">Catálogo</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Abrir carrito" style={styles.icon} onPress={() => router.push("/cart")}>
+          <ShoppingBag size={23} color={colors.primary} />
+        </Pressable>
+      </View>
       <View style={styles.search}>
         <Search size={20} color={colors.textMuted} />
         <TextInput style={styles.input} accessibilityLabel="Buscar en el catálogo" placeholder="Producto, marca o deporte" placeholderTextColor={colors.textMuted}
@@ -35,7 +40,7 @@ export function CatalogScreen() {
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {vm.filters.sportName && <Pressable accessibilityRole="button" accessibilityLabel="Quitar filtro de deporte" style={styles.chip} onPress={() => vm.setSport(null)}><Text style={styles.controlLabel}>{vm.filters.sportName} ×</Text></Pressable>}
-        {(vm.activeCount > 0 || vm.query || vm.minPrice || vm.maxPrice) && <Pressable accessibilityRole="button" style={styles.chip} onPress={vm.clear}><Text style={styles.controlLabel}>Limpiar búsqueda y filtros</Text></Pressable>}
+        {!!(vm.activeCount > 0 || vm.query || vm.minPrice || vm.maxPrice) && <Pressable accessibilityRole="button" style={styles.chip} onPress={vm.clear}><Text style={styles.controlLabel}>Limpiar búsqueda y filtros</Text></Pressable>}
       </ScrollView>
     </View>
     <FlatList testID="catalog-list" data={vm.visibleProducts} keyExtractor={p => String(p.id)} numColumns={2}
@@ -71,6 +76,7 @@ export function CatalogScreen() {
 }
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white }, header: { paddingHorizontal: 16, gap: 12, paddingTop: 16 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 28, fontWeight: "700", color: colors.text }, search: { flexDirection: "row", alignItems: "center", paddingLeft: 14, paddingRight: 4, gap: 10, backgroundColor: colors.lightBg, borderRadius: 12 },
   input: { flex: 1, minHeight: 48, fontSize: 15, color: colors.text }, icon: { minWidth: 44, minHeight: 48, alignItems: "center", justifyContent: "center" },
   toolbar: { flexDirection: "row", gap: 12 }, control: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10 },

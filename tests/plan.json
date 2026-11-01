@@ -91,7 +91,14 @@
         "__tests__/reviewAuthorPreferences.test.ts",
         "__tests__/reviewPreferencesViewModel.test.tsx",
         "__tests__/privacyViewModel.test.tsx",
-        "__tests__/consentReceiptStorage.test.ts"
+        "__tests__/consentReceiptStorage.test.ts",
+        "__tests__/purchaseApi.test.ts",
+        "__tests__/cartViewModel.test.tsx",
+        "__tests__/checkoutViewModel.test.tsx",
+        "__tests__/CartStock.test.tsx",
+        "__tests__/PurchaseRouting.test.tsx",
+        "__tests__/loginReturnTo.test.ts",
+        "__tests__/payment.test.ts"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },

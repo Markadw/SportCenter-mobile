@@ -16,6 +16,8 @@ export class SessionRequestError extends Error {
 
 export interface SessionSnapshot {
   session: Session | null;
+  /** Ámbito recuperable para estado local. Nunca concede acceso privado. */
+  sessionScopeId: string | null;
   notice: string | null;
   isRestoring: boolean;
 }
@@ -41,7 +43,7 @@ export class SessionController {
   private generation = 0;
   private active = false;
   private current: Session | null = null;
-  private snapshot: SessionSnapshot = { session: null, notice: null, isRestoring: true };
+  private snapshot: SessionSnapshot = { session: null, sessionScopeId: null, notice: null, isRestoring: true };
   private readonly listeners = new Set<() => void>();
   private flight: { generation: number; promise: Promise<Session>; abort: AbortController } | null = null;
   private retryAt = 0;
@@ -59,7 +61,7 @@ export class SessionController {
   };
 
   private publish(change: Partial<SessionSnapshot>) {
-    this.snapshot = { ...this.snapshot, ...change };
+    this.snapshot = { ...this.snapshot, ...change, sessionScopeId: this.current?.sessionId ?? null };
     for (const listener of this.listeners) listener();
   }
   private install(next: Session) {
@@ -86,6 +88,7 @@ export class SessionController {
     this.active = false;
     this.advance();
     this.current = null;
+    this.snapshot = { ...this.snapshot, session: null, sessionScopeId: null };
   }
 
   private async clear(attempt: number): Promise<boolean> {
