@@ -20,6 +20,7 @@ function Navigation() {
     <StartupGate loading={isLoading || isRestoring}>
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.white }, headerTintColor: colors.text,
         headerShadowVisible: false, contentStyle: { backgroundColor: colors.white } }}>
+        <Stack.Screen name="+not-found" options={{ title: "Pantalla no encontrada" }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="product/[id]" options={{ title: "Detalle del producto" }} />
         <Stack.Screen name="register" options={{ title: "Crear cuenta" }} />
