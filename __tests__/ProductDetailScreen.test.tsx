@@ -3,17 +3,22 @@ import { Share } from 'react-native';
 import { productsApi } from '../src/api';
 import { ProductDetailScreen } from '../src/features/products/screens/ProductDetailScreen';
 import { product } from './fixtures/products';
+import { cartApi } from '../src/api/cartApi';
 
+let mockSession: { accessToken: string; sessionId: string } | null = null;
+jest.mock('../src/features/auth/context/SessionContext', () => ({ useSession: () => ({ session: mockSession }) }));
+jest.mock('../src/api/cartApi', () => ({ cartApi: { add: jest.fn() } }));
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
-let mockId = '7';
+const mockPush = jest.fn();
+let mockId: string | string[] = '7';
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: mockId }),
-  useRouter: () => ({ back: mockBack, canGoBack: () => true, replace: mockReplace }) }));
+  useRouter: () => ({ back: mockBack, canGoBack: () => true, replace: mockReplace, push: mockPush }) }));
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 jest.mock('lucide-react-native', () => ({ Share2: () => null }));
 jest.mock('../src/api', () => ({ productsApi: { getById: jest.fn() } }));
 const getById = jest.mocked(productsApi.getById);
-beforeEach(() => { mockId = '7'; });
+beforeEach(() => { mockId = '7'; mockSession = null; });
 afterEach(() => jest.restoreAllMocks());
 
 describe('HU-04: detalle y variantes reales', () => {
@@ -80,4 +85,60 @@ describe('HU-04: detalle y variantes reales', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Compartir producto' }));
     expect(share).toHaveBeenCalledWith({ message: 'Balón de fútbol\nhttps://sport-center-sitie.netlify.app/product/balon-de-futbol/24337' });
   });
+});
+
+
+test("HU05: agregar usa variante seleccionada y cantidad, no ID de producto", async () => {
+  mockSession = { accessToken: "token", sessionId: "product-session" };
+  getById.mockResolvedValueOnce({ ...product, variants: [...product.variants,
+    { id: 12, sku: "RED", stock: 3, price: 270, images: [], attributes: { Color: "Rojo" } }] });
+  jest.mocked(cartApi.add).mockResolvedValueOnce({ id: 1, items: [], subtotal: 540, itemCount: 2 });
+  await render(<ProductDetailScreen />);
+  await fireEvent.press(screen.getByRole("radio", { name: "Color: Rojo" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Sumar cantidad" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Agregar al carrito" }));
+  expect(cartApi.add).toHaveBeenCalledWith("token", 12, 2, expect.any(AbortSignal));
+  expect(screen.getByText("Agregado al carrito.")).toBeTruthy();
+});
+test("HU05: variante agotada deshabilita el botón para agregar", async () => {
+  mockSession = { accessToken: "token", sessionId: "product-session" };
+  getById.mockResolvedValueOnce({ ...product, variants: [{ ...product.variants[0], stock: 0 }] });
+  await render(<ProductDetailScreen />);
+  await fireEvent.press(screen.getByRole("button", { name: "Agregar al carrito" }));
+  expect(cartApi.add).not.toHaveBeenCalled();
+});
+
+test("una respuesta perdida al agregar ofrece consultar el carrito y no repite el POST automáticamente", async () => {
+  mockSession = { accessToken: "token", sessionId: "product-session" };
+  getById.mockResolvedValueOnce(product);
+  jest.mocked(cartApi.add).mockRejectedValueOnce({ isAxiosError: true });
+  await render(<ProductDetailScreen />);
+  await fireEvent.press(screen.getByRole("button", { name: "Agregar al carrito" }));
+  expect(screen.getByRole("button", { name: "Consultar carrito" })).toBeTruthy();
+  expect(cartApi.add).toHaveBeenCalledTimes(1);
+});
+
+test("un invitado puede abrir las reseñas públicas desde el producto sin iniciar sesión", async () => {
+  mockSession = null;
+  getById.mockResolvedValueOnce(product);
+  await render(<ProductDetailScreen />);
+  await fireEvent.press(screen.getByRole("button", { name: "Ver reseñas del producto" }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/reviews/[id]", params: { id: String(product.id) } });
+  expect(cartApi.add).not.toHaveBeenCalled();
+});
+
+
+test("un ID ambiguo no selecciona arbitrariamente otro producto", async () => {
+  mockId = ["7", "8"];
+  await render(<ProductDetailScreen />);
+  expect(getById).not.toHaveBeenCalled();
+  expect(screen.getByText("Producto no encontrado")).toBeTruthy();
+});
+
+test("el invitado vuelve al mismo producto después de iniciar sesión", async () => {
+  getById.mockResolvedValueOnce(product);
+  await render(<ProductDetailScreen />);
+  await fireEvent.press(screen.getByRole("button", { name: "Iniciar sesión para agregar" }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/login", params: { returnTo: "/product/" + product.id } });
+  expect(cartApi.add).not.toHaveBeenCalled();
 });

@@ -8,7 +8,7 @@ jest.mock('react-native-safe-area-context', () => jest.requireActual('react-nati
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }), useLocalSearchParams: () => ({}) }));
 jest.mock('lucide-react-native', () => ({ ChevronRight: () => null,
-  Home: () => null, SlidersHorizontal: () => null, Share2: () => null, Search: () => null, X: () => null }));
+  Home: () => null, SlidersHorizontal: () => null, Share2: () => null, Search: () => null, ShoppingBag: () => null, X: () => null }));
 jest.mock('../src/features/catalog', () => ({ useFilters: jest.fn() }));
 jest.mock('../src/features/products/context/ProductsContext', () => ({ useProducts: jest.fn() }));
 jest.mock('../src/features/products/components/FiltersModal', () => ({ FiltersModal: () => null }));

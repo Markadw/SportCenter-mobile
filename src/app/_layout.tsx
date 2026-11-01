@@ -20,6 +20,7 @@ function Navigation() {
     <StartupGate loading={isLoading || isRestoring}>
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.white }, headerTintColor: colors.text,
         headerShadowVisible: false, contentStyle: { backgroundColor: colors.white } }}>
+        <Stack.Screen name="+not-found" options={{ title: "Pantalla no encontrada" }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="product/[id]" options={{ title: "Detalle del producto" }} />
         <Stack.Screen name="register" options={{ title: "Crear cuenta" }} />
@@ -30,6 +31,9 @@ function Navigation() {
         <Stack.Screen name="orders/index" options={{ title: "Mis pedidos" }} />
         <Stack.Screen name="orders/[id]" options={{ title: "Detalle del pedido" }} />
         <Stack.Screen name="reviews/[id]" options={{ title: "Reseñas del producto" }} />
+        <Stack.Screen name="cart" options={{ title: "Mi carrito" }} />
+        <Stack.Screen name="checkout" options={{ title: "Finalizar compra" }} />
+        <Stack.Screen name="checkout-status" options={{ title: "Estado del pago" }} />
         <Stack.Screen name="privacy" options={{ title: "Privacidad y términos" }} />
       </Stack>
     </StartupGate>

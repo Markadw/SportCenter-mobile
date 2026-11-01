@@ -10,6 +10,7 @@ import { registerSessionInterceptors } from "./sessionInterceptors";
 
 interface SessionState {
   session: Session | null;
+  sessionScopeId: string | null;
   notice: string | null;
   isRestoring: boolean;
   signIn: (credentials: LoginCredentials, signal: AbortSignal) => Promise<void>;

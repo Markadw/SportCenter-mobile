@@ -7,21 +7,28 @@ import { ProductImage } from "../../../components/ProductImage";
 import { ScreenState } from "../../../components/ScreenState";
 import { colors } from "../../../constants/theme";
 import { useProductDetailViewModel } from "../hooks/useProductDetailViewModel";
+import { useSession } from "../../auth/context/SessionContext";
+import { useAddToCart } from "../../cart/hooks/useCartViewModel";
 import { money, productWebsiteUrl } from "../presentation";
 
 export function ProductDetailScreen() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
-  const id = Array.isArray(params.id) ? params.id[0] ?? "" : params.id ?? "";
+  const id = typeof params.id === "string" ? params.id : "";
   const vm = useProductDetailViewModel(id);
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [shareError, setShareError] = useState<string | null>(null);
   const [imageIndex, setImageIndex] = useState(0);
+  const { session } = useSession();
+  const cart = useAddToCart(session?.accessToken ?? null, session?.sessionId);
+  const [quantity, setQuantity] = useState({ variantId: 0, value: 1 });
   if (vm.isLoading) return <ScreenState loading title="Cargando producto…" />;
   if (vm.error || !vm.product) return <ScreenState title={vm.error ?? "Producto no encontrado"} action={vm.error === "Producto no encontrado" ? "Volver" : "Reintentar"} onAction={() => vm.error === "Producto no encontrado" ? (router.canGoBack() ? router.back() : router.replace("/catalog")) : vm.retry()} />;
   const { product, selected } = vm;
   const galleryWidth = Math.max(1, width);
   const images = selected?.images ?? [];
+  const count = quantity.variantId === selected?.id ? quantity.value : 1;
+  const canAdd = !!selected && selected.stock >= count && count > 0 && count <= 99 && !cart.busy;
   const share = async () => {
     setShareError(null);
     try { await Share.share({ message: `${product.name}\n${productWebsiteUrl(product)}` }); }
@@ -56,6 +63,20 @@ export function ProductDetailScreen() {
           })}
         </View>
         {!!selected && <Text style={styles.muted}>SKU: {selected.sku}</Text>}
+        <Pressable accessibilityRole="button" accessibilityLabel="Ver reseñas del producto" style={styles.step}
+          onPress={() => router.push({ pathname: "/reviews/[id]", params: { id: String(product.id) } })}><Text style={styles.stepLabel}>Ver reseñas del producto</Text></Pressable>
+        <Text style={styles.heading}>Cantidad</Text>
+        <View style={styles.quantity}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Restar cantidad" disabled={count <= 1 || cart.busy} style={styles.step} onPress={() => selected && setQuantity({ variantId: selected.id, value: count - 1 })}><Text style={styles.stepLabel}>−</Text></Pressable>
+          <Text style={styles.quantityLabel}>{count}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Sumar cantidad" disabled={!selected || count >= Math.min(99, selected.stock) || cart.busy} style={styles.step} onPress={() => selected && setQuantity({ variantId: selected.id, value: count + 1 })}><Text style={styles.stepLabel}>+</Text></Pressable>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canAdd }} disabled={!canAdd} style={[styles.add, !canAdd && styles.disabled]}
+          onPress={() => { if (!session) router.push({ pathname: "/login", params: { returnTo: "/product/" + product.id } }); else if (selected) void cart.add(selected.id, count); }}>
+          <Text style={styles.addLabel}>{cart.busy ? "Agregando…" : session ? "Agregar al carrito" : "Iniciar sesión para agregar"}</Text>
+        </Pressable>
+        {!!cart.result && <Text accessibilityRole="alert" style={cart.result.error ? styles.error : styles.muted}>{cart.result.message}</Text>}
+        {cart.result && <Pressable accessibilityRole="button" style={styles.step} onPress={() => router.push("/cart")}><Text style={styles.stepLabel}>{cart.result.error ? "Consultar carrito" : "Ver carrito"}</Text></Pressable>}
         <View style={styles.divider} />
         <Text style={styles.heading}>Descripción</Text>
         <Text style={styles.description}>{product.description || "Sin descripción disponible."}</Text>
@@ -79,5 +100,8 @@ const styles = StyleSheet.create({
   optionSelected: { borderColor: colors.primary, backgroundColor: colors.brandChipBg }, optionLabel: { fontSize: 15, color: colors.text }, optionLabelSelected: { color: colors.primary, fontWeight: "600" },
   muted: { color: colors.textMuted, fontSize: 14 }, description: { color: colors.textMuted, fontSize: 16, lineHeight: 25 },
   detail: { flexDirection: "row", gap: 16, paddingVertical: 6, justifyContent: "space-between" }, detailValue: { flexShrink: 1, textAlign: "right", color: colors.text, fontSize: 14 },
+  quantity: { flexDirection: "row", alignItems: "center", gap: 16 }, quantityLabel: { fontSize: 18, color: colors.text },
+  step: { minHeight: 48, minWidth: 48, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }, stepLabel: { color: colors.primary, fontSize: 18 },
+  add: { minHeight: 54, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, borderRadius: 12, padding: 12 }, addLabel: { color: colors.white, fontWeight: "700", fontSize: 16 }, disabled: { opacity: 0.45 },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: 8 }, error: { color: colors.error, fontSize: 14 },
 });

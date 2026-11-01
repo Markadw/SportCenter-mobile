@@ -208,3 +208,34 @@ test("un TTL corto se renueva con anticipación proporcional y no genera bucle i
   await controller.refreshIfNeeded();
   expect(api.refresh).toHaveBeenCalledTimes(1);
 });
+
+test("el ámbito local sobrevive fallo transitorio sin autorizar acceso, y se limpia ante rechazo definitivo", async () => {
+  await login();
+  expect(controller.getSnapshot().sessionScopeId).toBe(original.sessionId);
+  api.refresh.mockRejectedValueOnce(new AxiosError("sin red", "ERR_NETWORK"));
+  now = original.expiresAt;
+  await expect(controller.refreshIfNeeded()).rejects.toBeInstanceOf(SessionRequestError);
+  expect(controller.getSnapshot()).toMatchObject({ session: null, sessionScopeId: original.sessionId });
+  await controller.refreshIfNeeded();
+  expect(controller.getSnapshot()).toMatchObject({ session: renewed, sessionScopeId: original.sessionId });
+  api.refresh.mockRejectedValueOnce(unauthorized());
+  now = renewed.expiresAt;
+  await expect(controller.refreshIfNeeded()).rejects.toBeInstanceOf(SessionRequestError);
+  expect(controller.getSnapshot()).toMatchObject({ session: null, sessionScopeId: null });
+});
+test("logout y el inicio de una cuenta distinta retiran inmediatamente el ámbito anterior", async () => {
+  await login();
+  await controller.signOut();
+  expect(controller.getSnapshot().sessionScopeId).toBeNull();
+  await controller.signIn(loginCredentials, new AbortController().signal);
+  const pending = deferred<Session>();
+  api.login.mockReturnValueOnce(pending.promise);
+  const operation = controller.signIn({ ...loginCredentials, email: "otra@example.test" }, new AbortController().signal);
+  expect(controller.getSnapshot()).toMatchObject({ session: null, sessionScopeId: null });
+  await waitFor(() => expect(api.login).toHaveBeenCalledTimes(3));
+  const other = { ...renewed, sessionId: "different-account-session" };
+  pending.resolve(other); await operation;
+  expect(controller.getSnapshot()).toMatchObject({ session: other, sessionScopeId: other.sessionId });
+  controller.dispose();
+  expect(controller.getSnapshot()).toMatchObject({ session: null, sessionScopeId: null });
+});

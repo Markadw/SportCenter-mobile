@@ -1,4 +1,4 @@
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -8,13 +8,16 @@ import { colors, fontSize, radius, spacing } from "../../../constants/theme";
 import { useLoginViewModel } from "../hooks/useLoginViewModel";
 import { useSession } from "../context/SessionContext";
 import { ScreenState } from "../../../components/ScreenState";
+import { resolveLoginReturnTo } from "../navigation/loginReturnTo";
 
 export function LoginScreen() {
   const vm = useLoginViewModel();
   const router = useRouter();
   const { isRestoring } = useSession();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const destination = resolveLoginReturnTo(returnTo);
   if (isRestoring) return <ScreenState title="Restaurando sesión" loading />;
-  if (vm.session) return <Redirect href="/account" />;
+  if (vm.session) return <Redirect href={destination} />;
 
   return (
     <SafeAreaView style={styles.flex} edges={["bottom", "left", "right"]}>

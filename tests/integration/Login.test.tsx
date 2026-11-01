@@ -15,11 +15,13 @@ jest.mock("expo-secure-store", () => ({
 }));
 let mockStoredSession: string | null = null;
 
+let mockParams: { returnTo?: string | string[] } = {};
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 let mockBlur: (() => void) | undefined;
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useLocalSearchParams: () => mockParams,
   Redirect: ({ href }: { href: string }) => {
     const { Text: NativeText } = jest.requireActual("react-native");
     return <NativeText>{`Destino: ${href}`}</NativeText>;
@@ -63,6 +65,7 @@ async function enter() {
 }
 
 beforeEach(() => {
+  mockParams = {};
   mockStoredSession = null;
   jest.mocked(SecureStore.getItemAsync).mockImplementation(async () => mockStoredSession);
   jest.mocked(SecureStore.setItemAsync).mockImplementation(async (_key, value) => { mockStoredSession = value; });
@@ -323,5 +326,33 @@ describe("CP-02 / HU-02: formulario, API y sesión segura", () => {
     await operation;
     const next = await renderHook(() => useSession(), { wrapper: SessionProvider });
     expect(next.result.current.session).toBeNull();
+  });
+});
+
+
+describe("retorno seguro al completar login", () => {
+  test.each(["/cart", "/checkout", "/profile", "/orders", "/product/7", "/reviews/7", "/checkout-status?id=91"])(
+    "tras autenticar conserva sólo el destino interno autorizado %s", async (returnTo) => {
+      mockParams = { returnTo };
+      await render(<SessionProvider><LoginScreen /></SessionProvider>);
+      expect(screen.queryByText("Destino: " + returnTo)).toBeNull();
+      await fill();
+      await fireEvent.press(screen.getByRole("button", { name: "Iniciar sesión" }));
+      expect(await screen.findByText("Destino: " + returnTo)).toBeTruthy();
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(adapter.mock.calls[0][0].url).toBe("/users/login-user");
+    },
+  );
+  test.each([
+    undefined, ["/cart"], ["/cart", "/checkout"], "https://ajeno.example/cart", "//ajeno.example/cart",
+    "%2Fcart", "/checkout-status?id=91&id=92", "/cart?returnTo=https://ajeno.example", "/" + "a".repeat(500),
+  ])("un returnTo ausente o rechazado vuelve a la cuenta: %#", async (returnTo) => {
+    mockParams = { returnTo };
+    await render(<SessionProvider><LoginScreen /></SessionProvider>);
+    await fill();
+    await fireEvent.press(screen.getByRole("button", { name: "Iniciar sesión" }));
+    expect(await screen.findByText("Destino: /account")).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(adapter).toHaveBeenCalledTimes(1);
   });
 });

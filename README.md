@@ -9,7 +9,7 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye carga inicial con la marca Sport Center, navegación inferior, inicio, búsqueda y catálogo con filtros y orden, y detalle de producto por variante con consumo del backend.
 
-El cliente incluye registro, verificación, reenvío, inicio y cierre de sesión, restauración y renovación con almacenamiento seguro nativo. Incluye edición de perfil, recuperación de contraseña, consulta de pedidos propios y sus envíos, y reseñas con elegibilidad, reporte y ocultación local de autores. Las pruebas del cliente usan transporte simulado; los contratos HTTP públicos y la aceptación Android tienen evidencias independientes. Carrito, direcciones y checkout están en desarrollo separado; no se presentan aquí como integrados. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+El cliente incluye registro, verificación, reenvío, inicio y cierre de sesión, restauración y renovación con almacenamiento seguro nativo. Incluye edición de perfil, recuperación de contraseña, consulta de pedidos propios y sus envíos, y reseñas con elegibilidad, reporte y ocultación local de autores. Las pruebas del cliente usan transporte simulado; los contratos HTTP públicos y la aceptación Android tienen evidencias independientes. También incluye carrito por variante, direcciones y resumen de checkout con apertura de Mercado Pago y consulta del estado del pedido. Los recorridos nuevos de compra en Android y el pago real siguen pendientes de validación. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
 
 ## Interfaces móviles
 
@@ -17,7 +17,7 @@ El primer bloque de interfaces se integró mediante el PR #41: Inicio, Catálogo
 
 Inicio muestra el buscador, deportes, productos más recientes y marcas, en ese orden, con opciones de la API. Se retiraron el banner y su consulta al backend. Marca y deporte abren su catálogo filtrado. La búsqueda funciona por nombre, descripción, marca, categoría y deporte, sin distinguir acentos. El catálogo admite orden por precio o nombre y el orden reciente que entrega el servidor, rango de precio y carga acumulada de 20 productos. Volver desde el detalle conserva la búsqueda; una selección nueva desde Inicio comienza otra consulta.
 
-El detalle selecciona una combinación real de atributos; precio, fotos y existencias pertenecen a esa misma variante. Las tarjetas muestran su rango de precios. Compartir abre la herramienta del dispositivo con la URL real del sitio web. Se retiraron los controles de favoritos y el botón de carrito que no realizaban operaciones, junto con las promesas fijas de envío y devolución que no provenían de la API. La acción de compra se incorporará con HU-05 y el contrato del carrito; esta revisión no da por terminada esa historia.
+El detalle selecciona una combinación real de atributos; precio, fotos y existencias pertenecen a esa misma variante. Las tarjetas muestran su rango de precios. Compartir abre la herramienta del dispositivo con la URL real del sitio web. Se retiraron favoritos y promesas fijas de envío o devolución que no provenían de la API. El detalle permite elegir cantidad y agregar la variante al carrito. Inicio, Catálogo y Cuenta ofrecen acceso al carrito; las reseñas públicas se consultan también desde el producto.
 
 La arquitectura sigue MVVM por funcionalidad: los servicios convierten la respuesta del backend; los modelos de vista de Inicio, Catálogo y Detalle manejan selección, consultas y filtros; las pantallas presentan sus estados. Los proveedores conservan los datos compartidos. El detalle sigue enviando el ID real a la API; la codificación del enlace público se usa únicamente al compartir.
 
@@ -52,6 +52,20 @@ Las reseñas son públicas; publicar requiere sesión, compra entregada confirma
 El registro exige aceptar sin premarcar el tratamiento necesario de la cuenta. Conserva sólo versión del aviso, momento y enlaces en el dispositivo; no almacena contraseñas, códigos ni una preferencia comercial. La aceptación no se incorpora al contrato del backend.
 
 Privacidad y solicitud de eliminación están disponibles sin sesión. El formulario registra una solicitud manual y un folio; no afirma que borre una cuenta. Los avisos web tienen datos de contacto inconsistentes y requieren corrección por el responsable. Los borradores de docs/public/ no están publicados. Véase [la revisión de privacidad](docs/privacy-review.md) para los pendientes que impiden declarar lista la publicación.
+
+## Carrito, dirección y checkout
+
+El carrito usa los servicios de cliente para consultar, agregar una variante, ajustar su cantidad o eliminarla. Precio, existencias y subtotal proceden del servidor. Una reducción de stock permite ajustar la cantidad disponible; los productos inactivos o sin existencias suficientes impiden continuar. La app no repite automáticamente las adiciones.
+
+Checkout consulta direcciones propias, métodos de envío, cupones y totales. Permite seleccionar una dirección o capturar otra; la nueva dirección se registra únicamente al confirmar el pedido mediante la transacción que ofrece el backend. No se simulan endpoints independientes para editar o borrar direcciones que el servicio no proporciona. HU-06 no requiere ese CRUD separado.
+
+La confirmación envía variante/cantidades desde el carrito del servidor, dirección, envío y cupón; no recibe datos de tarjeta desde la interfaz. Abre únicamente un enlace HTTPS del proveedor admitido. Volver del navegador no acredita un pago: se consultan seguimiento y pedidos propios, y se exige una fecha de pago válida para mostrar confirmación. Incidencias de stock y reembolsos tienen su propio estado.
+
+La sesión delimita el formulario y la confirmación. Renovar un token de la misma sesión conserva la operación en curso; cambiar de cuenta descarta sus resultados. Una caída temporal mantiene el estado preparado o incierto sin habilitar acceso privado. Respuestas perdidas y rechazos HTTP no clasificados impiden crear otra orden desde el mismo borrador; no se garantiza idempotencia en el servidor ni persistencia de ese borrador al terminar el proceso de la app.
+
+El login conserva un destino interno validado para volver al carrito, compra, producto o reseñas. URLs externas y parámetros ambiguos regresan a Cuenta. La confirmación tiene 45 segundos de espera; un timeout sigue siendo un resultado incierto.
+
+Véanse [la comprobación de compra](tests/manual/compra-cliente.md) y [la de cuenta](tests/manual/cuenta-cliente.md). Las pruebas visuales controladas no crean pedidos o cobros reales ni sustituyen su aceptación en Android.
 
 ## Entorno y arranque
 
