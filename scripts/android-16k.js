@@ -146,11 +146,30 @@ async function downloadApk(build, expectedHash, file, fetchApi = fetch) {
   } catch (error) { fs.rmSync(file, { force: true }); throw new ProbeError(error?.code === 'APK_HASH_MISMATCH' ? error.code : 'APK_DOWNLOAD_FAILED'); }
 }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-function record(update) {
-  fs.mkdirSync('test-results', { recursive: true });
-  const file = 'test-results/android16k.json';
-  const previous = fs.existsSync(file) ? readJson(file) : {};
-  fs.writeFileSync(file, JSON.stringify({ ...previous, ...update }, null, 2) + '\n');
+function record(update, directory = 'test-results') {
+  fs.mkdirSync(directory, { recursive: true });
+  // O_NOFOLLOW está disponible en el runner Linux; Windows usa el mismo descriptor sin ese flag.
+  requireValue(process.platform !== 'linux' || Number.isInteger(fs.constants.O_NOFOLLOW), 'REPORT_NOFOLLOW_UNAVAILABLE');
+  const descriptor = fs.openSync(path.join(directory, 'android16k.json'),
+    fs.constants.O_CREAT | fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW || 0), 0o600);
+  let operationError;
+  try {
+    requireValue(fs.fstatSync(descriptor).isFile(), 'REPORT_NOT_REGULAR_FILE');
+    const raw = fs.readFileSync(descriptor, 'utf8');
+    const previous = raw.length ? JSON.parse(raw) : {};
+    const bytes = Buffer.from(JSON.stringify({ ...previous, ...update }, null, 2) + '\n', 'utf8');
+    let written = 0;
+    while (written < bytes.length) {
+      const count = fs.writeSync(descriptor, bytes, written, bytes.length - written, written);
+      requireValue(Number.isInteger(count) && count > 0 && count <= bytes.length - written, 'REPORT_WRITE_INCOMPLETE');
+      written += count;
+    }
+    fs.ftruncateSync(descriptor, bytes.length);
+  } catch (error) { operationError = error; throw error; }
+  finally {
+    try { fs.closeSync(descriptor); }
+    catch (error) { if (!operationError) throw error; }
+  }
 }
 function locations(env) {
   requireValue(typeof env.RUNNER_TEMP === 'string' && path.isAbsolute(env.RUNNER_TEMP), 'RUNNER_TEMP_REQUIRED');
@@ -300,7 +319,7 @@ async function main(mode, env = process.env) {
   else process.stdout.write(text);
 }
 module.exports = { SOURCE, AUTOMATION_FILES, ProbeError, verifyAutomation, verifyParent, verifyMetadata,
-  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, main };
+  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, main };
 if (require.main === module) main(process.argv[2]).catch(error => {
   const code = error instanceof ProbeError ? error.code : 'INTERNAL_ERROR';
   record({ outcome: 'blocked', reason: code });

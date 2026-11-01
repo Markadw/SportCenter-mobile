@@ -10,7 +10,7 @@ const { Readable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const YAML = require('yaml');
 const { SOURCE, AUTOMATION_FILES, verifyAutomation, verifyParent, verifyMetadata, verifyBuild,
-  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, main } = require('../scripts/android-16k');
+  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, main } = require('../scripts/android-16k');
 
 const automation = { commit: 'a'.repeat(40), ref: 'refs/tags/validation/android-same-apk', repository: SOURCE.repository,
   changed: 'scripts/android-16k.js\n.github/workflows/ci.yml\n' };
@@ -241,3 +241,102 @@ test.each(['failure', 'skipped', 'cancelled', undefined])('el agregado bloquea c
       .rejects.toThrow('NATIVE_VALIDATION_NOT_SUCCESSFUL');
   }
 });
+
+function reportDirectory(action) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'android16k-record-'));
+  try { return action(directory); }
+  finally {
+    jest.restoreAllMocks();
+    if (path.dirname(path.resolve(directory)) !== path.resolve(os.tmpdir())
+      || !path.basename(directory).startsWith('android16k-record-')) throw Error('Ruta temporal inesperada');
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+test('record crea carpeta/archivo ausentes y conserva metadata al actualizar un informe existente', () => reportDirectory(base => {
+  const directory = path.join(base, 'new', 'nested'), file = path.join(directory, 'android16k.json');
+  const open = jest.spyOn(fs, 'openSync');
+  record({ source: SOURCE.commit, stage: 'prepared' }, directory);
+  record({ stage: 'downloaded' }, directory);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ source: SOURCE.commit, stage: 'downloaded' });
+  const reportOpens = open.mock.calls.filter(([target]) => target === file);
+  expect(reportOpens).toHaveLength(2);
+  for (const [, flags, mode] of reportOpens) {
+    expect(flags & fs.constants.O_RDWR).toBe(fs.constants.O_RDWR);
+    expect(flags & fs.constants.O_CREAT).toBe(fs.constants.O_CREAT);
+    if (fs.constants.O_NOFOLLOW) expect(flags & fs.constants.O_NOFOLLOW).toBe(fs.constants.O_NOFOLLOW);
+    expect(mode).toBe(0o600);
+  }
+}));
+test('record escribe desde cero, soporta escrituras parciales UTF8 y trunca los bytes sobrantes', () => reportDirectory(directory => {
+  const file = path.join(directory, 'android16k.json');
+  record({ text: 'x'.repeat(1000), preserve: true }, directory);
+  const write = fs.writeSync;
+  const positions = [];
+  jest.spyOn(fs, 'writeSync').mockImplementation((fd, buffer, offset, length, position) => {
+    positions.push(position);
+    return write(fd, buffer, offset, Math.min(length, 7), position);
+  });
+  record({ text: 'ñ✓' }, directory);
+  const expected = JSON.stringify({ text: 'ñ✓', preserve: true }, null, 2) + '\n';
+  expect(fs.readFileSync(file, 'utf8')).toBe(expected);
+  expect(fs.statSync(file).size).toBe(Buffer.byteLength(expected));
+  expect(positions[0]).toBe(0);
+  expect(positions.length).toBeGreaterThan(1);
+  expect(positions[1]).toBe(7);
+}));
+test('record no sigue el pathname sustituido entre lectura y escritura: mantiene el descriptor original', () => reportDirectory(directory => {
+  const file = path.join(directory, 'android16k.json'), original = path.join(directory, 'original.json');
+  fs.writeFileSync(file, JSON.stringify({ source: 'original' }));
+  const read = fs.readFileSync;
+  let swapped = false;
+  jest.spyOn(fs, 'readFileSync').mockImplementation((target, ...args) => {
+    const value = read(target, ...args);
+    if (typeof target === 'number' && !swapped) {
+      fs.renameSync(file, original);
+      fs.writeFileSync(file, 'replacement-must-stay-untouched');
+      swapped = true;
+    }
+    return value;
+  });
+  record({ stage: 'updated' }, directory);
+  expect(swapped).toBe(true);
+  expect(read(file, 'utf8')).toBe('replacement-must-stay-untouched');
+  expect(JSON.parse(read(original, 'utf8'))).toEqual({ source: 'original', stage: 'updated' });
+}));
+test.each(['readFileSync', 'writeSync', 'ftruncateSync'])('record cierra el descriptor ante error de %s y propaga el error', method => reportDirectory(directory => {
+  const failure = Object.assign(new Error('REPORT_IO_FAILURE'), { code: 'EIO' });
+  const close = jest.spyOn(fs, 'closeSync');
+  jest.spyOn(fs, method).mockImplementationOnce(() => { throw failure; });
+  expect(() => record({ outcome: 'passed' }, directory)).toThrow(failure);
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(() => fs.fstatSync(close.mock.calls[0][0])).toThrow();
+}));
+test('record cierra también ante JSON malformado y no sobrescribe evidencia ilegible', () => reportDirectory(directory => {
+  const file = path.join(directory, 'android16k.json'); fs.writeFileSync(file, '{malformed');
+  const close = jest.spyOn(fs, 'closeSync');
+  expect(() => record({ outcome: 'passed' }, directory)).toThrow(SyntaxError);
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(fs.readFileSync(file, 'utf8')).toBe('{malformed');
+}));
+test('record falla si writeSync no progresa y libera el descriptor', () => reportDirectory(directory => {
+  const close = jest.spyOn(fs, 'closeSync');
+  jest.spyOn(fs, 'writeSync').mockReturnValueOnce(0);
+  expect(() => record({ outcome: 'passed' }, directory)).toThrow('REPORT_WRITE_INCOMPLETE');
+  expect(close).toHaveBeenCalledTimes(1);
+}));
+test('record propaga ENOENT al abrir sin intentar cerrar un descriptor inexistente', () => reportDirectory(directory => {
+  const close = jest.spyOn(fs, 'closeSync');
+  const failure = Object.assign(new Error('folder disappeared'), { code: 'ENOENT' });
+  jest.spyOn(fs, 'openSync').mockImplementationOnce(() => { throw failure; });
+  expect(() => record({ stage: 'prepared' }, directory)).toThrow(failure);
+  expect(close).not.toHaveBeenCalled();
+}));
+test.each([false, true])('record propaga fallo de cierre y preserva un error previo si existe: %s', priorError => reportDirectory(directory => {
+  const writeError = new Error('WRITE_FAILED'), closeError = new Error('CLOSE_FAILED');
+  const close = fs.closeSync;
+  const closed = jest.spyOn(fs, 'closeSync').mockImplementation(fd => { close(fd); throw closeError; });
+  if (priorError) jest.spyOn(fs, 'writeSync').mockImplementationOnce(() => { throw writeError; });
+  expect(() => record({ outcome: 'passed' }, directory)).toThrow(priorError ? writeError : closeError);
+  expect(closed).toHaveBeenCalledTimes(1);
+  expect(() => fs.fstatSync(closed.mock.calls[0][0])).toThrow();
+}));
