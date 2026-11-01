@@ -1,0 +1,118 @@
+import { act, renderHook, waitFor } from "@testing-library/react-native";
+import { useAccountResource } from "../src/features/profile/hooks/useAccountResource";
+import { useAccountRequest } from "../src/features/profile/hooks/useAccountRequest";
+import { usePasswordRecoveryViewModel } from "../src/features/passwordRecovery/hooks/usePasswordRecoveryViewModel";
+import { passwordRecoveryApi } from "../src/api/passwordRecoveryApi";
+import { useReviewsViewModel } from "../src/features/reviews/hooks/useReviewsViewModel";
+import { reviewsApi } from "../src/api/reviewsApi";
+jest.mock("../src/api/passwordRecoveryApi", () => ({ passwordRecoveryApi: { requestCode: jest.fn(), reset: jest.fn() } }));
+jest.mock("../src/api/reviewsApi", () => ({ reviewsApi: { list: jest.fn(), eligibility: jest.fn(), create: jest.fn(), report: jest.fn() } }));
+jest.mock("expo-secure-store", () => ({ WHEN_UNLOCKED_THIS_DEVICE_ONLY: 4, getItemAsync: jest.fn().mockResolvedValue(null), setItemAsync: jest.fn().mockResolvedValue(undefined) }));
+const review = { id: 3, productId: 2, authorId: 9, author: "Ana", rating: 5, comment: "Producto excelente", date: "2026-01-01" };
+beforeEach(() => {
+  jest.mocked(reviewsApi.list).mockResolvedValue({ reviews: [review, { ...review, id: 4 }], average: 5, total: 2 });
+  jest.mocked(reviewsApi.eligibility).mockResolvedValue({ canReview: true, hasDeliveredPurchase: true, hasReview: false });
+});
+it("cancels a read, ignores its late response and resumes with a fresh request", async () => {
+  let complete!: (value: number) => void;
+  const loader = jest.fn((signal: AbortSignal) => new Promise<number>(resolve => { complete = resolve; }));
+  const { result, unmount } = await renderHook(() => useAccountResource("own-orders", loader));
+  expect(result.current.status).toBe("loading");
+  await act(() => result.current.cancel());
+  expect(loader.mock.calls[0][0].aborted).toBe(true);
+  await act(() => complete(7));
+  expect(result.current.status).toBe("cancelled"); expect(result.current.data).toBeNull();
+  await act(() => result.current.retry());
+  expect(loader).toHaveBeenCalledTimes(2);
+  await act(() => complete(8));
+  expect(result.current.data).toBe(8);
+  await unmount();
+});
+it("deduplicates submits and ignores mutations after cancellation", async () => {
+  let complete!: (value: string) => void;
+  const action = jest.fn((signal: AbortSignal) => new Promise<string>(resolve => { complete = resolve; })), success = jest.fn();
+  const { result } = await renderHook(() => useAccountRequest("session-a"));
+  await act(() => { void result.current.run(action, success); void result.current.run(action, success); });
+  expect(action).toHaveBeenCalledTimes(1); expect(result.current.pending).toBe(true);
+  await act(() => result.current.cancel());
+  expect(action.mock.calls[0][0].aborted).toBe(true);
+  await act(() => complete("late"));
+  expect(success).not.toHaveBeenCalled(); expect(result.current.pending).toBe(false);
+});
+it("aborts reads on unmount", async () => {
+  const loader = jest.fn((signal: AbortSignal) => new Promise<number>(() => {}));
+  const { unmount } = await renderHook(() => useAccountResource("profile", loader));
+  await unmount();
+  expect(loader.mock.calls[0][0].aborted).toBe(true);
+});
+it("completes recovery only after the actual reset call and clears secrets", async () => {
+  jest.mocked(passwordRecoveryApi.requestCode).mockResolvedValue();
+  jest.mocked(passwordRecoveryApi.reset).mockResolvedValue();
+  const { result, unmount } = await renderHook(usePasswordRecoveryViewModel);
+  await act(() => result.current.change("email", "ana@example.com"));
+  await act(() => result.current.sendCode());
+  await waitFor(() => expect(result.current.stage).toBe("reset"));
+  expect(result.current.cooldown).toBeGreaterThan(0);
+  await act(() => result.current.sendCode());
+  expect(passwordRecoveryApi.requestCode).toHaveBeenCalledTimes(1);
+  expect(passwordRecoveryApi.reset).not.toHaveBeenCalled();
+  await act(() => {
+    result.current.change("token", "123456"); result.current.change("psw", "SeguraNueva456!"); result.current.change("confirmation", "SeguraNueva456!");
+  });
+  await act(() => result.current.submit());
+  await waitFor(() => expect(result.current.stage).toBe("done"));
+  expect(passwordRecoveryApi.reset).toHaveBeenCalledWith(expect.objectContaining({ token: "123456", psw: "SeguraNueva456!" }), expect.any(AbortSignal));
+  expect(result.current.form).toEqual({ email: "", token: "", psw: "", confirmation: "" });
+  await unmount();
+});
+it("does not allow publication merely from a product URL or without delivered eligibility", async () => {
+  jest.mocked(reviewsApi.eligibility).mockResolvedValue({ canReview: false, hasDeliveredPurchase: false, hasReview: false });
+  const { result } = await renderHook(() => useReviewsViewModel("2", "token"));
+  await waitFor(() => expect(result.current.eligibility.status).toBe("ready"));
+  await act(() => { result.current.change("rating", 5); result.current.change("comment", "Producto excelente"); });
+  await act(() => result.current.submit());
+  expect(reviewsApi.create).not.toHaveBeenCalled();
+});
+it("publishes once after validating form and server eligibility", async () => {
+  jest.mocked(reviewsApi.create).mockResolvedValue(review);
+  const { result } = await renderHook(() => useReviewsViewModel("2", "token"));
+  await waitFor(() => expect(result.current.eligibility.data?.canReview).toBe(true));
+  await act(() => result.current.submit());
+  expect(reviewsApi.create).not.toHaveBeenCalled();
+  await act(() => { result.current.change("rating", 5); result.current.change("comment", "Producto excelente"); });
+  await act(() => result.current.submit());
+  expect(reviewsApi.create).not.toHaveBeenCalled();
+  expect(result.current.acceptedTerms).toBe(false); expect(result.current.termsError).toBeTruthy();
+  await act(() => result.current.changeTerms(true));
+  await act(() => { result.current.submit(); result.current.submit(); });
+  await waitFor(() => expect(result.current.published).toBe(true));
+  expect(reviewsApi.create).toHaveBeenCalledTimes(1);
+  expect(reviewsApi.create).toHaveBeenCalledWith("token", 2, { rating: 5, comment: "Producto excelente" }, expect.any(AbortSignal));
+});
+it("blocks only a verified author's reviews locally and can restore them", async () => {
+  const { result } = await renderHook(() => useReviewsViewModel("2"));
+  await waitFor(() => expect(result.current.resource.status).toBe("ready"));
+  await waitFor(() => expect(result.current.preferences.ready).toBe(true));
+  await act(async () => { await result.current.unblockAll(); });
+  await act(async () => { await result.current.blockAuthor(999); });
+  expect(result.current.reviews).toHaveLength(2);
+  await act(async () => { await result.current.blockAuthor(3); });
+  expect(result.current.reviews).toHaveLength(0);
+  expect(result.current.resource.data?.total).toBe(2);
+  await act(async () => { await result.current.unblockAll(); });
+  expect(result.current.reviews).toHaveLength(2);
+});
+it("validates report details and reports only a review returned by the server", async () => {
+  jest.mocked(reviewsApi.report).mockResolvedValue(12);
+  const { result } = await renderHook(() => useReviewsViewModel("2"));
+  await waitFor(() => expect(result.current.resource.status).toBe("ready"));
+  await act(() => result.current.openReport(999));
+  expect(result.current.reportId).toBeNull();
+  await act(() => result.current.openReport(3));
+  await act(() => result.current.sendReport());
+  expect(reviewsApi.report).not.toHaveBeenCalled();
+  await act(() => { result.current.changeReport("name", "Ana"); result.current.changeReport("email", "ana@example.com"); result.current.changeReport("reason", "Contenido ofensivo en esta reseña"); });
+  await act(() => result.current.sendReport());
+  await waitFor(() => expect(result.current.receipt).toBe(12));
+  expect(reviewsApi.report).toHaveBeenCalledWith(review, expect.objectContaining({ name: "Ana", email: "ana@example.com" }), expect.any(AbortSignal));
+});

@@ -92,6 +92,7 @@ async function fillRegistration() {
     ["Teléfono", registrationForm.telefono], ["Contraseña", registrationForm.passw],
     ["Confirmar contraseña", registrationForm.confirmPassword],
   ]) await fireEvent.changeText(screen.getByLabelText(label), value);
+  await fireEvent.press(screen.getByRole("checkbox", { name: "Acepto el tratamiento necesario para mi cuenta" }));
 }
 
 describe("HU-01 y HU-02: conexión entre las funciones con transporte simulado", () => {

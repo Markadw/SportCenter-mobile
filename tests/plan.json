@@ -82,7 +82,16 @@
         "__tests__/registrationValidation.test.ts",
         "__tests__/axiosLogging.test.ts",
         "__tests__/authApi.test.ts",
-        "__tests__/authLogging.test.ts"
+        "__tests__/authLogging.test.ts",
+        "__tests__/profileRepository.test.ts",
+        "__tests__/profileViewModel.test.tsx",
+        "__tests__/passwordRecoveryApi.test.ts",
+        "__tests__/ordersApi.test.ts",
+        "__tests__/reviewsSession.test.tsx",
+        "__tests__/reviewAuthorPreferences.test.ts",
+        "__tests__/reviewPreferencesViewModel.test.tsx",
+        "__tests__/privacyViewModel.test.tsx",
+        "__tests__/consentReceiptStorage.test.ts"
       ],
       "scope": "Lógica y mapeos implementados; dependencias simuladas"
     },
