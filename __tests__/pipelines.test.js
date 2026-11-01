@@ -283,7 +283,7 @@ describe('Android opcional en develop', () => {
           GITHUB_STEP_SUMMARY: summary, RUN_ANDROID: 'false', KEEP_EVIDENCE: 'false' }, encoding: 'utf8',
       });
       expect(result.status).toBe(0);
-      expect(fs.readFileSync(output, 'utf8')).toBe('android=false\nevidence=false\n');
+      expect(fs.readFileSync(output, 'utf8')).toBe('android=false\nevidence=false\npinning=false\n');
       expect(fs.readFileSync(summary, 'utf8')).toContain('No se acredita aceptación Android');
     } finally {
       if (path.dirname(path.resolve(temp)) !== path.resolve(os.tmpdir()) || !path.basename(temp).startsWith('sport-pipeline-')) {
@@ -292,4 +292,11 @@ describe('Android opcional en develop', () => {
       fs.rmSync(temp, { recursive: true });
     }
   });
+});
+
+test('la candidata no aprueba si falta el piloto nativo exigido o se ejecutó y falló', () => {
+  const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'success', pinning: 'skipped' };
+  expect(evaluateChecks(results, true, true)).toEqual(['pinning']);
+  expect(evaluateChecks({ ...results, pinning: 'success' }, true, true)).toEqual([]);
+  expect(evaluateChecks({ ...results, pinning: 'failure' }, false, false)).toEqual(['pinning']);
 });

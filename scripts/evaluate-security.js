@@ -223,7 +223,7 @@ function writeResult(kind, report, directory = outputDirectory) {
 }
 function display(value) { return String(value).replace(/[\r\n|\x60*<>\[\]]/g, '').slice(0, 160); }
 function securitySummary(audit, sast, outcomes) {
-  const required = ['install', 'audit', 'init', 'analyze', 'sast'];
+  const required = ['install', 'audit', 'semgrep', 'init', 'analyze', 'sast'];
   const problems = required.filter(name => outcomes[name] !== 'success');
   const countShape = (report, names) => report && report.counts && typeof report.counts === "object"
     && names.every(name => Number.isSafeInteger(report.counts[name]) && report.counts[name] >= 0);
@@ -256,7 +256,7 @@ function securitySummary(audit, sast, outcomes) {
   }
   for (const report of [audit, sast]) if (Array.isArray(report?.reasons) && report.reasons.length) lines.push(...report.reasons.map(display), '');
   lines.push(problems.length ? '**Bloqueada**: ' + [...new Set(problems)].join(', ') + '.' :
-    '**Aprobada para el análisis ejecutado**: cero dependencias críticas y cero hallazgos CodeQL ≥7 o nivel error.',
+    '**Aprobada para el análisis ejecutado**: cero dependencias críticas, Semgrep aprobado y cero hallazgos CodeQL ≥7 o nivel error.',
     '', 'El resultado no acredita pruebas dinámicas, pagos reales ni seguridad completa de la aplicación.', '');
   return { status: problems.length ? 'blocked' : 'passed', markdown: lines.join('\n') };
 }
@@ -268,7 +268,7 @@ function main(args = process.argv.slice(2), env = process.env) {
   assert.ok(['audit', 'sast', 'summary'].includes(mode), 'Usar audit, sast o summary.');
   if (mode === 'summary') {
     const directory = args[1] || outputDirectory;
-    const outcomes = Object.fromEntries(['install', 'audit', 'init', 'analyze', 'sast'].map(name => [name, env[name.toUpperCase() + '_OUTCOME']]));
+    const outcomes = Object.fromEntries(['install', 'audit', 'semgrep', 'init', 'analyze', 'sast'].map(name => [name, env[name.toUpperCase() + '_OUTCOME']]));
     const result = securitySummary(readResult('audit', directory), readResult('sast', directory), outcomes);
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, 'summary.md'), result.markdown);

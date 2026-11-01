@@ -35,6 +35,20 @@ jobs:
           audit_exit=0
           npm audit --json --audit-level=critical > test-results/security/npm-audit.json || audit_exit=$?
           node scripts/evaluate-security.js audit test-results/security/npm-audit.json "$audit_exit"
+      - name: Semgrep CE del código móvil y scripts sin enviar código ni métricas
+        id: semgrep
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p test-results/security
+          scan_exit=0
+          docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            --mount "type=bind,source=$PWD/test-results/security,target=/evidence" \
+            semgrep/semgrep@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0 \
+            semgrep scan --config p/ci --metrics off --disable-version-check --error --strict --severity ERROR \
+              --json-output /evidence/semgrep.json src plugins scripts > test-results/security/semgrep-console.txt 2>&1 || scan_exit=$?
+          node scripts/evaluate-semgrep.js test-results/security/semgrep.json "$scan_exit"
       - name: Inicializar SAST oficial de JavaScript y TypeScript
         id: init
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
@@ -65,6 +79,7 @@ jobs:
         env:
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          SEMGREP_OUTCOME: ${{ steps.semgrep.outcome }}
           INIT_OUTCOME: ${{ steps.init.outcome }}
           ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
           SAST_OUTCOME: ${{ steps.sast.outcome }}
@@ -77,5 +92,6 @@ jobs:
             test-results/security/summary.md
             test-results/security/audit-gate.json
             test-results/security/sast-gate.json
+            test-results/security/semgrep-gate.json
           if-no-files-found: error
           retention-days: 14

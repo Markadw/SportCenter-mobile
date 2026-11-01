@@ -231,16 +231,16 @@ Estos resultados corresponden al backend fijado, con 100 productos y 200 variant
 
 ### Documentación de arquitectura
 
-La aplicación usa rutas en `src/app/`, vistas y estado por función en `src/features/`, y acceso HTTP en `src/api/`. Las pruebas del cliente simulan el transporte para comprobar estados y errores; los contratos HTTP comprueban el backend real; Maestro comprueba los dos recorridos básicos sobre el APK.
+La [arquitectura y los patrones aplicados](docs/arquitectura.md) describen la composición y sus límites. La aplicación usa rutas en `src/app/`, vistas y estado por función en `src/features/`, y acceso HTTP en `src/api/`. Las pruebas del cliente simulan el transporte para comprobar estados y errores; los contratos HTTP comprueban el backend real; Maestro comprueba los dos recorridos básicos sobre el APK.
 
-[DeepWiki del repositorio](https://deepwiki.com/Markadw/SportCenter-mobile) sigue mostrando el índice del commit `f24ccc` de `main`, según la revisión del 26 de octubre. Ese índice aún no documenta este PR. El código, los workflows y este README son la referencia actual; la actualización de DeepWiki queda pendiente de una indexación de la versión integrada. No se modifica `main` para adelantarla.
+[DeepWiki del repositorio](https://deepwiki.com/Markadw/SportCenter-mobile) mostraba el índice del commit `f24ccc` de `main` en la última revisión registrada, del 26 de octubre. Ese índice aún no documenta este PR. El código, los workflows y este README son la referencia actual; la actualización de DeepWiki queda pendiente de una indexación de la versión integrada. No se modifica `main` para adelantarla.
 
 
 ## Alcance de las historias
 
 Los criterios de HU-03 (#9) y HU-04 (#10) del tablero actual cubren catálogo y detalle públicos con datos reales y manejo de estados. Las acciones de compra se desarrollan en las historias correspondientes y se validan contra sus contratos reales de API.
 
-La matriz `tests/plan.json` referencia las nueve issues vigentes. Los estados del tablero requieren conciliación con las entregas: una issue cerrada o una fecha vencida no sustituye la evidencia de implementación.
+La matriz `tests/plan.json` conserva las nueve historias iniciales y añade HU-10 (#47, recuperación) y HU-11 (#48, reseñas), autorizadas sin alterar los 52 SP de la línea base. Los estados del tablero requieren conciliación con las entregas: una issue cerrada o una fecha vencida no sustituye la evidencia de implementación.
 
 ## Ramas y revisión
 
@@ -268,3 +268,5 @@ Cada tarea incluye el código, las pruebas y la configuración que necesita. Las
 No subir node_modules, cachés, .env locales, reportes generados, claves de firma ni carpetas nativas generadas.
 
 Documentación: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/), [variables de entorno](https://docs.expo.dev/guides/environment-variables/) y [ESLint](https://docs.expo.dev/guides/using-eslint/).
+
+La [seguridad de la candidata](docs/seguridad-candidata.md) documenta Semgrep, CodeQL y los límites de inspección del APK. Los [reintentos EAS](docs/reintentos-eas.md) evitan crear sustitutos silenciosos. El [piloto nativo](tests/manual/android-pinning-pilot.md) usa el mismo APK en un emulador temporal, con controles de confianza, rechazo y recuperación. La existencia de estos guiones no acredita su ejecución; consultar el resultado de la candidata correspondiente.

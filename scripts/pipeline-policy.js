@@ -36,9 +36,10 @@ async function pushQuality({ repository, branch, sha, deleted = false }, fetchPu
   return !prs.some((pr) => pr.state === 'open' && ['develop', 'main'].includes(pr.base?.ref) && pr.head?.sha === sha);
 }
 
-function evaluateChecks(results, requireAndroid) {
+function evaluateChecks(results, requireAndroid, requirePinning = false) {
   const required = ['plan', 'quality', 'security', 'api', 'performance'];
   if (requireAndroid || !['skipped', undefined].includes(results.android)) required.push('android');
+  if (requirePinning || !['skipped', undefined].includes(results.pinning)) required.push('pinning');
   return required.filter((name) => results[name] !== 'success');
 }
 
@@ -73,19 +74,20 @@ async function main(mode, env = process.env) {
     }
     const plan = executionPlan({ event: env.GITHUB_EVENT_NAME, branch: env.GITHUB_REF_NAME, base: env.GITHUB_BASE_REF,
       head: env.GITHUB_HEAD_REF, refType: env.GITHUB_REF_TYPE, deleted, draft, android: env.RUN_ANDROID === 'true', evidence: env.KEEP_EVIDENCE === 'true' });
-    fs.appendFileSync(env.GITHUB_OUTPUT, `android=${plan.android}\nevidence=${plan.evidence}\n`);
+    const pinning = env.GITHUB_REF_TYPE === 'tag' && plan.android;
+    fs.appendFileSync(env.GITHUB_OUTPUT, `android=${plan.android}\nevidence=${plan.evidence}\npinning=${pinning}\n`);
     fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `## Matriz de ejecución\n\nEtapa: **${plan.stage}**. Android obligatorio: **${plan.android ? 'sí' : 'no'}**.\n\n`
       + (env.GITHUB_EVENT_NAME === 'pull_request' && env.GITHUB_BASE_REF === 'develop'
         ? 'PR a develop: lint, TypeScript, pruebas del cliente, HTTP, seguridad e inspección obligatorios. APK y Android se omiten; pueden solicitarse en una ejecución manual de develop. No se acredita aceptación Android.\n'
-        : env.GITHUB_REF_TYPE === 'tag' ? 'Candidata explícita del commit congelado: exige APK, inspección y aceptación Android; no registra una entrega automáticamente.\n'
+        : env.GITHUB_REF_TYPE === 'tag' ? 'Candidata explícita del commit congelado: exige APK, inspección, aceptación Android y rechazo nativo bajo MITM; no registra una entrega automáticamente.\n'
           : draft ? 'Borrador: calidad e integración sin compilar APK. Al marcarlo listo se vuelve a evaluar la candidata.\n'
           : plan.android ? 'Esta ejecución exige compilación y aceptación Android aprobadas.\n'
             : 'Integración sin APK ni Android; se comprueban calidad, HTTP, seguridad e inspección.\n'));
     return;
   }
   if (mode !== 'gate') throw new Error('Usar push, plan o gate.');
-  const results = Object.fromEntries(['plan', 'quality', 'security', 'api', 'performance', 'android'].map((name) => [name, env[`RESULT_${name.toUpperCase()}`] || 'skipped']));
-  const blocked = evaluateChecks(results, env.REQUIRE_ANDROID !== 'false');
+  const results = Object.fromEntries(['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning'].map((name) => [name, env[`RESULT_${name.toUpperCase()}`] || 'skipped']));
+  const blocked = evaluateChecks(results, env.REQUIRE_ANDROID !== 'false', env.REQUIRE_PINNING === 'true');
   const rows = Object.entries(results).map(([name, result]) => `| ${name} | ${result} |`);
   fs.appendFileSync(env.GITHUB_STEP_SUMMARY, ['## Resultado de integración', '', '| Comprobación | Estado |', '|---|---|', ...rows, '',
     blocked.length ? `**Bloqueada**: ${blocked.join(', ')}.\n`

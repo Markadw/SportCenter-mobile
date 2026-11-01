@@ -11,7 +11,7 @@ const YAML = require('yaml');
 const { evaluateAudit, evaluateSarif, evaluateSarifFiles, securitySummary } = require('../scripts/evaluate-security');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const root = path.resolve(__dirname, '..');
-const outcomes = { install: 'success', audit: 'success', init: 'success', analyze: 'success', sast: 'success' };
+const outcomes = { install: 'success', audit: 'success', semgrep: 'success', init: 'success', analyze: 'success', sast: 'success' };
 function audit(values = {}, vulnerabilities = {}) {
   const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0, ...values };
   return { auditReportVersion: 2, vulnerabilities,
@@ -120,7 +120,7 @@ describe('SARIF de CodeQL y umbral de seguridad', () => {
 });
 
 describe('Resultado de seguridad real y diagnóstico', () => {
-  test.each(['install', 'audit', 'init', 'analyze', 'sast'])('un paso %s omitido, cancelado o fallido nunca aprueba', name => {
+  test.each(['install', 'audit', 'semgrep', 'init', 'analyze', 'sast'])('un paso %s omitido, cancelado o fallido nunca aprueba', name => {
     for (const status of ['skipped', 'failure', 'cancelled', undefined]) {
       expect(securitySummary(evaluateAudit(audit(), 0), cleanSast(), { ...outcomes, [name]: status }).status).toBe('blocked');
     }
@@ -172,7 +172,7 @@ test("CLI sólo aprueba con ambos informes completos y resultados reales de ejec
   fs.writeFileSync(npmFile, JSON.stringify(audit()));
   const clean = sarif(); clean.runs[0].results = [];
   fs.writeFileSync(sarifFile, JSON.stringify(clean));
-  const env = { ...process.env, INSTALL_OUTCOME: "success", AUDIT_OUTCOME: "success", INIT_OUTCOME: "success",
+  const env = { ...process.env, INSTALL_OUTCOME: "success", AUDIT_OUTCOME: "success", SEMGREP_OUTCOME: "success", INIT_OUTCOME: "success",
     ANALYZE_OUTCOME: "success", SAST_OUTCOME: "success" };
   const run = (args, values = env) => spawnSync(process.execPath, [path.join(root, "scripts/evaluate-security.js"), ...args],
     { cwd: directory, env: values, encoding: "utf8" });
