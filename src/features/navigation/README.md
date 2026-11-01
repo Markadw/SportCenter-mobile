@@ -1,0 +1,11 @@
+# Entradas nativas y rutas desconocidas
+
+`+native-intent.tsx` delega ambas entradas, inicial y con la app abierta, al helper puro `sanitizeIncomingPath`. El helper limita la entrada antes de interpretarla, rechaza codificación malformada, rutas ambiguas y parámetros repetidos, y construye una ruta relativa con parámetros conocidos codificados una sola vez. Los estados de pago declarados por la URL se descartan: la pantalla de compra consulta el servidor. No hay un callback OAuth creado ni una excepción genérica para proveedores futuros.
+
+Las rutas normales admiten hasta 2048 caracteres, 16 parámetros recibidos, claves de 64 caracteres y valores de 512. Búsqueda y correo tienen límites de 200 y 100 respectivamente. Se admiten las rutas de catálogo, autenticación y cuenta autorizadas, además de carrito, checkout y estado de compra. Los IDs deben ser enteros positivos seguros. Rechazos llevan a `/catalog`; la pantalla `+not-found` también ofrece esa salida.
+
+Sólo en desarrollo, los enlaces `exp`/`exps` reconocen `/--/`. El launcher `expo-development-client` admite un único proyecto HTTP/HTTPS/exp/exps de localhost, redes privadas o hosts Expo conocidos, hasta 8192 caracteres; no admite otro launcher anidado. Una vez cargado el JS, su URL de Metro se convierte en `/` o en una cola `/--/` válida, sin enviar `index.bundle` a la navegación. Esto no amplía las reglas nativas de HTTP ni la confianza TLS.
+
+Este control no resuelve los avisos de la dependencia transitiva `decode-uri-component`: no cubre web ni consumidores que llamen al parser genérico por separado. En el SDK 57 instalado, el flujo normal de Expo usa su fork con URLSearchParams; el parser genérico de React Navigation conserva query-string.parse. La comprobación en APK/dispositivo de Expo Go y development client sigue siendo una validación adicional a los fixtures unitarios.
+
+Fuentes: [Customizing links](https://docs.expo.dev/router/advanced/native-intent/), [SDK 57](https://docs.expo.dev/versions/v57.0.0/), [aviso del mantenedor](https://github.com/SamVerschueren/decode-uri-component/security/advisories/GHSA-vcc3-ghjq-m6fr), [segundo aviso](https://github.com/SamVerschueren/decode-uri-component/security/advisories/GHSA-qr28-fpjm-wq7f).
