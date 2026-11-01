@@ -5,9 +5,12 @@ export interface LoginCredentials {
 
 export type LoginFieldErrors = Partial<Record<keyof LoginCredentials, string>>;
 
-export interface Session {
-  accessToken: string;
+export interface StoredSession {
   refreshToken: string;
   sessionId: string;
+}
+
+export interface Session extends StoredSession {
+  accessToken: string;
   expiresAt: number;
 }

@@ -5,12 +5,16 @@
   "dependencies": {
     "axios": "^1.20.0",
     "expo": "~57.0.31",
+    "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.19",
+    "expo-dev-client": "~57.0.20",
     "expo-linking": "~57.0.13",
     "expo-router": "~57.0.29",
+    "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.10",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
     "lucide-react-native": "^1.52.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -57,7 +61,9 @@
     "env:status": "node scripts/test-environment.js status",
     "test:performance": "node scripts/run-performance.js",
     "lint:report": "node scripts/run-static-analysis.js lint",
-    "typecheck:report": "node scripts/run-static-analysis.js typecheck"
+    "typecheck:report": "node scripts/run-static-analysis.js typecheck",
+    "start:go": "expo start --go",
+    "start:dev-client": "expo start --dev-client"
   },
   "private": true,
   "engines": {

@@ -2,11 +2,18 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-li
 import { AxiosError, AxiosHeaders, type AxiosAdapter, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { AppState, Text, type AppStateStatus } from "react-native";
 import axiosClient from "../../src/api/axios";
+import { authApi } from "../../src/api/authApi";
+import * as SecureStore from "expo-secure-store";
 import { AppHeader } from "../../src/components/AppHeader";
 import { SessionProvider, useSession } from "../../src/features/auth/context/SessionContext";
 import { AccountScreen } from "../../src/features/auth/screens/AccountScreen";
 import { LoginScreen } from "../../src/features/auth/screens/LoginScreen";
 import { deferred, loginCredentials, loginResponse } from "../../__tests__/fixtures/auth";
+
+jest.mock("expo-secure-store", () => ({
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 4, getItemAsync: jest.fn(), setItemAsync: jest.fn(), deleteItemAsync: jest.fn(),
+}));
+let mockStoredSession: string | null = null;
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -56,6 +63,13 @@ async function enter() {
 }
 
 beforeEach(() => {
+  mockStoredSession = null;
+  jest.mocked(SecureStore.getItemAsync).mockImplementation(async () => mockStoredSession);
+  jest.mocked(SecureStore.setItemAsync).mockImplementation(async (_key, value) => { mockStoredSession = value; });
+  jest.mocked(SecureStore.deleteItemAsync).mockImplementation(async () => { mockStoredSession = null; });
+  jest.spyOn(authApi, "refresh").mockImplementation(async (stored) => ({
+    ...stored, accessToken: "access-renovado", refreshToken: "refresh-renovado", expiresAt: Date.now() + 900_000,
+  }));
   adapter = jest.fn(async (config) => response(config));
   axiosClient.defaults.adapter = adapter;
   mockBlur = undefined;
@@ -68,7 +82,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-describe("CP-02 / HU-02: formulario, API y sesión en memoria", () => {
+describe("CP-02 / HU-02: formulario, API y sesión segura", () => {
   test("campos vacíos, correo inválido y contraseña corta no llegan al backend", async () => {
     await openLogin();
     await fireEvent.press(screen.getByRole("button", { name: "Iniciar sesión" }));
@@ -235,25 +249,28 @@ describe("CP-02 / HU-02: formulario, API y sesión en memoria", () => {
     expect(adapter).not.toHaveBeenCalled();
   });
 
-  test("una nueva instancia de la aplicación inicia sin sesión persistida", async () => {
+  test("una nueva instancia valida la sesión persistida y no conserva la contraseña", async () => {
     const view = await openLogin();
     await enter();
     await view.unmount();
     await openLogin();
-    expect(screen.queryByText("Has iniciado sesión en Sport Center.")).toBeNull();
-    expect(screen.getByLabelText("Contraseña").props.value).toBe("");
+    await waitFor(() => expect(screen.getByText("Has iniciado sesión en Sport Center.")).toBeTruthy());
+    expect(screen.queryByLabelText("Contraseña")).toBeNull();
+    expect(authApi.refresh).toHaveBeenCalledTimes(1);
+    expect(mockStoredSession).not.toContain(loginCredentials.passw);
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  test("vence según el plazo del backend y elimina el acceso privado", async () => {
+  test("renueva antes de vencer según el plazo del backend", async () => {
     jest.useFakeTimers();
     adapter.mockImplementationOnce(async (config) => response(config, { ...loginResponse, accessTokenExpiresIn: "1s" }));
     const { result } = await renderHook(() => useSession(), { wrapper: SessionProvider });
     await act(async () => result.current.signIn(loginCredentials, new AbortController().signal));
     expect(result.current.session).not.toBeNull();
     await act(async () => jest.advanceTimersByTime(1000));
-    expect(result.current.session).toBeNull();
-    expect(result.current.notice).toContain("venció");
+    expect(authApi.refresh).toHaveBeenCalledTimes(1);
+    expect(result.current.session?.accessToken).toBe("access-renovado");
+    expect(result.current.notice).toBeNull();
   });
 
   test("al volver del fondo también comprueba la vigencia, aunque no haya corrido el temporizador", async () => {
@@ -268,12 +285,13 @@ describe("CP-02 / HU-02: formulario, API y sesión en memoria", () => {
     const expiry = result.current.session!.expiresAt;
     jest.spyOn(Date, "now").mockReturnValue(expiry + 1);
     await act(async () => onStateChange?.("active"));
-    expect(result.current.session).toBeNull();
+    expect(authApi.refresh).toHaveBeenCalledTimes(1);
+    expect(result.current.session?.accessToken).toBe("access-renovado");
     await unmount();
     expect(remove).toHaveBeenCalled();
   });
 
-  test("un 401 con el token actual invalida la sesión, pero uno de una cuenta anterior no", async () => {
+  test("un refresh rechazado tras 401 invalida sólo la cuenta actual", async () => {
     const { result } = await renderHook(() => useSession(), { wrapper: SessionProvider });
     await act(async () => result.current.signIn(loginCredentials, new AbortController().signal));
     const previous = result.current.session!.accessToken;
@@ -285,6 +303,7 @@ describe("CP-02 / HU-02: formulario, API y sesión en memoria", () => {
     });
     expect(result.current.session?.accessToken).toBe("token-segunda-cuenta");
     adapter.mockImplementationOnce(async (config) => { throw failure(config, 401, {}); });
+    jest.mocked(authApi.refresh).mockRejectedValueOnce(failure({ headers: new AxiosHeaders() } as InternalAxiosRequestConfig, 401, {}));
     await act(async () => {
       await axiosClient.get("/users/profile", { headers: { Authorization: "Bearer token-segunda-cuenta" } }).catch(() => {});
     });
@@ -296,7 +315,8 @@ describe("CP-02 / HU-02: formulario, API y sesión en memoria", () => {
     const pending = deferred<AxiosResponse>();
     adapter.mockImplementationOnce(() => pending.promise);
     const { result, unmount } = await renderHook(() => useSession(), { wrapper: SessionProvider });
-    const operation = result.current.signIn(loginCredentials, new AbortController().signal);
+    let operation!: Promise<void>;
+    await act(async () => { operation = result.current.signIn(loginCredentials, new AbortController().signal); });
     await waitFor(() => expect(adapter).toHaveBeenCalledTimes(1));
     await unmount();
     await act(async () => pending.resolve(response(adapter.mock.calls[0][0])));

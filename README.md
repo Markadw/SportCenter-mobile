@@ -58,7 +58,11 @@ Instalar paquetes con `npx expo install <paquete>` para resolver versiones compa
 
 El icono de usuario abre login o Mi cuenta según la sesión. El formulario usa POST /users/login-user, valida correo y contraseña, admite mostrar/ocultar y presenta los errores sin mostrar detalles internos. Mi cuenta confirma la autenticación; la consulta y edición del perfil corresponden a HU-09.
 
-Los tokens permanecen únicamente en memoria. Al cerrar sesión se retira el acceso local y se solicita el cierre al backend; al vencer el acceso también se retira la sesión. Una recarga completa o un nuevo arranque exige volver a entrar. Almacenamiento seguro, restauración y renovación coordinada quedan en MOB-005. Registro, verificación y reenvío se conectan con este flujo desde HU-01.
+El token de acceso permanece en memoria. En Android e iOS, SecureStore conserva únicamente el token de renovación y el identificador de sesión. Al abrir la app se valida la sesión mediante renovación; al cerrar sesión se retira el acceso local y se elimina la credencial persistida. La renovación se coordina entre solicitudes y protege los cambios de cuenta. Sólo GET/HEAD pueden repetirse una vez tras un 401; las operaciones de compra y otras mutaciones requieren reenvío manual. Los fallos de almacenamiento o conexión se muestran sin afirmar una persistencia o un cierre remoto que no estén confirmados.
+
+En web los tokens se conservan sólo en memoria. La configuración nativa Android incluye HTTPS, pines SHA-256 de la API con respaldo, permisos acotados y R8/reducción de recursos en Release. Estas protecciones requieren una compilación propia; Expo Go permite comprobar JavaScript e interfaces, pero no acredita la configuración nativa de esta aplicación.
+
+Para Expo Go compatible con SDK 57, usar `npm run start:go`. Para un development build instalado, usar `npm run start:dev-client`; el perfil de desarrollo admite Metro mediante USB/localhost o emulador. `preview` genera APK y `production` AAB. La validación final del binario y sus recorridos debe registrarse por separado de las pruebas Jest.
 
 Las pruebas Android confirmadas y los casos específicos pendientes están en tests/manual/inicio-sesion.md. Las pruebas automatizadas usan transporte simulado; no acreditan una autenticación real en el teléfono.
 

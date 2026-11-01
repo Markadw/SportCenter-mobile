@@ -14,7 +14,21 @@
       "android": {
         "buildType": "app-bundle"
       },
-      "node": "22.20.0"
+      "node": "22.20.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://back-sport-ghxk.onrender.com"
+      }
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "node": "22.20.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://back-sport-ghxk.onrender.com"
+      }
     }
   },
   "cli": {
