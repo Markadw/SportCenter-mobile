@@ -182,3 +182,48 @@ test("CLI sólo aprueba con ambos informes completos y resultados reales de ejec
   expect(run(["sast", sarifFile], { ...env, ANALYZE_OUTCOME: "skipped" }).status).toBe(1);
   expect(run(["summary"]).status).toBe(1);
 }));
+
+
+// Proyección mínima anonimizada de CodeQL PR44 (analysis 2072527667).
+// Conserva el driver sin rules, extensiones auxiliares sin rules y reglas en el pack.
+function actualCodeqlShape() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/security/codeql-extension-rules.sarif'), 'utf8'));
+}
+describe('Variación real de componentes CodeQL SARIF 2.1.0', () => {
+  test('acepta results vacío con reglas sólo en extensión y no modifica el informe', () => {
+    const report = actualCodeqlShape(), before = JSON.stringify(report);
+    expect(report.runs[0].tool.driver).not.toHaveProperty('rules');
+    expect(evaluateSarif(report)).toMatchObject({ status: 'passed', counts: { results: 0, high: 0, critical: 0, errors: 0, blocked: 0 } });
+    expect(JSON.stringify(report)).toBe(before);
+  });
+  test('un hallazgo referenciado al pack real conserva su score crítico aunque el driver no tenga reglas', () => {
+    const report = actualCodeqlShape(), run = report.runs[0];
+    const index = run.tool.extensions.findIndex(component => component.rules?.length);
+    const rule = run.tool.extensions[index].rules[0];
+    run.results = [{ rule: { id: rule.id, index: 0, toolComponent: { index } }, message: { text: 'Hallazgo sintético sin fuentes.' } }];
+    expect(evaluateSarif(report)).toMatchObject({ status: 'blocked', counts: { results: 1, critical: 1, blocked: 1 }, blockedRules: [rule.id] });
+  });
+  test('no inventa metadata para un resultado que referencia un componente sin reglas', () => {
+    const report = actualCodeqlShape();
+    report.runs[0].results = [{ ruleId: 'js/unknown', ruleIndex: 0, message: { text: 'Hallazgo sintético.' } }];
+    expect(() => evaluateSarif(report)).toThrow('Referencia de regla SARIF inexistente');
+    report.runs[0].results[0] = { rule: { id: 'js/unknown', index: 0, toolComponent: { index: 0 } } };
+    expect(() => evaluateSarif(report)).toThrow('Referencia de regla SARIF inexistente');
+  });
+  test.each([null, {}, 'rules', 0])('omisión válida no equivale a aceptar rules malformado: %j', rules => {
+    const report = actualCodeqlShape(); report.runs[0].tool.driver.rules = rules;
+    expect(() => evaluateSarif(report)).toThrow('Reglas SARIF no válidas');
+    delete report.runs[0].tool.driver.rules; report.runs[0].tool.extensions[0].rules = rules;
+    expect(() => evaluateSarif(report)).toThrow('Reglas SARIF no válidas');
+  });
+  test('el fixture válido no elude analyze fallido ni resultados ausentes en CLI', () => temporary(directory => {
+    const file = path.join(directory, 'actual.sarif'); fs.writeFileSync(file, JSON.stringify(actualCodeqlShape()));
+    const run = outcome => spawnSync(process.execPath, [path.join(root, 'scripts/evaluate-security.js'), 'sast', file],
+      { cwd: directory, env: { ...process.env, ANALYZE_OUTCOME: outcome }, encoding: 'utf8' });
+    expect(run('success').status).toBe(0);
+    for (const outcome of ['failure', 'cancelled', 'skipped', '']) expect(run(outcome).status).toBe(1);
+    const invalid = actualCodeqlShape(); delete invalid.runs[0].results;
+    fs.writeFileSync(file, JSON.stringify(invalid));
+    expect(run('success').status).toBe(1);
+  }));
+});

@@ -58,9 +58,11 @@ function evaluateAudit(report, exitCode) {
 function component(value) {
   const tool = object(value, 'Componente SARIF');
   string(tool.name, 'Nombre de herramienta SARIF');
-  assert.ok(Array.isArray(tool.rules), 'Faltan reglas SARIF.');
+  // SARIF 2.1.0 §3.19.23 permite omitir rules; CodeQL puede definirlas en extensiones.
+  const rules = tool.rules === undefined ? [] : tool.rules;
+  assert.ok(Array.isArray(rules), 'Reglas SARIF no válidas.');
   const ids = new Set();
-  for (const rule of tool.rules) {
+  for (const rule of rules) {
     object(rule, 'Regla SARIF'); string(rule.id, 'ID de regla SARIF');
     assert.ok(!ids.has(rule.id), 'Reglas SARIF duplicadas.'); ids.add(rule.id);
     if (rule.properties !== undefined) object(rule.properties, 'Propiedades de regla SARIF');
@@ -68,7 +70,7 @@ function component(value) {
     score(rule.properties?.['security-severity']);
     level(rule.defaultConfiguration?.level); level(rule.properties?.['problem.severity']);
   }
-  return tool;
+  return { ...tool, rules };
 }
 function resolveRule(result, driver, extensions) {
   const reference = result.rule === undefined ? {} : object(result.rule, 'Referencia de regla SARIF');
@@ -108,9 +110,9 @@ function evaluateSarif(report) {
     object(run, 'Ejecución SARIF'); object(run.tool, 'Herramienta SARIF');
     const driver = component(run.tool.driver);
     assert.equal(driver.name, 'CodeQL', 'Se requiere un informe de CodeQL.');
-    const extensions = run.tool.extensions === undefined ? [] : run.tool.extensions;
-    assert.ok(Array.isArray(extensions), 'Extensiones SARIF no válidas.');
-    extensions.forEach(component);
+    const extensionValues = run.tool.extensions === undefined ? [] : run.tool.extensions;
+    assert.ok(Array.isArray(extensionValues), 'Extensiones SARIF no válidas.');
+    const extensions = extensionValues.map(component);
     if (run.invocations !== undefined) {
       assert.ok(Array.isArray(run.invocations), 'Invocaciones SARIF no válidas.');
       for (const invocation of run.invocations) {
