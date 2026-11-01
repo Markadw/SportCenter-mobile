@@ -227,3 +227,161 @@ describe('Variación real de componentes CodeQL SARIF 2.1.0', () => {
     expect(run('success').status).toBe(1);
   }));
 });
+
+
+// Datos sintéticos: no atribuyen las ubicaciones a los hallazgos remotos de PR44.
+function locatedSarif(uri = 'scripts/example.js') {
+  const report = sarif('7.8');
+  report.runs[0].results[0].locations = [{ physicalLocation: {
+    artifactLocation: { uri, uriBaseId: '%SRCROOT%' }, region: { startLine: 12, startColumn: 7 },
+  } }];
+  return report;
+}
+
+describe('Diagnóstico SAST compacto sin publicar contenido del SARIF', () => {
+  test('conserva regla, score máximo y ubicación relativa sin mensajes ni fuentes', () => {
+    const report = locatedSarif('src/app/(tabs)/[id].tsx');
+    const result = report.runs[0].results[0];
+    result.message = { text: 'PRIVATE-MESSAGE' };
+    result.locations[0].physicalLocation.region.snippet = { text: 'PRIVATE-SOURCE' };
+    result.relatedLocations = [{ message: { text: 'PRIVATE-RELATED' } }];
+    result.codeFlows = [{ threadFlows: [{ message: { text: 'PRIVATE-FLOW' } }] }];
+    result.properties = { 'security-severity': '9.1', token: 'PRIVATE-TOKEN' };
+    report.runs[0].originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///PRIVATE-RUNNER/' } };
+    const before = JSON.stringify(report);
+    const evaluated = evaluateSarif(report);
+    expect(evaluated).toMatchObject({ status: 'blocked', counts: { critical: 1, blocked: 1 }, blockedFindingsOmitted: 0 });
+    expect(evaluated.blockedFindings).toEqual([{ ruleId: 'js/test', score: 9.1, severity: 'critical',
+      path: 'src/app/(tabs)/[id].tsx', startLine: 12, startColumn: 7 }]);
+    expect(JSON.stringify(evaluated)).not.toContain('PRIVATE-');
+    const summary = securitySummary(evaluateAudit(audit(), 0), { ...evaluated, files: 1 }, outcomes);
+    expect(summary.status).toBe('blocked');
+    expect(summary.markdown).toContain('| js/test | 9.1 | critical | ' + String.fromCharCode(96) + 'src/app/(tabs)/[id].tsx' + String.fromCharCode(96) + ' | 12 | 7 |');
+    expect(summary.markdown).not.toContain('PRIVATE-');
+    expect(JSON.stringify(report)).toBe(before);
+  });
+  test('resuelve el índice cero sin resolver la base al directorio privado del runner', () => {
+    const report = locatedSarif(), run = report.runs[0];
+    run.artifacts = [{ location: { uri: 'scripts/indexed.js', uriBaseId: '%SRCROOT%' } }];
+    run.results[0].locations[0].physicalLocation.artifactLocation = { index: 0, uriBaseId: '%SRCROOT%' };
+    expect(evaluateSarif(report).blockedFindings[0]).toMatchObject({ path: 'scripts/indexed.js', startLine: 12, startColumn: 7 });
+  });
+  test.each([
+    '', '/PRIVATE/absolute.js', 'C:/PRIVATE/absolute.js', 'C:\\PRIVATE\\absolute.js', '//PRIVATE/host.js',
+    'https://PRIVATE.example/source.js', 'file:///PRIVATE/source.js', 'data:text/PRIVATE',
+    '../PRIVATE/source.js', './PRIVATE/source.js', 'src/../PRIVATE/source.js', 'src/./PRIVATE.js', 'src//PRIVATE.js',
+    'src\\PRIVATE.js', 'src/%2e%2e/PRIVATE.js', 'src/PRIVATE%20file.js', 'src/PRIVATE.js?token=SECRET',
+    'src/PRIVATE.js#fragment', 'src/PRIVATE file.js', 'src/PRIVATE\nfile.js', 'src/PRIVATE\rfile.js', 'src/PRIVATE\tfile.js',
+    'src/PRIVATE|file.js', 'src/PRIVATE<file>.js', 'src/PRIVATE&file.js', 'src/PRIVATE' + String.fromCharCode(96) + 'file.js',
+    'src/PRIVATÉ.js', 'src/' + 'PRIVATE'.repeat(50) + '.js', null, {}, ['src/PRIVATE.js'],
+  ])('una ruta no publicable se omite y conserva el bloqueo: %#', uri => {
+    const evaluated = evaluateSarif(locatedSarif(uri));
+    expect(evaluated).toMatchObject({ status: 'blocked', counts: { high: 1, blocked: 1 }, blockedFindingsOmitted: 0 });
+    expect(evaluated.blockedFindings[0]).toEqual({ ruleId: 'js/test', score: 7.8, severity: 'high', path: null, startLine: null, startColumn: null });
+    expect(JSON.stringify(evaluated)).not.toContain('PRIVATE');
+    expect(securitySummary(evaluateAudit(audit(), 0), { ...evaluated, files: 1 }, outcomes).markdown).not.toContain('PRIVATE');
+  });
+  test.each([
+    { uri: 'scripts/example.js', uriBaseId: 'EXTERNAL' },
+    { index: -1 }, { index: '0' }, { index: 1 },
+    { uri: 'scripts/different.js', index: 0 },
+    { index: 0, uriBaseId: 'EXTERNAL' },
+  ])('no publica una referencia ambigua, externa o inexistente: %#', reference => {
+    const report = locatedSarif(), run = report.runs[0];
+    run.artifacts = [{ location: { uri: 'scripts/example.js', uriBaseId: '%SRCROOT%' } }];
+    run.results[0].locations[0].physicalLocation.artifactLocation = reference;
+    expect(evaluateSarif(report)).toMatchObject({ status: 'blocked', blockedFindings: [{ path: null, startLine: null, startColumn: null }] });
+  });
+  test('también rechaza bases externas o URI absolutas en el artefacto indexado', () => {
+    const report = locatedSarif(), run = report.runs[0];
+    run.results[0].locations[0].physicalLocation.artifactLocation = { index: 0 };
+    for (const location of [{ uri: 'scripts/example.js', uriBaseId: 'EXTERNAL' }, { uri: 'https://PRIVATE.example/source.js' }]) {
+      run.artifacts = [{ location }];
+      expect(evaluateSarif(report).blockedFindings[0].path).toBeNull();
+    }
+  });
+  test.each([0, -1, 1.5, '12', null, undefined, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])('sólo publica posiciones enteras positivas: %s', position => {
+    const report = locatedSarif();
+    report.runs[0].results[0].locations[0].physicalLocation.region = { startLine: position, startColumn: 7 };
+    expect(evaluateSarif(report).blockedFindings[0]).toMatchObject({ path: 'scripts/example.js', startLine: null, startColumn: null });
+    report.runs[0].results[0].locations[0].physicalLocation.region = { startLine: 12, startColumn: position };
+    expect(evaluateSarif(report).blockedFindings[0]).toMatchObject({ startLine: 12, startColumn: null });
+  });
+  test.each([null, {}, [], [null], [{ physicalLocation: null }]])('ubicación ausente o malformada no descarta un hallazgo: %#', locations => {
+    const report = locatedSarif(); report.runs[0].results[0].locations = locations;
+    expect(evaluateSarif(report)).toMatchObject({ status: 'blocked', counts: { high: 1, blocked: 1 }, blockedFindings: [{ path: null }] });
+  });
+  test('nivel error sin score conserva la causa bloqueante y un score bajo no crea diagnóstico alto', () => {
+    const report = locatedSarif(); delete report.runs[0].tool.driver.rules[0].properties['security-severity'];
+    report.runs[0].results[0].level = 'error';
+    expect(evaluateSarif(report).blockedFindings[0]).toMatchObject({ score: null, severity: 'error' });
+    expect(evaluateSarif(sarif('6.9'))).toMatchObject({ status: 'passed', blockedFindings: [], blockedFindingsOmitted: 0 });
+  });
+  test('limita el diagnóstico global entre runs y archivos sin perder contadores ni bloqueo', () => temporary(directory => {
+    const a = locatedSarif(), b = locatedSarif('src/example.ts');
+    a.runs[0].results = Array.from({ length: 30 }, () => structuredClone(a.runs[0].results[0]));
+    a.runs.push(structuredClone(a.runs[0]));
+    b.runs[0].results = Array.from({ length: 15 }, () => structuredClone(b.runs[0].results[0]));
+    expect(evaluateSarif(a)).toMatchObject({ counts: { results: 60, high: 60, blocked: 60 }, blockedFindingsOmitted: 10 });
+    fs.writeFileSync(path.join(directory, 'a.sarif'), JSON.stringify(a));
+    fs.writeFileSync(path.join(directory, 'b.sarif'), JSON.stringify(b));
+    const evaluated = evaluateSarifFiles(directory);
+    expect(evaluated).toMatchObject({ status: 'blocked', files: 2, counts: { results: 75, high: 75, blocked: 75 }, blockedFindingsOmitted: 25 });
+    expect(evaluated.blockedFindings).toHaveLength(50);
+    const summary = securitySummary(evaluateAudit(audit(), 0), evaluated, outcomes);
+    expect(summary.status).toBe('blocked');
+    expect(summary.markdown.match(/\| js\/test \|/g)).toHaveLength(50);
+    expect(summary.markdown).toContain('ausencia de diagnóstico: 25.');
+  }));
+  test('el resumen revalida el JSON compacto sin reflejar valores manipulados', () => {
+    const evaluated = { ...evaluateSarif(locatedSarif()), files: 1 };
+    evaluated.blockedRules = ['https://PRIVATE.example/rule'];
+    evaluated.blockedFindings = [{ ruleId: '<PRIVATE-RULE>', score: 'PRIVATE-SCORE', severity: 'PRIVATE-SEVERITY',
+      path: 'https://PRIVATE.example/source', startLine: 'PRIVATE-LINE', startColumn: 'PRIVATE-COLUMN',
+      message: 'PRIVATE-MESSAGE', snippet: 'PRIVATE-SOURCE' }];
+    const summary = securitySummary(evaluateAudit(audit(), 0), evaluated, outcomes);
+    expect(summary.status).toBe('blocked');
+    expect(summary.markdown).not.toContain('PRIVATE');
+    expect(summary.markdown).toContain('No publicable');
+  });
+  test('CLI conserva los dos altos y el fallo, publicando sólo ubicación mínima en JSON y resumen', () => temporary(directory => {
+    const report = locatedSarif(), run = report.runs[0];
+    run.results.push(structuredClone(run.results[0]));
+    run.results[1].locations[0].physicalLocation = { artifactLocation: { uri: 'src/example.ts' }, region: { startLine: 28, startColumn: 3, snippet: { text: 'PRIVATE-SOURCE' } } };
+    run.results[1].message = { text: 'PRIVATE-MESSAGE' };
+    const file = path.join(directory, 'two-high.sarif'); fs.writeFileSync(file, JSON.stringify(report));
+    const env = { ...process.env, INSTALL_OUTCOME: 'success', AUDIT_OUTCOME: 'success', INIT_OUTCOME: 'success', ANALYZE_OUTCOME: 'success', SAST_OUTCOME: 'failure' };
+    const cli = args => spawnSync(process.execPath, [path.join(root, 'scripts/evaluate-security.js'), ...args], { cwd: directory, env, encoding: 'utf8' });
+    expect(cli(['sast', file]).status).toBe(1);
+    const json = fs.readFileSync(path.join(directory, 'test-results/security/sast-gate.json'), 'utf8');
+    const result = JSON.parse(json);
+    expect(result).toMatchObject({ status: 'blocked', counts: { high: 2, critical: 0, blocked: 2 }, blockedFindingsOmitted: 0 });
+    expect(result.blockedFindings.map(finding => finding.path)).toEqual(['scripts/example.js', 'src/example.ts']);
+    expect(json).not.toContain('PRIVATE-');
+    fs.writeFileSync(path.join(directory, 'test-results/security/audit-gate.json'), JSON.stringify(evaluateAudit(audit(), 0)));
+    expect(cli(['summary']).status).toBe(1);
+    const summary = fs.readFileSync(path.join(directory, 'test-results/security/summary.md'), 'utf8');
+    expect(summary).toContain('**2 altos**');
+    expect(summary).toContain('scripts/example.js');
+    expect(summary).toContain('src/example.ts');
+    expect(summary).not.toContain('PRIVATE-');
+  }));
+});
+
+
+test.each(['JSON malformado', 'referencia de regla incompatible'])('CLI no publica valores crudos mediante errores: %s', kind => temporary(directory => {
+  const report = locatedSarif(); report.runs[0].results[0].ruleId = 'js/PRIVATE-RULE';
+  const file = path.join(directory, 'invalid.sarif');
+  fs.writeFileSync(file, kind === 'JSON malformado' ? '{"PRIVATE-SOURCE": }' : JSON.stringify(report));
+  const env = { ...process.env, INSTALL_OUTCOME: 'success', AUDIT_OUTCOME: 'success', INIT_OUTCOME: 'success', ANALYZE_OUTCOME: 'success', SAST_OUTCOME: 'failure' };
+  const cli = args => spawnSync(process.execPath, [path.join(root, 'scripts/evaluate-security.js'), ...args], { cwd: directory, env, encoding: 'utf8' });
+  const evaluated = cli(['sast', file]);
+  expect(evaluated.status).toBe(1);
+  const json = fs.readFileSync(path.join(directory, 'test-results/security/sast-gate.json'), 'utf8');
+  expect(JSON.parse(json)).toMatchObject({ status: 'invalid', reasons: ['Informe SARIF ausente, inválido o análisis CodeQL sin éxito.'] });
+  expect(json).not.toContain('PRIVATE-');
+  expect(evaluated.stdout + evaluated.stderr).not.toContain('PRIVATE-');
+  fs.writeFileSync(path.join(directory, 'test-results/security/audit-gate.json'), JSON.stringify(evaluateAudit(audit(), 0)));
+  expect(cli(['summary']).status).toBe(1);
+  expect(fs.readFileSync(path.join(directory, 'test-results/security/summary.md'), 'utf8')).not.toContain('PRIVATE-');
+}));

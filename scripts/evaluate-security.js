@@ -5,6 +5,44 @@ const path = require('node:path');
 const outputDirectory = path.join('test-results', 'security');
 const severities = ['info', 'low', 'moderate', 'high', 'critical'];
 const levels = new Set(['none', 'note', 'warning', 'error']);
+const maximumBlockedFindings = 50;
+function diagnosticRuleId(value) {
+  return typeof value === 'string' && value.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(value) ? value : null;
+}
+function diagnosticPath(value) {
+  if (typeof value !== 'string' || value.length > 240 || !/^[A-Za-z0-9_.@()[\]\/-]+$/.test(value)) return null;
+  const segments = value.split('/');
+  return segments.every(segment => segment && segment !== '.' && segment !== '..') ? value : null;
+}
+function diagnosticPosition(value) { return Number.isSafeInteger(value) && value > 0 ? value : null; }
+function diagnosticArtifact(reference, run) {
+  if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return null;
+  const localBase = location => location?.uriBaseId === undefined || location.uriBaseId === '%SRCROOT%';
+  if (!localBase(reference)) return null;
+  let uri = reference.uri;
+  if (reference.index !== undefined) {
+    if (!Number.isSafeInteger(reference.index) || reference.index < 0) return null;
+    const indexed = Array.isArray(run.artifacts) ? run.artifacts[reference.index]?.location : undefined;
+    if (!indexed || !localBase(indexed) || (uri !== undefined && uri !== indexed.uri)) return null;
+    uri = indexed.uri;
+  }
+  return diagnosticPath(uri);
+}
+function findingLocation(result, run) {
+  // Nunca publicar mensajes, snippets, bases absolutas ni otras ubicaciones del SARIF.
+  const physical = Array.isArray(result.locations) ? result.locations[0]?.physicalLocation : undefined;
+  const file = diagnosticArtifact(physical?.artifactLocation, run);
+  const startLine = file ? diagnosticPosition(physical?.region?.startLine) : null;
+  return { path: file, startLine, startColumn: startLine ? diagnosticPosition(physical?.region?.startColumn) : null };
+}
+function summaryFinding(value) {
+  const file = diagnosticPath(value?.path);
+  const startLine = file ? diagnosticPosition(value?.startLine) : null;
+  return { ruleId: diagnosticRuleId(value?.ruleId),
+    score: typeof value?.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 10 ? value.score : null,
+    severity: ['critical', 'high', 'error'].includes(value?.severity) ? value.severity : null,
+    path: file, startLine, startColumn: startLine ? diagnosticPosition(value?.startColumn) : null };
+}
 function object(value, label) {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value), label + ' debe ser un objeto.');
   return value;
@@ -106,6 +144,7 @@ function evaluateSarif(report) {
   assert.ok(Array.isArray(report.runs) && report.runs.length > 0, 'Faltan ejecuciones SARIF.');
   const counts = { results: 0, high: 0, critical: 0, errors: 0, blocked: 0 };
   const blockedRules = new Set();
+  const blockedFindings = [];
   for (const run of report.runs) {
     object(run, 'Ejecución SARIF'); object(run.tool, 'Herramienta SARIF');
     const driver = component(run.tool.driver);
@@ -142,11 +181,19 @@ function evaluateSarif(report) {
       if (severity !== null && severity >= 9) counts.critical += 1;
       else if (severity !== null && severity >= 7) counts.high += 1;
       if (error) counts.errors += 1;
-      if (blocked) { counts.blocked += 1; blockedRules.add(rule.id); }
+      if (blocked) {
+        counts.blocked += 1;
+        blockedRules.add(diagnosticRuleId(rule.id) ?? '(regla no publicable)');
+        if (blockedFindings.length < maximumBlockedFindings) blockedFindings.push({
+          ruleId: diagnosticRuleId(rule.id), score: severity,
+          severity: severity !== null && severity >= 9 ? 'critical' : severity !== null && severity >= 7 ? 'high' : 'error',
+          ...findingLocation(result, run),
+        });
+      }
     }
   }
   return { kind: 'sast', status: counts.blocked ? 'blocked' : 'passed', counts,
-    blockedRules: [...blockedRules].sort().slice(0, 50), reasons: counts.blocked ? ['CodeQL contiene hallazgos de seguridad ≥7 o nivel error.'] : [] };
+    blockedRules: [...blockedRules].sort().slice(0, 50), blockedFindings, blockedFindingsOmitted: counts.blocked - blockedFindings.length, reasons: counts.blocked ? ['CodeQL contiene hallazgos de seguridad ≥7 o nivel error.'] : [] };
 }
 function sarifFiles(target) {
   const stat = fs.statSync(target);
@@ -164,7 +211,9 @@ function evaluateSarifFiles(target) {
   const reports = files.map(file => evaluateSarif(JSON.parse(fs.readFileSync(file, 'utf8'))));
   const counts = { results: 0, high: 0, critical: 0, errors: 0, blocked: 0 };
   for (const report of reports) for (const key of Object.keys(counts)) counts[key] += report.counts[key];
+  const blockedFindings = reports.flatMap(report => report.blockedFindings).slice(0, maximumBlockedFindings);
   return { kind: 'sast', status: reports.every(report => report.status === 'passed') ? 'passed' : 'blocked', counts, files: files.length,
+    blockedFindings, blockedFindingsOmitted: counts.blocked - blockedFindings.length,
     blockedRules: [...new Set(reports.flatMap(report => report.blockedRules))].sort().slice(0, 50),
     reasons: reports.some(report => report.status !== 'passed') ? ['CodeQL contiene hallazgos de seguridad ≥7 o nivel error.'] : [] };
 }
@@ -196,7 +245,15 @@ function securitySummary(audit, sast, outcomes) {
     lines.push('');
   }
   if (sastCounts) lines.push('CodeQL: **' + sast.counts.critical + ' críticos**, **' + sast.counts.high + ' altos**, **' + sast.counts.errors + ' de nivel error**.',
-    ...(Array.isArray(sast.blockedRules) && sast.blockedRules.length ? ['Reglas bloqueantes: ' + sast.blockedRules.map(display).join(', ') + '.'] : []), '');
+    ...(Array.isArray(sast.blockedRules) && sast.blockedRules.length ? ['Reglas bloqueantes: ' + sast.blockedRules.slice(0, 50).map(value => diagnosticRuleId(value) ?? 'No publicable').join(', ') + '.'] : []), '');
+  if (sastCounts && sast.counts.blocked > 0) {
+    const findings = Array.isArray(sast.blockedFindings) ? sast.blockedFindings.slice(0, Math.min(maximumBlockedFindings, sast.counts.blocked)).map(summaryFinding) : [];
+    if (findings.length) lines.push('| Regla | Score | Severidad | Ruta relativa | Línea | Columna |', '|---|---:|---|---|---:|---:|',
+      ...findings.map(finding => '| ' + [finding.ruleId ?? 'No publicable', finding.score ?? '-', finding.severity ?? '-',
+        finding.path ? '`' + finding.path + '`' : 'No publicable o ausente', finding.startLine ?? '-', finding.startColumn ?? '-'].join(' | ') + ' |'), '');
+    const omitted = sast.counts.blocked - findings.length;
+    if (omitted > 0) lines.push('Detalles omitidos del resumen por límite o ausencia de diagnóstico: ' + omitted + '.', '');
+  }
   for (const report of [audit, sast]) if (Array.isArray(report?.reasons) && report.reasons.length) lines.push(...report.reasons.map(display), '');
   lines.push(problems.length ? '**Bloqueada**: ' + [...new Set(problems)].join(', ') + '.' :
     '**Aprobada para el análisis ejecutado**: cero dependencias críticas y cero hallazgos CodeQL ≥7 o nivel error.',
@@ -228,8 +285,11 @@ function main(args = process.argv.slice(2), env = process.env) {
       assert.equal(env.ANALYZE_OUTCOME, 'success', 'CodeQL fue omitido, cancelado o falló.');
       report = evaluateSarifFiles(args[1] || path.join(outputDirectory, 'codeql'));
     }
-  } catch (error) {
-    report = { kind: mode, status: 'invalid', reasons: [error instanceof Error ? error.message : 'Informe de seguridad no válido.'] };
+  } catch {
+    // assert y JSON.parse pueden incluir valores o fragmentos del informe en error.message.
+    report = { kind: mode, status: 'invalid', reasons: [mode === 'sast'
+      ? 'Informe SARIF ausente, inválido o análisis CodeQL sin éxito.'
+      : 'Informe npm audit ausente, inválido o sin código real de salida.'] };
   }
   writeResult(mode, report);
   console.log(mode + ': ' + report.status);
