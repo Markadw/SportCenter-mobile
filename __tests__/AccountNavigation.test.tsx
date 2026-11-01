@@ -11,6 +11,7 @@ const mockAuth = {
 jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => mockAuth }));
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useLocalSearchParams: () => ({}),
   useFocusEffect: jest.fn(),
   Redirect: ({ href }: { href: string }) => {
     const { Text: NativeText } = jest.requireActual("react-native");

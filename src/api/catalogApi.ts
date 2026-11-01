@@ -53,25 +53,23 @@ const mapSport = (s: SportRaw): Sport => ({
   name: s.nombre,
 });
 
+function requestOptions<T>(url: string, signal?: AbortSignal) {
+  return signal ? axiosClient.get<T>(url, { signal }) : axiosClient.get<T>(url);
+}
+
 export const catalogApi = {
-  getCategories: async (): Promise<Category[]> => {
-    const { data } = await axiosClient.get<CategoryRaw[]>(
-      ENDPOINTS.products.categories
-    );
+  getCategories: async (signal?: AbortSignal): Promise<Category[]> => {
+    const { data } = await requestOptions<CategoryRaw[]>(ENDPOINTS.products.categories, signal);
     return data.map(mapCategory);
   },
 
-  getBrands: async (): Promise<Brand[]> => {
-    const { data } = await axiosClient.get<BrandRaw[]>(
-      ENDPOINTS.products.brands
-    );
+  getBrands: async (signal?: AbortSignal): Promise<Brand[]> => {
+    const { data } = await requestOptions<BrandRaw[]>(ENDPOINTS.products.brands, signal);
     return data.map(mapBrand);
   },
 
-  getSports: async (): Promise<Sport[]> => {
-    const { data } = await axiosClient.get<SportRaw[]>(
-      ENDPOINTS.products.sports
-    );
+  getSports: async (signal?: AbortSignal): Promise<Sport[]> => {
+    const { data } = await requestOptions<SportRaw[]>(ENDPOINTS.products.sports, signal);
     return data.map(mapSport);
   },
 };

@@ -12,7 +12,7 @@ import { product } from './fixtures/products';
 let mockParams: Record<string, string> = {};
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => mockParams, useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
-jest.mock('lucide-react-native', () => ({ Search: () => null, User: () => null }));
+jest.mock('lucide-react-native', () => ({ Search: () => null, ShoppingBag: () => null, User: () => null }));
 jest.mock('../src/features/auth/context/SessionContext', () => ({ useSession: () => ({ session: null }) }));
 jest.mock('../src/features/catalog', () => ({ useFilters: jest.fn() }));
 jest.mock('../src/features/products/context/ProductsContext', () => ({ useProducts: jest.fn() }));

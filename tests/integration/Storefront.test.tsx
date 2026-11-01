@@ -12,7 +12,7 @@ jest.mock('../../src/features/auth/context/SessionContext', () => ({ useSession:
 jest.mock('../../src/api/axios', () => ({ __esModule: true, default: { get: jest.fn() } }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }), useLocalSearchParams: () => ({}) }));
 jest.mock('lucide-react-native', () => Object.fromEntries([
-  'Search', 'User', 'ChevronRight', 'Home', 'SlidersHorizontal', 'Share2', 'ChevronDown', 'ChevronUp', 'X',
+  'Search', 'ShoppingBag', 'User', 'ChevronRight', 'Home', 'SlidersHorizontal', 'Share2', 'ChevronDown', 'ChevronUp', 'X',
   'Activity', 'Bike', 'CircleDot', 'Dumbbell', 'Trophy', 'Zap',
 ].map((name) => [name, () => null])));
 const get = jest.mocked(axiosClient.get);
