@@ -3,6 +3,51 @@ const fs = require('node:fs');
 const path = require('node:path');
 const YAML = require('yaml');
 
+function validateNativeWorkflow(workflow) {
+  assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
+  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*'] } }, 'Validación sólo en tags validation/android-*');
+  assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'read' }, 'No elevar permisos globales');
+  assert.equal(workflow.jobs.quality.uses, './.github/workflows/ci.yml');
+  assert.equal(workflow.jobs.quality.with.keep_evidence, true);
+  assert.equal(workflow.jobs.security.uses, './.github/workflows/security.yml');
+  assert.deepEqual(workflow.jobs.security.permissions, { contents: 'read', 'security-events': 'write', actions: 'read' });
+  assert.equal(workflow.jobs.security.with.keep_evidence, true);
+  const job = workflow.jobs.native;
+  assert.deepEqual(job.needs, ['quality', 'security']);
+  assert.equal(job['runs-on'], 'ubuntu-24.04');
+  assert.equal(job.env.EXPO_TOKEN, undefined, 'EXPO_TOKEN sólo en build:view');
+  const tokenSteps = job.steps.filter(step => step.env?.EXPO_TOKEN);
+  assert.equal(tokenSteps.length, 1, 'EXPO_TOKEN sólo en build:view');
+  assert.equal(tokenSteps[0].run, 'node scripts/android-16k.js view');
+  assert.ok(!job.env.GITHUB_SHA && !job.env.GITHUB_REF, 'No sustituir procedencia GitHub');
+  for (const step of job.steps) assert.ok(!step.env?.GITHUB_SHA && !step.env?.GITHUB_REF, 'No sustituir procedencia GitHub');
+  const commands = job.steps.map(step => step.run || '').join('\n');
+  assert.ok(!/eas-cli[^\n]*\sbuild\s|node scripts\/eas-candidate/.test(commands), 'No crear builds en validación');
+  const ordered = ['node scripts/android-16k.js prepare', 'node scripts/android-16k.js view',
+    'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js'];
+  const indices = ordered.map(command => job.steps.findIndex(step => step.run === command));
+  assert.ok(indices.every((index, offset) => index >= 0 && (offset === 0 || index > indices[offset - 1])), 'Procedencia, descarga e inspección deben preceder Android');
+  let previous = indices.at(-1);
+  const names = new Set();
+  for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],
+    ['pinning', 30, 'google_apis', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
+    const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
+    assert.ok(index > previous && !step.if && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
+    assert.equal(step.uses, 'reactivecircus/android-emulator-runner@v2');
+    assert.equal(step.with['api-level'], api); assert.equal(step.with.arch, 'x86_64'); assert.equal(step.with.target, target);
+    assert.equal(step.with.script, command); assert.equal(step.with['disable-linux-hw-accel'], false);
+    assert.equal(step.with['force-avd-creation'], true);
+    assert.ok(step.with['emulator-options'].includes('-accel on') && step.with['emulator-options'].includes('-no-snapshot'));
+    assert.ok(!names.has(step.with['avd-name']), 'Cada fase exige un AVD nuevo'); names.add(step.with['avd-name']); previous = index;
+  }
+  const result = workflow.jobs.result;
+  assert.equal(result.name, 'Resultado de validación nativa');
+  assert.deepEqual(result.needs, ['quality', 'security', 'native']); assert.equal(result.if, 'always()');
+  const gate = result.steps.find(step => step.run === 'node scripts/android-16k.js gate');
+  assert.ok(gate, 'Falta agregado de resultados reales');
+  for (const id of ['quality', 'security', 'native']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '$' + '{{ needs.' + id + '.result }}');
+}
+
 function validateWorkflows(workflows) {
   const client = workflows.get('ci.yml');
   assert.deepEqual(client.on.push.branches, ['feature/**', 'fix/**', 'chore/**', 'test/**', 'release/**', 'hotfix/**']);
@@ -27,9 +72,9 @@ function validateWorkflows(workflows) {
   assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
     'TypeScript debe informar también cuando ESLint falle');
   const cryptoSetup = client.jobs.validate.steps.find(step => step.run === 'bash scripts/android-pinning-install.sh');
-  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
+  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
   assert.equal(client.jobs.validate.steps.find(step => step.id === 'tests').env.PINNING_TEST_MITMDUMP,
-    "${{ startsWith(github.ref, 'refs/tags/candidate/android-') && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
   const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
     'El artefacto existente debe conservar los informes estáticos');
@@ -58,9 +103,10 @@ function validateWorkflows(workflows) {
   assert.equal(integration.jobs.security.uses, './.github/workflows/security.yml');
   assert.equal(integration.jobs.security.needs, 'plan');
   assert.equal(integration.jobs.security.with.keep_evidence, "${{ needs.plan.outputs.evidence == 'true' }}");
-  const callers = [...workflows.values()].flatMap(workflow => Object.values(workflow.jobs))
-    .filter(job => job.uses === './.github/workflows/security.yml');
-  assert.equal(callers.length, 1, 'Seguridad debe llamarse una sola vez');
+  const callers = [...workflows].flatMap(([file, workflow]) => Object.values(workflow.jobs)
+    .filter(job => job.uses === './.github/workflows/security.yml').map(() => file)).sort();
+  assert.deepEqual(callers, ['android-validation.yml', 'api-android.yml'],
+    'Seguridad debe llamarse una sola vez por cada orquestador autorizado');
   const scan = security.jobs.scan;
   assert.deepEqual(scan.permissions, permissions, 'CodeQL requiere permisos mínimos del job');
   const step = id => scan.steps.find(item => item.id === id);
@@ -166,6 +212,8 @@ function validateWorkflows(workflows) {
   assert.equal(performance.on.workflow_dispatch.inputs.run_measurement.default, true);
   assert.ok(!performance.jobs.inspect.steps.some((step) => step.uses?.startsWith('actions/upload-artifact@')),
     'Una inspección k6 no debe crear artefactos');
+
+  validateNativeWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {

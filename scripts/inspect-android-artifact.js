@@ -8,6 +8,7 @@ const { promisify } = require('node:util');
 const { Transform, Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const execute = promisify(execFile);
+const { resolveSourceContext } = require('./android-source-context');
 const PACKAGE = 'com.markadw.sportcenter';
 const JADX = Object.freeze({ version: '1.5.6',
   url: 'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip',
@@ -28,14 +29,22 @@ function manifestEvidence({ applicationId, targetSdk, debuggable, permissions })
   return { applicationId: PACKAGE, targetSdk: target, debuggable: false, permissions: [...new Set(values)].sort() };
 }
 function signatureEvidence(output) {
-  assert.ok(/^Verifies\s*$/m.test(output), 'apksigner no confirmó la firma.');
-  const signerMatch = output.match(/^Number of signers:\s*(\d+)\s*$/m);
-  assert.ok(signerMatch && Number(signerMatch[1]) > 0, 'Falta evidencia de firmantes del APK.');
-  const digests = [...output.matchAll(/^Signer #\d+ certificate SHA-256 digest:\s*([a-fA-F0-9]{64})\s*$/gm)].map(match => match[1].toLowerCase());
-  assert.ok(digests.length >= Number(signerMatch[1]), 'Faltan las huellas públicas de los certificados.');
+  assert.ok(/^Verifies\s*$/m.test(output) && !/^DOES NOT VERIFY\b/m.test(output), 'apksigner no confirmó la firma.');
+  const counts = [...output.matchAll(/^Number of signers:\s*(\d+)\s*$/gm)];
+  const signers = counts.length === 1 ? Number(counts[0][1]) : 0;
+  assert.ok(Number.isSafeInteger(signers) && signers > 0 && signers <= 16, 'Falta evidencia de firmantes del APK.');
   const schemes = [...output.matchAll(/^Verified using (v[\d.]+) scheme[^\r\n]*:\s*true\s*$/gm)].map(match => match[1]);
   assert.ok(schemes.some(value => ['v2', 'v3', 'v3.1'].includes(value)), 'Falta una firma APK v2 o v3 válida.');
-  return { verified: true, signers: Number(signerMatch[1]), certificateSha256: [...new Set(digests)].sort(), schemes,
+  const certificates = new Map();
+  // SDK anteriores: Signer #1; Build Tools 37: V2 Signer. Nunca aceptar la huella de public key.
+  for (const match of output.matchAll(/^(?:Signer #([1-9]\d*) certificate|V(?:2|3(?:\.1)?) Signer(?: #([1-9]\d*))?: certificate) SHA-256 digest:\s*([a-fA-F0-9]{64})\s*$/gm)) {
+    assert.ok(match[1] || match[2] || signers === 1, 'Firmante sin índice ambiguo.');
+    const index = Number(match[1] || match[2] || 1), digest = match[3].toLowerCase();
+    assert.ok(index <= signers && (!certificates.has(index) || certificates.get(index) === digest), 'Huellas de firmantes contradictorias.');
+    certificates.set(index, digest);
+  }
+  assert.equal(certificates.size, signers, 'Faltan las huellas públicas de los certificados.');
+  return { verified: true, signers, certificateSha256: [...new Set(certificates.values())].sort(), schemes,
     scope: 'Integridad y esquemas de firma del APK; la identidad del certificado no se compara con una huella de publicación preaprobada.' };
 }
 function nativeEntries(output) {
@@ -79,23 +88,28 @@ function relroEvidence(output) {
   }
   const loads = output.split(/\r?\n/).filter(line => /^\s*LOAD\s/.test(line)).map(segment);
   const segments = output.split(/\r?\n/).filter(line => /^\s*GNU_RELRO\s/.test(line)).map(segment);
+  return relroGeometryEvidence(loads, segments);
+}
+function relroGeometryEvidence(loads, segments) {
   let dedicatedLoadExceptions = 0;
+  const roundPage = value => ((value + 0x3fffn) / 0x4000n) * 0x4000n;
   for (const relro of segments) {
     const end = relro.start + relro.size;
     const containing = loads.filter(load => load.start <= relro.start && load.start + load.size >= end);
-    assert.ok(containing.length > 0, 'El segmento RELRO no está contenido en un LOAD verificable.');
-    if (end % 0x4000n === 0n) continue;
-    // Android permite un final parcial si todo el LOAD contiene sólo RELRO:
-    // la protección redondeada a páginas no debe invadir otro LOAD escribible.
-    const dedicated = containing.find(load => load.start === relro.start && load.size === relro.size);
-    assert.ok(dedicated, 'El final del segmento GNU_RELRO compartido no está alineado a 16 KB.');
-    const protectedStart = relro.start - (relro.start % 0x4000n);
-    const protectedEnd = ((end + 0x3fffn) / 0x4000n) * 0x4000n;
-    assert.ok(!loads.some(load => load !== dedicated && load.writable && load.start < protectedEnd
+    const dedicated = loads.filter(load => load.start === relro.start && load.size > 0n
+      && load.start + load.size <= end && end <= roundPage(load.start + load.size));
+    assert.ok(containing.length || dedicated.length, 'El segmento RELRO no está contenido en un LOAD verificable ni en su padding de página.');
+    const partial = end % 0x4000n !== 0n || containing.length === 0;
+    assert.ok(!partial || dedicated.length === 1, 'El final del segmento GNU_RELRO compartido no está alineado a 16 KB.');
+    const owner = partial ? dedicated[0] : containing[0];
+    const protectedStart = relro.start - (relro.start % 0x4000n), protectedEnd = roundPage(end);
+    // Bionic mapea LOAD y protege GNU_RELRO con page_start/page_end. Sólo se permite
+    // padding del LOAD dedicado, sin bytes de otro LOAD RW en la página protegida.
+    assert.ok(!loads.some(load => load !== owner && load.writable && load.size > 0n && load.start < protectedEnd
       && load.start + load.size > protectedStart), 'La protección del LOAD RELRO invade otro LOAD escribible.');
-    dedicatedLoadExceptions += 1;
+    if (partial) dedicatedLoadExceptions += 1;
   }
-  return { relroSegments: segments.length, endpointsAligned: dedicatedLoadExceptions === 0,
+  return { relroSegments: segments.length, endpointsAligned: segments.every(relro => (relro.start + relro.size) % 0x4000n === 0n),
     dedicatedLoadExceptions, compatible16KB: true };
 }
 function entrypointClasses(xml) {
@@ -119,12 +133,13 @@ function decompiledEvidence(name, source) {
   return { name, sourceBytes: Buffer.byteLength(source), sourceSha256: createHash('sha256').update(source).digest('hex'),
     visibleStringLiterals: [...source.matchAll(/"(?:\\.|[^"\\])*"/g)].length };
 }
-function candidateEvidence(metadata, actualSha256, commit) {
+function candidateEvidence(metadata, actualSha256, commit, context) {
   assert.ok(metadata && /^[a-f0-9]{64}$/.test(metadata.sha256 || '') && /^[a-f0-9]{40}$/.test(metadata.commit || ''), 'Falta la procedencia del APK candidato.');
   assert.equal(metadata.sha256, actualSha256, 'La huella del APK cambió después de descargarlo.');
   if (commit) assert.equal(metadata.commit, commit, 'El APK no corresponde al commit del job.');
   assert.ok(typeof metadata.buildId === 'string' && metadata.buildId.trim(), 'Falta el ID del build EAS.');
-  return { buildId: metadata.buildId, commit: metadata.commit, sha256: actualSha256 };
+  return { buildId: metadata.buildId, commit: metadata.commit, sha256: actualSha256,
+    ...(context?.revalidation ? { artifactSourceCommit: context.artifactSourceCommit, automationCommit: context.automationCommit } : {}) };
 }
 function inspectionVerdict(checks) {
   return REQUIRED.every(name => checks[name]?.status === 'passed') ? 'passed_for_static_scope' : 'blocked';
@@ -213,7 +228,9 @@ async function inspect(env = process.env) {
     const apk = path.join(temporaryRoot, 'sport-center.apk');
     assert.ok(fs.existsSync(apk) && fs.statSync(apk).isFile(), 'APK no disponible: no se acredita inspección.');
     const meta = JSON.parse(fs.readFileSync('test-results/android-build.json', 'utf8'));
-    const candidate = await check('candidate', async () => candidateEvidence(meta, await sha256(apk), env.GITHUB_SHA));
+    const context = resolveSourceContext(env);
+    report.source = context;
+    const candidate = await check('candidate', async () => candidateEvidence(meta, await sha256(apk), context.artifactSourceCommit, context));
     assert.ok(candidate, 'No se inspecciona un APK cuya procedencia no coincide con la candidata.');
     const tools = androidTools(env);
     report.tools = { buildTools: tools.buildVersion, ndk: tools.ndkVersion, jadx: JADX };
@@ -273,6 +290,6 @@ async function inspect(env = process.env) {
   return report;
 }
 module.exports = { PACKAGE, JADX, manifestEvidence, signatureEvidence, nativeEntries, zipAlignmentEvidence,
-  loadAlignmentEvidence, relroEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool };
+  loadAlignmentEvidence, relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool };
 if (require.main === module) inspect().then(report => { process.exitCode = report.status === 'passed_for_static_scope' ? 0 : 1; })
   .catch(() => { console.error('Falló la escritura del informe de inspección Android.'); process.exitCode = 1; });

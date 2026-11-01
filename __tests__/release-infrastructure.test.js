@@ -52,7 +52,7 @@ describe('Entrega interna después de aprobar pruebas', () => {
     expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'chore/ci', evidence: true }).evidence).toBe(true);
   });
   test('detecta una entrega que omite la dependencia de integración', () => {
-    const config = new Map(['ci.yml','api-android.yml','performance.yml','security.yml'].map((file) =>
+    const config = new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map((file) =>
       [file,YAML.parse(fs.readFileSync(path.join(root,'.github/workflows',file),'utf8'))]));
     config.get('api-android.yml').jobs.delivery.needs = ['plan','android'];
     expect(() => validateWorkflows(config)).toThrow('entrega exige integración');

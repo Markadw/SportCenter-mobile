@@ -86,7 +86,7 @@ describe('Matriz y bloqueo de integración', () => {
 });
 
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml'].map((file) =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map((file) =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Dependencias reales de los YAML', () => {
@@ -299,4 +299,29 @@ test('la candidata no aprueba si falta el piloto nativo exigido o se ejecutó y 
   expect(evaluateChecks(results, true, true)).toEqual(['pinning']);
   expect(evaluateChecks({ ...results, pinning: 'success' }, true, true)).toEqual([]);
   expect(evaluateChecks({ ...results, pinning: 'failure' }, false, false)).toEqual(['pinning']);
+});
+
+describe('Revalidación nativa del mismo APK sin EAS build', () => {
+  test.each([
+    config => { config.on.push.tags = ['candidate/android-*']; },
+    config => { config.permissions['security-events'] = 'write'; },
+    config => { config.jobs.native.needs = ['quality']; },
+    config => { config.jobs.native.env.GITHUB_SHA = 'spoof'; },
+    config => { config.jobs.native.env.EXPO_TOKEN = 'secret'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'api34').if = 'always()'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'pages16k').with.target = 'google_apis'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'pinning').with['avd-name'] = 'sportcenter34'; },
+    config => { config.jobs.native.steps.unshift({ run: 'npx eas-cli@latest build --platform android' }); },
+    config => { config.jobs.result.needs = ['quality', 'security']; },
+    config => { config.jobs.result.steps.find(step => step.run?.endsWith(' gate')).env.RESULT_NATIVE = 'success'; },
+    config => { config.jobs.result.name = 'Resultado de integración'; },
+  ])('rechaza configuración que falsee el alcance o resultados %#', mutate => {
+    const configs = workflows(); mutate(configs.get('android-validation.yml'));
+    expect(() => validateWorkflows(configs)).toThrow();
+  });
+  test('seguridad sólo se llama una vez por cada uno de los dos orquestadores permitidos', () => {
+    const configs = workflows();
+    configs.get('android-validation.yml').jobs.duplicateSecurity = { uses: './.github/workflows/security.yml' };
+    expect(() => validateWorkflows(configs)).toThrow('una sola vez');
+  });
 });

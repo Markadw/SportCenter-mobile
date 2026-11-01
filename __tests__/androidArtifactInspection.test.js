@@ -9,7 +9,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const YAML = require('yaml');
 const { PACKAGE, JADX, manifestEvidence, signatureEvidence, nativeEntries, zipAlignmentEvidence, loadAlignmentEvidence,
-  relroEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, tool } = require('../scripts/inspect-android-artifact');
+  relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, tool } = require('../scripts/inspect-android-artifact');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const root = path.resolve(__dirname, '..');
 const cleanManifest = { applicationId: PACKAGE, targetSdk: '36\n', debuggable: 'false\n',
@@ -162,7 +162,7 @@ describe('Fallos de herramienta, ausencia de APK y omisiones', () => {
 });
 
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml'].map(file =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map(file =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Inspección obligatoria en la candidata Android', () => {
@@ -174,5 +174,35 @@ describe('Inspección obligatoria en la candidata Android', () => {
     config => { const artifact = config.jobs.android.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')); artifact.with.path = artifact.with.path.replace('test-results/android-inspection.json', ''); },
   ])('detecta inspección omitida, anterior a la descarga o fallos encubiertos %#', mutate => {
     const config = workflows(); mutate(config.get('api-android.yml')); expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('Regresiones observadas en APK c816: SDK Build Tools 37 y padding RELRO', () => {
+  // Proyección mínima de la salida real verificada: sin DN, public key ni stderr.
+  const sdk37 = 'Verifies\nVerified using v2 scheme (APK Signature Scheme v2): true\nNumber of signers: 1\n'
+    + 'V2 Signer: certificate SHA-256 digest: cdb510562d8480785383bd3f988bc19bd296c66ae4f8c54160eb2d9ef48a35ee\n';
+  test('reconoce el formato de certificado SDK37 sin aceptar una public key ni omitir verificaciones', () => {
+    expect(signatureEvidence(sdk37)).toMatchObject({ verified: true, signers: 1,
+      certificateSha256: ['cdb510562d8480785383bd3f988bc19bd296c66ae4f8c54160eb2d9ef48a35ee'] });
+    for (const invalid of [sdk37.replace('certificate SHA-256', 'public key SHA-256'), sdk37.replace('Verifies\n', ''),
+      sdk37.replace(': true', ': false'), sdk37.replace('Number of signers: 1', 'Number of signers: 2'),
+      sdk37.replace('V2 Signer:', 'V2 Signer #2:'), sdk37 + 'Number of signers: 1\n']) {
+      expect(() => signatureEvidence(invalid)).toThrow();
+    }
+  });
+  // Geometría extraída del ELF real (elf-real-layout.json), no salida readelf inventada.
+  const realLayouts = [
+    { abi: 'arm64-v8a', loads: [[0, 7232, false], [23616, 912, true], [40912, 16, true]], relro: [23616, 960] },
+    { abi: 'x86_64', loads: [[0, 7872, false], [24256, 936, true], [41576, 16, true]], relro: [24256, 4416] },
+  ];
+  test.each(realLayouts)('libandroidx.graphics.path.so $abi acepta sólo padding de su LOAD dedicado', layout => {
+    const loads = layout.loads.map(([start, size, writable]) => ({ start: BigInt(start), size: BigInt(size), writable }));
+    const relro = { start: BigInt(layout.relro[0]), size: BigInt(layout.relro[1]) };
+    expect(relroGeometryEvidence(loads, [relro])).toEqual({ relroSegments: 1, endpointsAligned: false,
+      dedicatedLoadExceptions: 1, compatible16KB: true });
+    expect(() => relroGeometryEvidence(loads, [{ ...relro, size: 32769n - relro.start }])).toThrow('contenido');
+    const overlap = [...loads, { start: 30000n, size: 16n, writable: true }];
+    expect(() => relroGeometryEvidence(overlap, [relro])).toThrow('invade');
+    expect(() => relroGeometryEvidence(loads, [{ ...relro, start: relro.start + 1n }])).toThrow();
   });
 });

@@ -377,3 +377,20 @@ test('the compiled manifest retains its own namespace, attributes, permissions a
   expect(compiledPolicy(source, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toMatchObject({ compiled: true, systemOnly: true });
   expect(() => compiledPolicy(source.replace('android:debuggable="false"', 'android:debuggable="true"'), nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow('debuggable');
 });
+
+test('revalidación pinning usa fuente c816 y automatización separada sin relajar candidate normal', () => {
+  const { SOURCE, verifySourceProof } = require('../scripts/android-source-context');
+  const validationEnv = { ...env, GITHUB_REF: 'refs/tags/validation/android-existing-apk', GITHUB_SHA: 'f'.repeat(40),
+    GITHUB_REPOSITORY: SOURCE.repository, PINNING_EXPECTED_COMMIT: SOURCE.commit,
+    PINNING_EXPECTED_BUILD_ID: SOURCE.buildId, PINNING_EXPECTED_SHA256: SOURCE.apkSha256 };
+  const source = verifySourceProof({ version: 1, artifactSourceCommit: SOURCE.commit,
+    automationCommit: validationEnv.GITHUB_SHA, buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256,
+    parentRunId: SOURCE.runId, parentChecksVerified: true }, validationEnv, 'scripts/android-pinning.js', validationEnv.GITHUB_SHA);
+  const validationMeta = { ...meta, buildId: SOURCE.buildId, commit: SOURCE.commit, sha256: SOURCE.apkSha256 };
+  expect(candidate(validationMeta, SOURCE.apkSha256, validationEnv, source)).toMatchObject({
+    artifactSourceCommit: SOURCE.commit, automationCommit: validationEnv.GITHUB_SHA });
+  expect(() => candidate(validationMeta, SOURCE.apkSha256, validationEnv, { ...source, automationCommit: commit })).toThrow();
+  expect(() => candidate(validationMeta, SOURCE.apkSha256, { ...validationEnv, GITHUB_REF: 'refs/tags/candidate/android-other' }, source)).toThrow();
+  expect(() => candidate(validationMeta, SOURCE.apkSha256, validationEnv)).toThrow();
+  expect(() => candidate({ ...meta, commit: 'c'.repeat(40) }, digest, env)).toThrow();
+});

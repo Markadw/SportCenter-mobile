@@ -145,7 +145,7 @@ describe('Resultado de seguridad real y diagnóstico', () => {
 });
 
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml'].map(file =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map(file =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Workflow de seguridad deduplicado y obligatorio', () => {

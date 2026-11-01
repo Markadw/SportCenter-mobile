@@ -57,7 +57,7 @@ describe('Candidata explícita por etiqueta de SHA congelado', () => {
   });
 });
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml'].map(file =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map(file =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Configuración de candidata independiente del workflow_dispatch de main', () => {

@@ -7,6 +7,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const execute = promisify(execFile);
+const { SOURCE, resolveSourceContext, verifyApi34Evidence } = require('./android-source-context');
 const APP = 'com.markadw.sportcenter';
 const TOOL = Object.freeze({ version: '12.3.1', url: 'https://downloads.mitmproxy.org/12.3.1/mitmproxy-12.3.1-linux-x86_64.tar.gz',
   sha256: 'f7b4237f5702f6cd21357fe6e4680a7e905f8f9b816b872230d018ea696c34d5' });
@@ -14,19 +15,25 @@ function hostname(value) {
   assert.ok(typeof value === 'string' && value.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(value), 'Host público exacto inválido.');
   return value;
 }
-function candidate(meta, actualHash, env) {
-  assert.match(env.GITHUB_REF || '', /^refs\/tags\/candidate\/android-[A-Za-z0-9_.-]+$/, 'Sólo etiquetas candidate/android-*.');
+function candidate(meta, actualHash, env, context = resolveSourceContext(env)) {
+  assert.match(env.GITHUB_REF || '', /^refs\/tags\/(?:candidate|validation)\/android-[A-Za-z0-9_.-]+$/, 'Sólo etiquetas candidate/android-* o validation/android-*.');
+  if ((env.GITHUB_REF || '').startsWith('refs/tags/validation/')) {
+    assert.equal(context.revalidation, true); assert.equal(context.artifactSourceCommit, SOURCE.commit);
+    assert.equal(context.automationCommit, env.GITHUB_SHA); assert.equal(meta?.buildId, SOURCE.buildId);
+    assert.equal(actualHash, SOURCE.apkSha256);
+  } else assert.equal(context.revalidation, false);
   assert.equal(env.PINNING_CANDIDATE, 'true', 'El job debe identificar explícitamente una candidata.');
   assert.match(env.GITHUB_SHA || '', /^[a-f0-9]{40}$/);
   assert.match(env.PINNING_EXPECTED_SHA256 || '', /^[a-f0-9]{64}$/);
   assert.ok(typeof meta?.buildId === 'string' && /^[a-zA-Z0-9-]+$/.test(meta.buildId), 'Falta ID de build.');
   assert.equal(meta.buildId, env.PINNING_EXPECTED_BUILD_ID, 'Build distinto del job API34.');
-  assert.equal(meta.commit, env.GITHUB_SHA, 'Commit distinto de la candidata.');
+  assert.equal(meta.commit, context.artifactSourceCommit, 'Commit distinto de la fuente verificada.');
   assert.equal(meta.commit, env.PINNING_EXPECTED_COMMIT, 'Commit distinto del job API34.');
   assert.equal(meta.emulatorApi, 34, 'La procedencia debe ser el APK del job API34.');
   assert.equal(meta.sha256, env.PINNING_EXPECTED_SHA256, 'Metadatos y output API34 discrepan.');
   assert.equal(actualHash, meta.sha256, 'El APK descargado no conserva su SHA256.');
-  return { buildId: meta.buildId, commit: meta.commit, sha256: actualHash };
+  return { buildId: meta.buildId, commit: meta.commit, sha256: actualHash,
+    ...(context.revalidation ? { artifactSourceCommit: context.artifactSourceCommit, automationCommit: context.automationCommit } : {}) };
 }
 // Only the small release NSC shape emitted by this app is accepted. Unknown XML/configurations fail closed.
 function xmlTree(source) {
@@ -189,7 +196,9 @@ async function pilot(env = process.env) {
   try {
     const apk = path.resolve(env.PINNING_APK || path.join(temporary, 'sport-center.apk'));
     const meta = JSON.parse(fs.readFileSync(env.PINNING_BUILD_META || 'test-results/android-build.json', 'utf8'));
-    result.candidate = candidate(meta, await sha256(apk), env);
+    const context = resolveSourceContext(env);
+    if (context.revalidation) verifyApi34Evidence(JSON.parse(fs.readFileSync('test-results/android34.json', 'utf8')), context);
+    result.candidate = candidate(meta, await sha256(apk), env, context);
     const pinsConfig = JSON.parse(fs.readFileSync('config/security-pins.json', 'utf8'));
     const apiHost = hostname(pinsConfig.domain), imageHost = hostname(env.PINNING_IMAGE_HOST);
     assert.equal(new URL(meta.api).origin, 'https://' + apiHost, 'API de metadatos distinta del dominio compilado.');
