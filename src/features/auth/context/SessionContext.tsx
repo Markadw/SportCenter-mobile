@@ -1,16 +1,17 @@
-import { isAxiosError } from "axios";
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
+  createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore,
   type PropsWithChildren,
 } from "react";
 import { AppState } from "react-native";
-import { authApi } from "../../../api/authApi";
 import axiosClient from "../../../api/axios";
 import type { LoginCredentials, Session } from "../types";
+import { SessionController } from "./SessionController";
+import { registerSessionInterceptors } from "./sessionInterceptors";
 
 interface SessionState {
   session: Session | null;
   notice: string | null;
+  isRestoring: boolean;
   signIn: (credentials: LoginCredentials, signal: AbortSignal) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -18,84 +19,32 @@ interface SessionState {
 const SessionContext = createContext<SessionState | null>(null);
 
 export function SessionProvider({ children }: PropsWithChildren) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const current = useRef<Session | null>(null);
-  const generation = useRef(0);
-  const mounted = useRef(true);
-
-  const endSession = useCallback((message: string | null) => {
-    generation.current += 1;
-    current.current = null;
-    setSession(null);
-    setNotice(message);
-  }, []);
-
-  const signIn = useCallback(async (credentials: LoginCredentials, signal: AbortSignal) => {
-    const attempt = ++generation.current;
-    const next = await authApi.login(credentials, signal);
-    if (!mounted.current || signal.aborted || generation.current !== attempt) return;
-    current.current = next;
-    setSession(next);
-    setNotice(null);
-  }, []);
-
-  const signOut = useCallback(async () => {
-    const previous = current.current;
-    endSession(null);
-    const attempt = generation.current;
-    if (!previous) return;
-    try {
-      await authApi.logout(previous.accessToken);
-    } catch (error) {
-      const alreadyEnded = isAxiosError(error) && error.response?.status === 401;
-      if (!alreadyEnded && mounted.current && generation.current === attempt) {
-        setNotice("Cerramos la sesión en este dispositivo, pero no pudimos confirmar el cierre en el servidor.");
-      }
-    }
-  }, [endSession]);
+  const [controller] = useState(() => new SessionController());
+  const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      generation.current += 1;
-      current.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!session) return;
-    const expire = () => {
-      if (current.current === session && Date.now() >= session.expiresAt) {
-        endSession("Tu sesión venció. Vuelve a iniciar sesión.");
-      }
-    };
-    const timer = setTimeout(expire, Math.max(0, session.expiresAt - Date.now()));
+    const unregister = registerSessionInterceptors(axiosClient, controller);
+    controller.activate();
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") expire();
+      if (state === "active") void controller.refreshIfNeeded().catch(() => {});
     });
     return () => {
-      clearTimeout(timer);
+      unregister();
       subscription.remove();
+      controller.dispose();
     };
-  }, [session, endSession]);
+  }, [controller]);
 
   useEffect(() => {
-    const interceptor = axiosClient.interceptors.response.use(undefined, (error: unknown) => {
-      if (isAxiosError(error) && error.response?.status === 401 && current.current) {
-        // Solo invalida la sesión cuyo token se envió; una respuesta antigua no cierra otra cuenta.
-        const authorization = error.config?.headers?.get("Authorization");
-        if (authorization === `Bearer ${current.current.accessToken}`) {
-          endSession("Tu sesión ya no está activa. Vuelve a iniciar sesión.");
-        }
-      }
-      return Promise.reject(error);
-    });
-    return () => axiosClient.interceptors.response.eject(interceptor);
-  }, [endSession]);
+    const delay = controller.refreshDelay();
+    if (delay === null) return;
+    const timer = setTimeout(() => { void controller.refreshIfNeeded().catch(() => {}); }, delay);
+    return () => clearTimeout(timer);
+  }, [controller, snapshot]);
 
-  const value = useMemo(() => ({ session, notice, signIn, signOut }), [session, notice, signIn, signOut]);
+  const value = useMemo(() => ({
+    ...snapshot, signIn: controller.signIn, signOut: controller.signOut,
+  }), [controller, snapshot]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

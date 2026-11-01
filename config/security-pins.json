@@ -1,0 +1,18 @@
+{
+  "domain": "back-sport-ghxk.onrender.com",
+  "verifiedAt": "2026-11-01",
+  "pins": [
+    {
+      "role": "primary-leaf",
+      "sha256": "8emdl/UmneUm0I4Y/vHzOTQzb9eJwG4voRHtMdNmBPk=",
+      "subject": "CN=onrender.com",
+      "notAfter": "2026-12-20T23:04:28.000Z"
+    },
+    {
+      "role": "backup-intermediate",
+      "sha256": "kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=",
+      "subject": "C=US, O=Google Trust Services, CN=WE1",
+      "notAfter": "2029-02-20T14:00:00.000Z"
+    }
+  ]
+}
