@@ -41,7 +41,7 @@ describe('Manifiesto real del APK', () => {
   ])('un manifiesto incompleto o fuera del requisito no aprueba %#', value => {
     expect(() => manifestEvidence(value)).toThrow();
   });
-  test.each(['CAMERA', 'RECORD_AUDIO', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE',
+  test.each(['SYSTEM_ALERT_WINDOW', 'VIBRATE', 'CAMERA', 'RECORD_AUDIO', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE',
     'MANAGE_EXTERNAL_STORAGE', 'READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO', 'READ_MEDIA_AUDIO', 'READ_MEDIA_VISUAL_USER_SELECTED'])(
     'rechaza permiso innecesario %s', permission => {
       expect(() => manifestEvidence({ ...cleanManifest, permissions: cleanManifest.permissions + 'android.permission.' + permission })).toThrow('permisos');

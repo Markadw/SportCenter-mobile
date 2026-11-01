@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { staticSummary } = require('./run-static-analysis');
-const escapeCell = (value) => String(value).replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+const { escapeMarkdownCell: escapeCell } = require('./report-markdown');
 const outcome = (value) => ({ success: 'Aprobada', failure: 'Fallida', cancelled: 'Cancelada',
   skipped: 'Omitida por una etapa previa' }[value] || 'Sin resultado');
 

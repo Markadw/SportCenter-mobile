@@ -13,7 +13,7 @@ const JADX = Object.freeze({ version: '1.5.6',
   url: 'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip',
   sha256: '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974' });
 const REQUIRED = ['candidate', 'signature', 'manifest', 'abi', 'zipalign', 'elf', 'jadx'];
-const prohibited = /^(?:android\.permission\.(?:CAMERA|CAMERA_DISABLE_TRANSMIT_LED|SYSTEM_CAMERA|RECORD_AUDIO|CAPTURE_AUDIO_OUTPUT|CAPTURE_MEDIA_OUTPUT|MODIFY_AUDIO_SETTINGS|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE|MANAGE_MEDIA|MEDIA_CONTENT_CONTROL|ACCESS_MEDIA_LOCATION|READ_MEDIA_[A-Z_]+))$/;
+const prohibited = /^(?:android\.permission\.(?:SYSTEM_ALERT_WINDOW|VIBRATE|CAMERA|CAMERA_DISABLE_TRANSMIT_LED|SYSTEM_CAMERA|RECORD_AUDIO|CAPTURE_AUDIO_OUTPUT|CAPTURE_MEDIA_OUTPUT|MODIFY_AUDIO_SETTINGS|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE|MANAGE_MEDIA|MEDIA_CONTENT_CONTROL|ACCESS_MEDIA_LOCATION|READ_MEDIA_[A-Z_]+))$/;
 
 function manifestEvidence({ applicationId, targetSdk, debuggable, permissions }) {
   assert.equal(applicationId.trim(), PACKAGE, 'El identificador del APK no corresponde a Sport Center.');
@@ -24,7 +24,7 @@ function manifestEvidence({ applicationId, targetSdk, debuggable, permissions })
   const values = permissions.trim() ? permissions.trim().split(/\r?\n/).map(value => value.trim()) : [];
   assert.ok(values.every(value => /^[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+$/.test(value)), 'Informe de permisos inválido.');
   const forbidden = values.filter(value => prohibited.test(value));
-  assert.equal(forbidden.length, 0, 'El APK solicita permisos de cámara, audio o almacenamiento: ' + forbidden.join(', '));
+  assert.equal(forbidden.length, 0, 'El APK solicita permisos ajenos a las funciones de Sport Center: ' + forbidden.join(', '));
   return { applicationId: PACKAGE, targetSdk: target, debuggable: false, permissions: [...new Set(values)].sort() };
 }
 function signatureEvidence(output) {

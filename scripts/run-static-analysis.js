@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { escapeMarkdownCell: cell } = require('./report-markdown');
 const { spawnSync, execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const tools = { lint: { package: 'eslint', bin: 'eslint', label: 'ESLint' },
@@ -73,7 +74,7 @@ function runAnalysis(kind, { cwd = root, directory = path.join(cwd, 'test-result
 function staticSummary(reports, env = {}) {
   const rows = [];
   const details = [];
-  const cell = (value) => String(value).replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+
   for (const [kind, tool] of Object.entries(tools)) {
     const step = env[kind === 'lint' ? 'LINT_OUTCOME' : 'TYPES_OUTCOME'];
     const report = reports[tool.package];

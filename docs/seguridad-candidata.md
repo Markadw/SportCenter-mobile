@@ -32,3 +32,11 @@ El inspector conserva sólo JSON y texto. No sube el APK completo, clases descom
 - La aprobación local de scripts y sus pruebas no significa que ya se haya generado o inspeccionado el APK final.
 
 No se publica en Google Play ni se modifica el backend desde este flujo. La medición de carga sigue limitada a una copia aislada; no se envía estrés al servicio compartido.
+
+## Ajustes de la candidata
+
+El manifiesto generado de preview aún incluía SYSTEM_ALERT_WINDOW y VIBRATE, aunque el cliente no utiliza superposiciones ni vibración. Se bloquearon desde app.json y el inspector del APK también los rechaza. No se editaron archivos Android nativos a mano. La comprobación del manifiesto final debe volver a realizarse sobre el APK correspondiente.
+
+El lockfile fija follow-redirects 1.16.2 y node-forge 1.4.2 mediante overrides de sus dependencias transitivas, sin añadirlas como dependencias de la app ni cambiar Expo SDK 57. El registro npm confirmó versiones y engines; la auditoría del lockfile bajó de siete a cinco paquetes con severidad alta, con cero críticos. Las cinco altas restantes se conservan en el informe: no se presenta una auditoría sin hallazgos ni se fuerza una migración mayor incompatible.
+
+Se retiraron nueve recursos iniciales de Expo que ya no tenían referencias. Se conservan el logotipo y el icono utilizados por Sport Center.
