@@ -1,4 +1,6 @@
 import { useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { colors, fontSize, radius, spacing } from "../../../constants/theme";
 import { Field, Form, FormButton, FormMessage } from "../components/Form";
 import { useRegisterViewModel } from "../hooks/useRegisterViewModel";
 import { PASSWORD_HELP } from "../validation";
@@ -31,6 +33,26 @@ export function RegisterScreen() {
         value={vm.form.confirmPassword} onChangeText={(value) => vm.setField("confirmPassword", value)}
         error={vm.errors.confirmPassword} editable={!vm.pending}
         returnKeyType="done" onSubmitEditing={() => void vm.submit()} />
+      <View style={styles.consent}>
+        <Pressable accessibilityRole="checkbox"
+          accessibilityLabel="Acepto el tratamiento necesario para mi cuenta"
+          accessibilityState={{ checked: vm.necessaryProcessingAccepted, disabled: vm.pending }}
+          accessibilityHint="Obligatorio para registrarte. No autoriza mensajes de marketing."
+          disabled={vm.pending} onPress={() => vm.setNecessaryProcessingAccepted(!vm.necessaryProcessingAccepted)}
+          style={styles.checkbox}>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+            style={[styles.box, vm.necessaryProcessingAccepted && styles.checked]}>
+            {vm.necessaryProcessingAccepted && <Text style={styles.checkmark}>✓</Text>}
+          </View>
+          <Text style={styles.consentLabel}>Acepto el tratamiento de mis datos necesario para crear y gestionar mi cuenta.</Text>
+        </Pressable>
+        <Text style={styles.hint}>Esta aceptación no incluye autorización de marketing.</Text>
+        <Pressable accessibilityRole="link" accessibilityLabel="Leer privacidad y términos"
+          disabled={vm.pending} onPress={() => router.push("/privacy")} style={styles.privacyLink}>
+          <Text style={styles.link}>Leer privacidad y términos</Text>
+        </Pressable>
+        <FormMessage text={vm.consentError} error />
+      </View>
       <FormMessage text={vm.error} error />
       <FormButton label="Crear cuenta" onPress={() => void vm.submit()} busy={vm.pending} />
       <FormButton label="Ya tengo una cuenta" onPress={() => router.replace("/login")} disabled={vm.pending} secondary />
@@ -38,3 +60,16 @@ export function RegisterScreen() {
     </Form>
   );
 }
+
+const styles = StyleSheet.create({
+  consent: { gap: spacing.xs, marginTop: spacing.sm },
+  checkbox: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.md },
+  box: { width: 24, height: 24, borderWidth: 2, borderColor: colors.textMuted, borderRadius: radius.sm,
+    alignItems: "center", justifyContent: "center" },
+  checked: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkmark: { color: colors.white, fontWeight: "700", fontSize: 17 },
+  consentLabel: { flex: 1, color: colors.text, fontSize: fontSize.md, lineHeight: 23 },
+  hint: { color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 21 },
+  privacyLink: { minHeight: 44, justifyContent: "center" },
+  link: { color: colors.secondary, fontWeight: "600", fontSize: fontSize.md, textDecorationLine: "underline" },
+});

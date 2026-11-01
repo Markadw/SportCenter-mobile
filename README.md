@@ -9,11 +9,11 @@ Repositorio: [Markadw/SportCenter-mobile](https://github.com/Markadw/SportCenter
 
 El proyecto está en desarrollo. La base disponible incluye carga inicial con la marca Sport Center, navegación inferior, inicio, búsqueda y catálogo con filtros y orden, y detalle de producto por variante con consumo del backend.
 
-El cliente incluye registro, verificación de correo, reenvío e inicio de sesión con control de acceso y sesión en memoria. Las pruebas cubren componentes, servicios y su combinación con transporte simulado, además de contratos HTTP públicos y recorridos públicos Android. Almacenamiento seguro, restauración y renovación de sesión corresponden a MOB-005. Carrito, direcciones, compra/pago, pedidos y gestión del perfil siguen pendientes. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
+El cliente incluye registro, verificación, reenvío, inicio y cierre de sesión, restauración y renovación con almacenamiento seguro nativo. Incluye edición de perfil, recuperación de contraseña, consulta de pedidos propios y sus envíos, y reseñas con elegibilidad, reporte y ocultación local de autores. Las pruebas del cliente usan transporte simulado; los contratos HTTP públicos y la aceptación Android tienen evidencias independientes. Carrito, direcciones y checkout están en desarrollo separado; no se presentan aquí como integrados. El alcance y los responsables se consultan en el [tablero personal](https://github.com/users/Markadw/projects/2).
 
 ## Interfaces móviles
 
-El primer bloque de interfaces está en `feature/interfaces-moviles`: Inicio, Catálogo y Cuenta son las pestañas principales. Las URL `/`, `/catalog` y `/account` se mantienen; registro, verificación, login y detalle se abren sobre esas pestañas. Cuenta muestra el acceso al usuario invitado y solo renderiza la vista autenticada si existe sesión.
+El primer bloque de interfaces se integró mediante el PR #41: Inicio, Catálogo y Cuenta son las pestañas principales. Las URL `/`, `/catalog` y `/account` se mantienen; registro, verificación, login y detalle se abren sobre esas pestañas. Cuenta muestra el acceso al usuario invitado y solo renderiza la vista autenticada si existe sesión.
 
 Inicio muestra el buscador, deportes, productos más recientes y marcas, en ese orden, con opciones de la API. Se retiraron el banner y su consulta al backend. Marca y deporte abren su catálogo filtrado. La búsqueda funciona por nombre, descripción, marca, categoría y deporte, sin distinguir acentos. El catálogo admite orden por precio o nombre y el orden reciente que entrega el servidor, rango de precio y carga acumulada de 20 productos. Volver desde el detalle conserva la búsqueda; una selección nueva desde Inicio comienza otra consulta.
 
@@ -21,11 +21,11 @@ El detalle selecciona una combinación real de atributos; precio, fotos y existe
 
 La arquitectura sigue MVVM por funcionalidad: los servicios convierten la respuesta del backend; los modelos de vista de Inicio, Catálogo y Detalle manejan selección, consultas y filtros; las pantallas presentan sus estados. Los proveedores conservan los datos compartidos. El detalle sigue enviando el ID real a la API; la codificación del enlace público se usa únicamente al compartir.
 
-El splash nativo usa el logotipo existente. En JavaScript, la carga inicial espera solo la primera consulta del catálogo, sin demora artificial. Si falla, permite llegar al error con reintento; filtros e imágenes no bloquean la entrada. Una actualización posterior no vuelve a cubrir la app. La apariencia final del splash nativo requiere comprobar una compilación instalada, pues Expo Go no reproduce todos sus detalles.
+El splash nativo usa el logotipo existente. En JavaScript, la carga inicial espera la primera consulta del catálogo y la restauración de sesión, sin demora artificial. Si falla, permite llegar al error con reintento; filtros e imágenes no bloquean la entrada. Una actualización posterior no vuelve a cubrir la app. La apariencia final del splash nativo requiere comprobar una compilación instalada, pues Expo Go no reproduce todos sus detalles.
 
 [Prototipo editable en Figma](https://www.figma.com/design/Ae3JMeVAfcs6ulXI7dpx5k?node-id=5-50). Documenta el primer bloque y sus estados; no sustituye las comprobaciones en el dispositivo. El usuario confirmó el recorrido básico en Android; el alcance y los casos adicionales pendientes están en la [guía de comprobación móvil](tests/manual/interfaces-moviles.md).
 
-Recuperación de contraseña y reseñas se incluyen en el alcance acordado de los siguientes bloques. Google, recomendaciones y Alexa quedan fuera. Las pantallas de perfil y del flujo de compra también están pendientes; este prototipo no acredita su implementación.
+Recuperación, perfil, pedidos y reseñas están conectados a sus servicios reales; la comprobación automatizada usa respuestas controladas. Google, recomendaciones y Alexa quedan fuera del alcance. Los recorridos nativos nuevos y la operación de soporte siguen sujetos a validación antes de una entrega pública.
 
 ## Registro de clientes (HU-01)
 
@@ -38,6 +38,20 @@ Después del registro se introduce el código recibido por correo. El backend es
 Las peticiones tienen un límite de espera de 45 segundos y no se repiten automáticamente. Un timeout puede ocurrir después de que el servidor haya procesado el registro: la pantalla indica revisar el correo antes de reintentar. Se bloquean envíos simultáneos y se cancela la espera al salir de la pantalla. La aplicación no guarda contraseñas ni códigos en almacenamiento y descarta el hash y el código presentes en la respuesta actual del backend.
 
 Jest comprueba validaciones, contrato de envío, errores, registro/verificación/reenvío y concurrencia con transporte simulado; estas pruebas automatizadas no crean cuentas en Render. El usuario confirmó en su Android, mediante Expo Go y la API real, el registro, la recepción del primer correo, el rechazo del código incorrecto, la recepción del reenvío y la verificación de la cuenta. El alcance y las limitaciones de esa comprobación están en [el registro manual](tests/manual/registro-cliente.md). El recorrido manual corresponde a HU-01 antes de incorporar la nueva base. El PR #36 conserva las comprobaciones de registro y su actualización. Tras verificar el correo se puede abrir Iniciar sesión; el registro también permite volver a login mediante «Ya tengo una cuenta».
+
+## Cuenta, recuperación, pedidos y reseñas
+
+El perfil usa GET /users/profile y PATCH /users/update-profile. Sólo se conservan nombre, apellidos, correo y teléfono; los datos internos de la respuesta se descartan. El ViewModel depende de ProfileRepository, su Factory recibe el transporte HTTP y Axios mantiene una única instancia de la app. Los contextos notifican cambios a sus suscriptores. Así se mantienen MVVM, Repository, Factory, Singleton y Observer en responsabilidades concretas, sin trasladar llamadas de red a las pantallas.
+
+La recuperación solicita correo en POST /users/verify-user-email y envía el código junto con la nueva contraseña directamente a POST /users/reset-psw. No consume el código en un paso previo. Incluye validación, reenvío con espera, cancelación y protección frente a respuestas tardías.
+
+Los pedidos usan exclusivamente la lista del cliente y su seguimiento. El detalle comprueba primero que el pedido esté en esa lista; no consulta endpoints administrativos. El backend omite los pendientes de pago de la lista: su ausencia no acredita un cobro ni una compra terminada.
+
+Las reseñas son públicas; publicar requiere sesión, compra entregada confirmada por el servidor y aceptación explícita de reglas. El reporte usa el canal de contacto existente con folio de recepción. Ocultar autores es reversible y local: SecureStore en Android/iOS, separado por cuenta o invitado; en web sólo memoria. Decodificar el ID de una sesión para esa separación no autentica peticiones ni concede permisos.
+
+El registro exige aceptar sin premarcar el tratamiento necesario de la cuenta. Conserva sólo versión del aviso, momento y enlaces en el dispositivo; no almacena contraseñas, códigos ni una preferencia comercial. La aceptación no se incorpora al contrato del backend.
+
+Privacidad y solicitud de eliminación están disponibles sin sesión. El formulario registra una solicitud manual y un folio; no afirma que borre una cuenta. Los avisos web tienen datos de contacto inconsistentes y requieren corrección por el responsable. Los borradores de docs/public/ no están publicados. Véase [la revisión de privacidad](docs/privacy-review.md) para los pendientes que impiden declarar lista la publicación.
 
 ## Entorno y arranque
 
@@ -56,7 +70,7 @@ Instalar paquetes con `npx expo install <paquete>` para resolver versiones compa
 
 ## Inicio de sesión
 
-El icono de usuario abre login o Mi cuenta según la sesión. El formulario usa POST /users/login-user, valida correo y contraseña, admite mostrar/ocultar y presenta los errores sin mostrar detalles internos. Mi cuenta confirma la autenticación; la consulta y edición del perfil corresponden a HU-09.
+El icono de usuario abre login o Mi cuenta según la sesión. El formulario usa POST /users/login-user, valida correo y contraseña, admite mostrar/ocultar y presenta los errores sin mostrar detalles internos. Mi cuenta permite abrir perfil, pedidos y privacidad. HU-09 consulta y actualiza los cinco datos editables del perfil.
 
 El token de acceso permanece en memoria. En Android e iOS, SecureStore conserva únicamente el token de renovación y el identificador de sesión. Al abrir la app se valida la sesión mediante renovación; al cerrar sesión se retira el acceso local y se elimina la credencial persistida. La renovación se coordina entre solicitudes y protege los cambios de cuenta. Sólo GET/HEAD pueden repetirse una vez tras un 401; las operaciones de compra y otras mutaciones requieren reenvío manual. Los fallos de almacenamiento o conexión se muestran sin afirmar una persistencia o un cierre remoto que no estén confirmados.
 

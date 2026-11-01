@@ -1,26 +1,33 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import axiosClient from "../../src/api/axios";
+import { consentReceiptStorage } from "../../src/features/privacy/consentReceiptStorage";
 import { RegisterScreen } from "../../src/features/registration/screens/RegisterScreen";
 import { VerifyEmailScreen } from "../../src/features/registration/screens/VerifyEmailScreen";
 import { httpError, registrationForm } from "../../__tests__/fixtures/registration";
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 let mockParams: { email?: string | string[] } = {};
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
   useLocalSearchParams: () => mockParams,
 }));
 jest.mock("react-native-safe-area-context", () => jest.requireActual("react-native-safe-area-context/jest/mock").default);
 jest.mock("../../src/api/axios", () => ({ __esModule: true, default: { post: jest.fn() } }));
+jest.mock("../../src/features/privacy/consentReceiptStorage", () => ({
+  ...jest.requireActual("../../src/features/privacy/consentReceiptStorage"),
+  consentReceiptStorage: { save: jest.fn().mockResolvedValue(undefined) },
+}));
 const post = jest.mocked(axiosClient.post);
 
-async function fillRegistration() {
+async function fillRegistration(accept = true) {
   for (const [label, value] of [
     ["Nombre", registrationForm.nombre], ["Apellido paterno", registrationForm.aPaterno],
     ["Apellido materno", registrationForm.aMaterno], ["Correo electrónico", " CLIENTE@EXAMPLE.TEST "],
     ["Teléfono", registrationForm.telefono], ["Contraseña", registrationForm.passw],
     ["Confirmar contraseña", registrationForm.confirmPassword],
   ]) await fireEvent.changeText(screen.getByLabelText(label), value);
+  if (accept) await fireEvent.press(screen.getByRole("checkbox", { name: "Acepto el tratamiento necesario para mi cuenta" }));
 }
 
 function deferred<T>() {
@@ -30,7 +37,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-beforeEach(() => { mockParams = {}; post.mockReset(); });
+beforeEach(() => { mockParams = {}; post.mockReset(); jest.mocked(consentReceiptStorage.save).mockReset().mockResolvedValue(undefined); });
 
 describe("CP-01 / HU-01: pantallas, ViewModels y servicio con transporte simulado", () => {
   test("recorre registro y verificación con el código escrito, sin crear una sesión", async () => {
@@ -44,6 +51,7 @@ describe("CP-01 / HU-01: pantallas, ViewModels y servicio con transporte simulad
     }));
     expect(screen.getByLabelText("Contraseña").props.value).toBe("");
     expect(screen.getByLabelText("Confirmar contraseña").props.value).toBe("");
+    expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
     expect(screen.queryByText("123456")).toBeNull();
     await view.unmount();
     mockParams = { email: registrationForm.email };
@@ -225,5 +233,83 @@ describe("CP-01 / HU-01: pantallas, ViewModels y servicio con transporte simulad
     await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "654321");
     await fireEvent.changeText(screen.getByLabelText("Correo electrónico"), "otro@example.test");
     expect(screen.getByLabelText("Código de verificación").props.value).toBe("");
+  });
+});
+
+
+describe("registro con aceptación necesaria explícita", () => {
+  test("no viene premarcada, valida campos primero y ni botón ni teclado envían sin aceptación", async () => {
+    await render(<RegisterScreen />);
+    expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
+    expect(screen.getByText("Esta aceptación no incluye autorización de marketing.")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    expect(screen.getByText("Escribe tu nombre.")).toBeTruthy();
+    expect(screen.queryByText("Acepta el tratamiento necesario para crear y gestionar tu cuenta.")).toBeNull();
+    await fillRegistration(false);
+    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    expect(screen.getByText("Acepta el tratamiento necesario para crear y gestionar tu cuenta.")).toBeTruthy();
+    await fireEvent(screen.getByLabelText("Confirmar contraseña"), "submitEditing");
+    expect(post).not.toHaveBeenCalled();
+    expect(consentReceiptStorage.save).not.toHaveBeenCalled();
+  });
+
+  test("ofrece privacidad antes del registro y la aceptación se reinicia al retomar verificación", async () => {
+    await render(<RegisterScreen />);
+    await fireEvent.press(screen.getByRole("link", { name: "Leer privacidad y términos" }));
+    expect(mockPush).toHaveBeenCalledWith("/privacy");
+    await fillRegistration();
+    await fireEvent.press(screen.getByRole("button", { name: "Ya tengo un código" }));
+    expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
+    expect(screen.getByLabelText("Contraseña").props.value).toBe("");
+    expect(consentReceiptStorage.save).not.toHaveBeenCalled();
+  });
+
+  test("guarda sólo el recibo local antes de POST y no añade campos de consentimiento al backend", async () => {
+    const saving = deferred<void>();
+    jest.mocked(consentReceiptStorage.save).mockReturnValueOnce(saving.promise);
+    post.mockResolvedValueOnce({ data: { id_usuario: 7, email: registrationForm.email } });
+    await render(<RegisterScreen />);
+    await fillRegistration();
+    await fireEvent(screen.getByLabelText("Confirmar contraseña"), "submitEditing");
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox").props.accessibilityState.disabled).toBe(true);
+    const receipt = jest.mocked(consentReceiptStorage.save).mock.calls[0][0];
+    expect(receipt).toMatchObject({ accepted: true, scope: "necessary-account-service" });
+    expect(JSON.stringify(receipt)).not.toContain(registrationForm.email);
+    expect(JSON.stringify(receipt)).not.toContain(registrationForm.passw);
+    await act(async () => saving.resolve());
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(Object.keys(post.mock.calls[0][1] as Record<string, unknown>).sort()).toEqual(["nombre","aPaterno","aMaterno","email","telefono","passw"].sort());
+    expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
+  });
+
+  test("un fallo del almacenamiento se informa sin enviar registro ni presentar un éxito", async () => {
+    jest.mocked(consentReceiptStorage.save).mockRejectedValueOnce(new Error("detalle interno del llavero"));
+    await render(<RegisterScreen />);
+    await fillRegistration();
+    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    expect(await screen.findByText(/No pudimos guardar la aceptación en este dispositivo. No enviamos el registro/)).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText(/detalle interno/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Crear cuenta" })).not.toBeDisabled();
+  });
+
+  test("abandonar mientras se guarda aceptación cancela antes del POST", async () => {
+    const saving = deferred<void>();
+    jest.mocked(consentReceiptStorage.save).mockImplementationOnce(async (_receipt, signal) => {
+      await saving.promise;
+      if (signal?.aborted) throw new Error("cancelado");
+    });
+    const view = await render(<RegisterScreen />);
+    await fillRegistration();
+    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    const signal = jest.mocked(consentReceiptStorage.save).mock.calls[0][1];
+    await view.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => saving.resolve());
+    expect(post).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });
