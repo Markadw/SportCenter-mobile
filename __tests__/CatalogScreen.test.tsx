@@ -4,10 +4,11 @@ import { useProducts } from '../src/features/products/context/ProductsContext';
 import { CatalogScreen } from '../src/features/products/screens/CatalogScreen';
 import { product } from './fixtures/products';
 
+jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }), useLocalSearchParams: () => ({}) }));
 jest.mock('lucide-react-native', () => ({ ChevronRight: () => null,
-  Home: () => null, SlidersHorizontal: () => null, Share2: () => null }));
+  Home: () => null, SlidersHorizontal: () => null, Share2: () => null, Search: () => null, X: () => null }));
 jest.mock('../src/features/catalog', () => ({ useFilters: jest.fn() }));
 jest.mock('../src/features/products/context/ProductsContext', () => ({ useProducts: jest.fn() }));
 jest.mock('../src/features/products/components/FiltersModal', () => ({ FiltersModal: () => null }));
@@ -21,7 +22,7 @@ beforeEach(() => {
   filtersState.mockReturnValue({ filters: { categoryId: null, brandId: null, sportName: null },
     categories: [{ id: 1, name: 'Accesorios', parentId: null }],
     brands: [{ id: 1, name: 'Sport Center', image: '' }], sports: [],
-    activeCount: 0, setCategory: jest.fn(), setBrand: jest.fn(), setSport: jest.fn(), clearFilters: jest.fn() });
+    activeCount: 0, setCategory: jest.fn(), setBrand: jest.fn(), setSport: jest.fn(), catalogRequest: null, requestCatalog: jest.fn(), clearFilters: jest.fn() });
 });
 
 describe('HU-03: catálogo público', () => {
@@ -70,14 +71,17 @@ describe('HU-03: catálogo público', () => {
     expect(screen.getByText('No hay productos con esos filtros.')).toBeTruthy();
   });
 
-  test('divide el catálogo en páginas de 20 productos', async () => {
+  test('carga más productos sin retirar los anteriores', async () => {
     productsState.mockReturnValue({ ...productsState(), products: Array.from({ length: 21 },
       (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}` })) });
     await render(<CatalogScreen />);
     expect(screen.queryByText('Producto 21')).toBeNull();
-    await fireEvent.press(screen.getByText('2', { exact: true }));
-    expect(screen.getByText('Producto 21')).toBeTruthy();
-    expect(screen.queryByText('Producto 1', { exact: true })).toBeNull();
+    await fireEvent.press(screen.getByText('Ver más productos'));
+    await fireEvent.scroll(screen.getByTestId('catalog-list'), { nativeEvent: {
+      contentOffset: { x: 0, y: 3000 }, layoutMeasurement: { width: 390, height: 800 },
+      contentSize: { width: 390, height: 3300 } } });
+    expect(screen.queryByText('Ver más productos')).toBeNull();
+    expect(screen.getByText('21 resultados')).toBeTruthy();
   });
 
   test('una categoría específica excluye productos de otras categorías', async () => {
@@ -127,8 +131,11 @@ describe('HU-03: catálogo público', () => {
       (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}`,
         sports: i === 0 ? ['Fútbol'] : ['Básquetbol'] })) });
     const view = await render(<CatalogScreen />);
-    await fireEvent.press(screen.getByText('2', { exact: true }));
-    expect(screen.getByText('Producto 21')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Ver más productos'));
+    await fireEvent.scroll(screen.getByTestId('catalog-list'), { nativeEvent: {
+      contentOffset: { x: 0, y: 3000 }, layoutMeasurement: { width: 390, height: 800 },
+      contentSize: { width: 390, height: 3300 } } });
+    expect(screen.queryByText('Ver más productos')).toBeNull();
     filtersState.mockReturnValue({ ...filtersState(),
       filters: { categoryId: null, brandId: null, sportName: 'Fútbol' } });
     await view.rerender(<CatalogScreen />);

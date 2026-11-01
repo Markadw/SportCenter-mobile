@@ -1,93 +1,31 @@
-// src/features/home/screens/HomeScreen.tsx
 import { useRouter } from "expo-router";
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { colors, spacing } from "../../../constants/theme";
-import { useFilters } from "../../catalog";
-import { useProducts } from "../../products";
-import { BannerCarousel } from "../components/BannerCarousel";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { AppHeader } from "../../../components/AppHeader";
+import { ScreenState } from "../../../components/ScreenState";
+import { colors } from "../../../constants/theme";
+import { useHomeViewModel } from "../hooks/useHomeViewModel";
 import { BrandsRow } from "../components/BrandsRow";
 import { FeaturedProducts } from "../components/FeaturedProducts";
 import { SectionHeader } from "../components/SectionHeader";
 import { SportsRow } from "../components/SportsRow";
 
-export const HomeScreen = () => {
+export function HomeScreen() {
+  const vm = useHomeViewModel();
   const router = useRouter();
-  const { products, isLoading, error } = useProducts();
-  const { filters } = useFilters();
-
-  const featured = products.filter((p) => p.totalStock > 0).slice(0, 8);
-
-  if (isLoading && products.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando SportCenter…</Text>
-      </View>
-    );
-  }
-
-  if (error && products.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorTitle}>No se pudo cargar la tienda</Text>
-        <Text style={styles.loadingText}>{error}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <BannerCarousel />
-
-      <SectionHeader
-        title="Marcas"
-        actionLabel="Ver todas"
-        onPressAction={() => router.push("/catalog")}
-      />
-      <BrandsRow />
-
-      <SectionHeader
-        title="Deportes"
-        actionLabel="Ver todos"
-        onPressAction={() =>
-          router.push({
-            pathname: "/catalog",
-            params: filters.sportName ? { sport: filters.sportName } : {},
-          })
-        }
-      />
-      <SportsRow />
-
-      <SectionHeader
-        title="Destacados"
-        actionLabel="Ver todos"
-        onPressAction={() => router.push("/catalog")}
-      />
-      <FeaturedProducts products={featured} />
+  const browse = () => { vm.browseAll(); router.push({ pathname: "/catalog", params: { q: "" } }); };
+  if (vm.isLoading && !vm.products.length) return <ScreenState loading title="Cargando Sport Center…" />;
+  if (vm.error && !vm.products.length) return <ScreenState title="No se pudo cargar la tienda" message={vm.error} action="Reintentar" onAction={() => void vm.refresh()} />;
+  return <SafeAreaView style={styles.root} edges={["top", "left", "right"]}>
+    <AppHeader onSearch={vm.search} />
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={vm.isLoading} onRefresh={() => void vm.refresh()} colors={[colors.primary]} tintColor={colors.primary} />}>
+      <SectionHeader title="Explora por deporte" /><SportsRow />
+      <SectionHeader title="Más recientes" actionLabel="Ver todos" onPressAction={browse} />
+      <FeaturedProducts products={vm.recent} />
+      <SectionHeader title="Marcas" /><BrandsRow />
+      <View style={{ height: 16 }} />
     </ScrollView>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
-  content: { paddingBottom: spacing.xxl },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: spacing.xl,
-    backgroundColor: colors.white,
-  },
-  loadingText: { marginTop: 8, color: colors.textMuted },
-  errorTitle: { fontSize: 16, fontWeight: "700", color: colors.error },
-});
+  </SafeAreaView>;
+}
+const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: colors.white }, content: { paddingBottom: 24 } });

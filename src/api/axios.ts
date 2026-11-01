@@ -7,7 +7,6 @@ const SAFE_ENDPOINTS = new Set([
   "/products/get-all-categories",
   "/products/get-all-marcas",
   "/products/menu/sports",
-  "/company/banner",
   "/users/create-user",
   "/users/login-user",
   "/users/verify-email",

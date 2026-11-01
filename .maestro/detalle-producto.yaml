@@ -4,11 +4,11 @@ name: CP-04 detalle publico en Android
 - launchApp:
     clearState: true
 - extendedWaitUntil:
-    visible: "Marcas"
+    visible: "Explora por deporte"
     timeout: 45000
-- tapOn: "Ver todas"
+- tapOn: "Catálogo"
 - extendedWaitUntil:
-    visible: "Catálogo de Productos"
+    visible: "Buscar en el catálogo"
     timeout: 30000
 - scrollUntilVisible:
     element:
@@ -17,16 +17,8 @@ name: CP-04 detalle publico en Android
     timeout: 30000
 - tapOn: ${PRODUCT_NAME}
 - extendedWaitUntil:
-    visible: ${PRODUCT_NAME}
+    visible: "Compartir producto"
     timeout: 30000
-- scrollUntilVisible:
-    element:
-      text: "Categoría"
-    direction: DOWN
-    centerElement: true
-    timeout: 30000
-- assertVisible: "Categoría"
-- takeScreenshot: cp04-categoria
 - scrollUntilVisible:
     element:
       text: "Descripción"
@@ -35,3 +27,11 @@ name: CP-04 detalle publico en Android
     timeout: 30000
 - assertVisible: "Descripción"
 - takeScreenshot: cp04-descripcion
+- scrollUntilVisible:
+    element:
+      text: "Categoría"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- assertVisible: "Categoría"
+- takeScreenshot: cp04-categoria

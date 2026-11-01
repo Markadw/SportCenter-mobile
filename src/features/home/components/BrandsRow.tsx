@@ -1,10 +1,12 @@
+import { useRouter } from "expo-router";
 // src/features/home/components/BrandsRow.tsx
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors, fontSize, radius, shadow, spacing } from "../../../constants/theme";
 import { useFilters } from "../../catalog";
 
 export const BrandsRow = () => {
-  const { brands, setBrand } = useFilters();
+  const { brands, setBrand, clearFilters, requestCatalog } = useFilters();
+  const router = useRouter();
 
   if (brands.length === 0) return null;
 
@@ -18,7 +20,8 @@ export const BrandsRow = () => {
         <Pressable
           key={b.id}
           style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
-          onPress={() => setBrand(b.id)}
+          accessibilityRole="button" accessibilityLabel={`Ver productos de ${b.name}`}
+          onPress={() => { clearFilters(); requestCatalog(); setBrand(b.id); router.push({ pathname: "/catalog", params: { q: "" } }); }}
         >
           <View style={styles.logoWrap}>
             <Image source={{ uri: b.image }} style={styles.logo} resizeMode="contain" />
