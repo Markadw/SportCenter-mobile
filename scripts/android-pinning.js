@@ -8,6 +8,7 @@ const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const execute = promisify(execFile);
 const { SOURCE, resolveSourceContext, verifyApi34Evidence } = require('./android-source-context');
+const { androidTools } = require('./inspect-android-artifact');
 const APP = 'com.markadw.sportcenter';
 const TOOL = Object.freeze({ version: '12.3.1', url: 'https://downloads.mitmproxy.org/12.3.1/mitmproxy-12.3.1-linux-x86_64.tar.gz',
   sha256: 'f7b4237f5702f6cd21357fe6e4680a7e905f8f9b816b872230d018ea696c34d5' });
@@ -64,20 +65,64 @@ function xmlTree(source) {
   assert.equal(root.text.trim(), '', 'Texto fuera de la raíz XML.');
   return root.children[0];
 }
-function compiledPolicy(manifest, nsc, api, image, expectedPins) {
-  hostname(api); hostname(image); assert.notEqual(api, image, 'El control de imagen debe quedar fuera del dominio pinned.');
-  const manifestRoot = xmlTree(manifest);
-  assert.equal(manifestRoot.name, 'manifest', 'Raíz de manifiesto compilado inválida.');
-  const pending = [manifestRoot], applications = [];
+function manifestApplication(manifest) {
+  const root = xmlTree(manifest);
+  assert.ok(root.name === 'manifest', 'NSC_MANIFEST_ROOT_INVALID');
+  const pending = [root], applications = [];
   while (pending.length) {
     const node = pending.pop();
     if (node.name === 'application') applications.push(node);
     for (const child of node.children) pending.push(child);
   }
-  assert.ok(applications.length === 1 && manifestRoot.children.includes(applications[0]), 'Se requiere un único application directo del manifiesto.');
-  const application = applications[0];
-  assert.equal(application.attrs['android:networkSecurityConfig'], '@xml/network_security_config', 'No se resolvió la NSC compilada del manifiesto.');
-  assert.notEqual(application.attrs['android:debuggable'], 'true', 'No se admite APK debuggable.');
+  assert.ok(applications.length === 1 && root.children.includes(applications[0]), 'Se requiere un único application directo del manifiesto.');
+  assert.notEqual(applications[0].attrs['android:debuggable'], 'true', 'No se admite APK debuggable.');
+  return applications[0];
+}
+function nscReference(manifest) {
+  const reference = manifestApplication(manifest).attrs['android:networkSecurityConfig'];
+  assert.ok(reference === '@xml/network_security_config' || reference === '@' + APP + ':xml/network_security_config'
+    || /^@0x[0-9a-f]{8}$/i.test(reference || ''), 'NSC_MANIFEST_REFERENCE_INVALID');
+  return reference;
+}
+function resolveNscResource(manifest, table) {
+  const reference = nscReference(manifest);
+  assert.ok(typeof table === 'string' && table.length <= 4 * 1024 * 1024, 'NSC_RESOURCE_TABLE_INVALID');
+  const records = [], packages = []; let pkg, current;
+  for (const line of table.split(/\r?\n/)) {
+    const header = line.match(/^Package name=([A-Za-z][A-Za-z0-9_.]*) id=([0-9a-f]{2})\s*$/i);
+    if (header) { pkg = { name: header[1], id: header[2].toLowerCase() }; packages.push(pkg); current = null; continue; }
+    const resource = line.match(/^\s+resource (0x[0-9a-f]{8}) ([A-Za-z0-9_]+)\/([A-Za-z0-9_]+)\s*$/i);
+    if (resource) { current = { pkg, id: resource[1].toLowerCase(), type: resource[2], name: resource[3], values: [] }; records.push(current); continue; }
+    if (/^\s*(?:resource|type)\s/.test(line)) { current = null; continue; }
+    if (current && line.trim()) current.values.push(line.trim());
+  }
+  assert.ok(packages.filter(value => value.name === APP).length === 1, 'NSC_RESOURCE_PACKAGE_AMBIGUOUS');
+  const matches = records.filter(value => value.pkg?.name === APP && value.type === 'xml' && value.name === 'network_security_config');
+  assert.ok(matches.length === 1, 'NSC_RESOURCE_AMBIGUOUS_OR_MISSING');
+  const resource = matches[0];
+  assert.ok(resource.id.slice(2, 4) === resource.pkg.id && records.filter(value => value.id === resource.id).length === 1,
+    'NSC_RESOURCE_ID_AMBIGUOUS');
+  assert.ok(!/^@0x/i.test(reference) || reference.slice(1).toLowerCase() === resource.id, 'NSC_RESOURCE_REFERENCE_MISMATCH');
+  assert.ok(resource.values.length === 1, 'NSC_RESOURCE_DEFAULT_ONLY_REQUIRED');
+  const value = resource.values[0].match(/^\(\) \(file\) (res\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.xml) type=XML$/);
+  assert.ok(value && value[1].length <= 240, 'NSC_RESOURCE_DEFAULT_XML_REQUIRED');
+  return { reference, id: resource.id, name: 'xml/network_security_config', package: APP, configuration: 'default', path: value[1] };
+}
+async function loadCompiledNsc(manifest, apk, { analyzer, aapt2, request = command }) {
+  const table = await request(aapt2, ['dump', 'resources', apk], { diagnostic: 'NSC_RESOURCE_TABLE' });
+  const resource = resolveNscResource(manifest, table);
+  const files = (await request(analyzer, ['files', 'list', apk], { diagnostic: 'NSC_APK_ENTRIES' })).split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  const count = entry => files.filter(value => value === entry || value === '/' + entry).length;
+  assert.ok(count('resources.arsc') === 1 && count(resource.path) === 1, 'NSC_COMPILED_ENTRY_MISSING_OR_AMBIGUOUS');
+  const xml = await request(analyzer, ['resources', 'xml', '--file', '/' + resource.path, apk], { diagnostic: 'NSC_COMPILED_XML' });
+  return { xml, resource };
+}
+function compiledPolicy(manifest, nsc, api, image, expectedPins, resource) {
+  hostname(api); hostname(image); assert.notEqual(api, image, 'El control de imagen debe quedar fuera del dominio pinned.');
+  const reference = nscReference(manifest);
+  assert.ok(resource ? resource.reference === reference && resource.name === 'xml/network_security_config'
+    && resource.package === APP && resource.configuration === 'default' && /^0x[0-9a-f]{8}$/.test(resource.id)
+    : reference === '@xml/network_security_config', 'No se resolvió la NSC compilada del manifiesto.');
   const root = xmlTree(nsc); assert.equal(root.name, 'network-security-config'); assert.equal(root.text.trim(), '');
   assert.deepEqual(root.attrs, {}); assert.equal(root.children.length, 2, 'NSC desconocida o bypass adicional.');
   const base = root.children.find(n => n.name === 'base-config'), domain = root.children.find(n => n.name === 'domain-config');
@@ -146,8 +191,16 @@ function verdict(events, context) {
 async function sha256(file) { const hash = createHash('sha256'); for await (const c of fs.createReadStream(file)) hash.update(c); return hash.digest('hex'); }
 function cleanEnv(env) { return Object.fromEntries(Object.entries(env).filter(([key]) => !/TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY|KEYLOG/i.test(key))); }
 async function command(binary, args, options = {}) {
-  try { return (await execute(binary, args, { timeout: 45000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: cleanEnv(process.env), ...options })).stdout; }
-  catch { throw new Error(path.basename(binary) + ': comando del piloto fallido; diagnóstico bruto sólo temporal.'); }
+  const { diagnostic, ...executionOptions } = options;
+  try { return (await execute(binary, args, { timeout: 45000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: cleanEnv(process.env), ...executionOptions })).stdout; }
+  catch (error) {
+    const labels = ['NSC_MANIFEST', 'NSC_RESOURCE_TABLE', 'NSC_APK_ENTRIES', 'NSC_COMPILED_XML'];
+    if (labels.includes(diagnostic)) {
+      const exit = Number.isInteger(error.code) ? error.code : error.code === 'ENOENT' ? 'unavailable' : error.killed ? 'timeout' : 'unknown';
+      throw new Error('PILOT_TOOL_FAILED ' + diagnostic + ' exit=' + exit);
+    }
+    throw new Error(path.basename(binary) + ': comando del piloto fallido; diagnóstico bruto sólo temporal.');
+  }
 }
 const sleep = ms => new Promise(resolve => globalThis.setTimeout(resolve, ms));
 async function until(action, timeout = 90000) { const end = Date.now() + timeout; do { if (await action()) return; await sleep(1000); } while (Date.now() < end); throw new Error('El control no se completó dentro del plazo.'); }
@@ -204,13 +257,15 @@ async function pilot(env = process.env) {
     assert.equal(new URL(meta.api).origin, 'https://' + apiHost, 'API de metadatos distinta del dominio compilado.');
     assert.ok(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0 && env.PRODUCT_NAME.length < 200 && !/[\r\n]/.test(env.PRODUCT_NAME), 'Falta producto público visible para control UI.');
     const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT; assert.ok(sdk);
-    const analyzer = env.APKANALYZER || path.join(sdk, 'cmdline-tools/latest/bin/apkanalyzer');
+    const tools = androidTools(env);
+    const analyzer = env.APKANALYZER || tools.analyzer;
     assert.equal((await command(analyzer, ['manifest', 'application-id', apk])).trim(), APP);
     assert.equal((await command(analyzer, ['manifest', 'debuggable', apk])).trim(), 'false');
     result.controls.minSdk = minSdkEvidence(await command(analyzer, ['manifest', 'min-sdk', apk]));
-    const manifest = await command(analyzer, ['manifest', 'print', apk]);
-    const nsc = await command(analyzer, ['resources', 'xml', '--file', '/res/xml/network_security_config.xml', apk]);
-    const policy = compiledPolicy(manifest, nsc, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256));
+    const manifest = await command(analyzer, ['manifest', 'print', apk], { diagnostic: 'NSC_MANIFEST' });
+    const nsc = await loadCompiledNsc(manifest, apk, { analyzer, aapt2: tools.aapt2 });
+    const policy = compiledPolicy(manifest, nsc.xml, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256), nsc.resource);
+    result.controls.nscResource = nsc.resource;
     result.controls.compiledNsc = { compiled: true, systemOnly: true, apiHost, imageHost, pinCount: policy.pins.length };
     const version = await command(env.MITMDUMP || 'mitmdump', ['--version']); assert.match(version, /^Mitmproxy:\s+12\.3\.1(?: binary)?\s*$/m, 'Versión mitmproxy distinta de la fijada.');
     const priorProxy = (await adb('shell', 'settings', 'get', 'global', 'http_proxy')).trim();
@@ -293,6 +348,6 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, pilot };
 if (require.main === module) pilot().then(result => { console.log('Piloto pinning nativo: ' + result.status + '. Informe saneado: test-results/android-pinning.json'); process.exitCode = result.status === 'passed_controlled_native_rejection' ? 0 : 1; })
   .catch(() => { console.error('Piloto bloqueado antes de poder iniciarse.'); process.exitCode = 1; });

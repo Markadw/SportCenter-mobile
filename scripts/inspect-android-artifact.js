@@ -163,7 +163,7 @@ function androidTools(env) {
     ['llvm-objdump', 'llvm-readelf'].every(tool => fs.existsSync(path.join(sdk, 'ndk', value, 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin', tool))));
   assert.ok(ndkVersion, 'Faltan llvm-objdump y llvm-readelf del NDK Android.');
   const build = path.join(sdk, 'build-tools', buildVersion), llvm = path.join(sdk, 'ndk', ndkVersion, 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin');
-  return { buildVersion, ndkVersion, analyzer, signer: path.join(build, 'apksigner'), zipalign: path.join(build, 'zipalign'),
+  return { buildVersion, ndkVersion, analyzer, aapt2: path.join(build, 'aapt2'), signer: path.join(build, 'apksigner'), zipalign: path.join(build, 'zipalign'),
     objdump: path.join(llvm, 'llvm-objdump'), readelf: path.join(llvm, 'llvm-readelf') };
 }
 async function tool(command, args, options = {}) {
@@ -290,6 +290,6 @@ async function inspect(env = process.env) {
   return report;
 }
 module.exports = { PACKAGE, JADX, manifestEvidence, signatureEvidence, nativeEntries, zipAlignmentEvidence,
-  loadAlignmentEvidence, relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool };
+  loadAlignmentEvidence, relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool, androidTools };
 if (require.main === module) inspect().then(report => { process.exitCode = report.status === 'passed_for_static_scope' ? 0 : 1; })
   .catch(() => { console.error('Falló la escritura del informe de inspección Android.'); process.exitCode = 1; });

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -393,4 +393,68 @@ test('revalidación pinning usa fuente c816 y automatización separada sin relaj
   expect(() => candidate(validationMeta, SOURCE.apkSha256, { ...validationEnv, GITHUB_REF: 'refs/tags/candidate/android-other' }, source)).toThrow();
   expect(() => candidate(validationMeta, SOURCE.apkSha256, validationEnv)).toThrow();
   expect(() => candidate({ ...meta, commit: 'c'.repeat(40) }, digest, env)).toThrow();
+});
+
+// Proyección exacta del dump resources real de Build Tools37, sin valores ajenos a NSC.
+const shortenedNscTable = 'Package name=com.markadw.sportcenter id=7f\n'
+  + '    resource 0x7f140006 xml/network_security_config\n'
+  + '      () (file) res/8G.xml type=XML\n';
+const numericManifest = manifest.replace('@xml/network_security_config', '@0x7f140006');
+test('resuelve referencia del manifiesto a ID/default XML y ruta compilada acortada real', () => {
+  const resource = resolveNscResource(numericManifest, shortenedNscTable);
+  expect(resource).toEqual({ reference: '@0x7f140006', id: '0x7f140006', name: 'xml/network_security_config',
+    package: 'com.markadw.sportcenter', configuration: 'default', path: 'res/8G.xml' });
+  expect(resolveNscResource(manifest, shortenedNscTable).path).toBe('res/8G.xml');
+  expect(compiledPolicy(numericManifest, nsc, api, image, pinConfig.pins.map(pin => pin.sha256), resource))
+    .toMatchObject({ compiled: true, systemOnly: true });
+  expect(() => compiledPolicy(numericManifest, nsc, api, image, pinConfig.pins.map(pin => pin.sha256))).toThrow();
+});
+test.each([
+  table => table.replace('0x7f140006', '0x7f140099'),
+  table => table + '    resource 0x7f140006 xml/alias\n      () (file) res/other.xml type=XML\n',
+  table => table + '    resource 0x7f140007 xml/network_security_config\n      () (file) res/other.xml type=XML\n',
+  table => table.replace('com.markadw.sportcenter', 'com.other.app'),
+  table => table + 'Package name=com.markadw.sportcenter id=7f\n',
+  table => table.replace('xml/network_security_config', 'raw/network_security_config'),
+  table => table.replace('() (file)', '(v24) (file)'),
+  table => table + '      (v24) (file) res/8G.xml type=XML\n',
+  table => table.replace('() (file) res/8G.xml type=XML', '() (reference) @0x7f140007'),
+  table => table.replace('type=XML', 'type=PNG'),
+  () => '',
+])('rechaza tabla ausente, alias, paquetes/IDs ambiguos o variantes de NSC %#', mutate => {
+  expect(() => resolveNscResource(numericManifest, mutate(shortenedNscTable))).toThrow();
+});
+test.each(['../config.xml', '/res/8G.xml', 'res/../8G.xml', 'res/%2e%2e/8G.xml',
+  'https://external.invalid/nsc.xml', 'res/8G.xml?query', 'res\\8G.xml'])('rechaza ruta compilada no segura %s', file => {
+  expect(() => resolveNscResource(numericManifest, shortenedNscTable.replace('res/8G.xml', file))).toThrow('NSC_RESOURCE_DEFAULT_XML_REQUIRED');
+});
+test('referencias numéricas/cualificadas deben seguir apuntando al mismo recurso del paquete', () => {
+  expect(resolveNscResource(manifest.replace('@xml/', '@com.markadw.sportcenter:xml/'), shortenedNscTable).path).toBe('res/8G.xml');
+  expect(resolveNscResource(numericManifest.replace('@0x7f140006', '@0x7F140006'), shortenedNscTable).id).toBe('0x7f140006');
+  expect(() => resolveNscResource(numericManifest.replace('@0x7f140006', '@0X7F140099'), shortenedNscTable)).toThrow('MISMATCH');
+  expect(() => resolveNscResource(manifest.replace('@xml/', '@other.app:xml/'), shortenedNscTable)).toThrow('REFERENCE_INVALID');
+});
+test('lee sólo XML compilado referenciado por tabla y confirma entrada única del mismo APK', async () => {
+  const request = jest.fn().mockResolvedValueOnce(shortenedNscTable)
+    .mockResolvedValueOnce('/AndroidManifest.xml\n/resources.arsc\n/res/8G.xml\n').mockResolvedValueOnce(nsc);
+  const result = await loadCompiledNsc(numericManifest, 'same.apk', { analyzer: 'apkanalyzer', aapt2: 'aapt2', request });
+  expect(result.xml).toBe(nsc); expect(result.resource.path).toBe('res/8G.xml');
+  expect(request.mock.calls.map(([binary, args]) => [binary, ...args])).toEqual([
+    ['aapt2', 'dump', 'resources', 'same.apk'], ['apkanalyzer', 'files', 'list', 'same.apk'],
+    ['apkanalyzer', 'resources', 'xml', '--file', '/res/8G.xml', 'same.apk'],
+  ]);
+});
+test.each(['/resources.arsc\n', '/resources.arsc\n/res/8G.xml\n/res/8G.xml\n', '/res/8G.xml\n'])(
+  'entrada XML/tabla ausente o duplicada bloquea sin fallback a fuente %#', async files => {
+    const request = jest.fn().mockResolvedValueOnce(shortenedNscTable).mockResolvedValueOnce(files);
+    await expect(loadCompiledNsc(numericManifest, 'same.apk', { analyzer: 'apkanalyzer', aapt2: 'aapt2', request }))
+      .rejects.toThrow('NSC_COMPILED_ENTRY_MISSING_OR_AMBIGUOUS');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+test('fallo de herramienta NSC informa operación y exitCode sin stderr, URLs ni argumentos raw', async () => {
+  let failure;
+  try { await command(process.execPath, ['-e', 'process.stderr.write("PRIVATE_NSC_MESSAGE https://private.invalid/?token=SECRET_NSC");process.exit(9)'], { diagnostic: 'NSC_RESOURCE_TABLE' }); }
+  catch (error) { failure = error; }
+  expect(failure.message).toBe('PILOT_TOOL_FAILED NSC_RESOURCE_TABLE exit=9');
+  expect(String(failure.stack)).not.toMatch(/PRIVATE_NSC_MESSAGE|private.invalid|SECRET_NSC/);
 });
