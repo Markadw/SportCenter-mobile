@@ -63,7 +63,7 @@
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR a develop: lint, TypeScript, pruebas del cliente, HTTP, npm audit, Semgrep y CodeQL obligatorios; sin APK automático. La candidata explícita por tag exige un APK de procedencia verificada, inspección, aceptación API34 y rechazo nativo controlado API30 usando ese mismo APK. No hay builds programados ni reintentos que creen sustitutos silenciosamente."
+      "execution": "PR a develop: lint, TypeScript, pruebas del cliente, HTTP, npm audit, Semgrep y CodeQL obligatorios; sin APK automático. La candidata explícita por tag exige un APK de procedencia verificada, inspección, aceptación API34 y rechazo nativo controlado API30 usando ese mismo APK. No hay builds programados ni reintentos que creen sustitutos silenciosamente. La etiqueta validation/android-* activa android-validation.yml como auxiliar de este segundo pipeline: ejecuta calidad, seguridad, inspección, aceptación API34, rechazo controlado API30 y ejecución de 16 KB simulados en API36 x86_64 sobre el APK existente, verificando fuente y SHA256 sin crear otra compilación EAS."
     },
     {
       "id": 3,

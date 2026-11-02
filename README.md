@@ -149,6 +149,8 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
+| Tag de candidata | candidate/android-* | Calidad, HTTP, seguridad, APK, aceptación API34 y rechazo controlado API30; conserva evidencia |
+| Tag de validación | validation/android-* | Auxiliar del segundo pipeline: calidad, seguridad, procedencia e inspección del mismo APK, API34, API30 y ejecución de 16 KB simulados en API36 x86_64; sin nueva compilación EAS |
 | Medición manual | develop o ramas de trabajo | Referencia, carga y esfuerzo con backend y datos aislados en el runner |
 
 El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama. En una rama con PR abierto pueden aparecer dos eventos de GitHub: el push sólo consulta si el PR se hace cargo y omite el trabajo duplicado. No hay ejecuciones programadas ni reintentos automáticos de Android.

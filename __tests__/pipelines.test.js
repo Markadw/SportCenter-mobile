@@ -340,3 +340,16 @@ describe('Dependencias de Expo config antes de EAS build:view', () => {
     expect(() => validateWorkflows(config)).toThrow();
   });
 });
+
+describe('KVM obligatorio, acotado y sin fallback', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'kvm'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'kvm').if = 'false'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'kvm')['timeout-minutes'] = 10; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'kvm'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'api34').with['emulator-options'] = '-accel off'; },
+  ])('rechaza KVM omitido, tardío, sin límite o TCG %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});

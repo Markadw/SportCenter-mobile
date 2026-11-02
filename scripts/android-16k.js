@@ -269,6 +269,69 @@ async function acceptApi34({ run = command, env = process.env, wait = waitForSer
   if (save) save(report);
   else fs.writeFileSync('test-results/android34.json', JSON.stringify(report, null, 2) + '\n');
 }
+function kvmDeviceAccess({ open = fs.openSync, stat = fs.fstatSync, close = fs.closeSync } = {}) {
+  const result = { exists: null, characterDevice: null, readable: false, writable: false, openReadWrite: false, error: 'none' };
+  let closeFailed = false;
+  for (const [key, mode] of [['readable', fs.constants.O_RDONLY], ['writable', fs.constants.O_WRONLY], ['openReadWrite', fs.constants.O_RDWR]]) {
+    let descriptor;
+    try {
+      descriptor = open('/dev/kvm', mode | (fs.constants.O_NOFOLLOW || 0));
+      result.exists = true; result.characterDevice = stat(descriptor).isCharacterDevice();
+      if (result.characterDevice) { result[key] = true; if (key === 'openReadWrite') result.error = 'none'; }
+      else result.error = 'NOT_CHARACTER_DEVICE';
+    } catch (error) {
+      if (key === 'openReadWrite') {
+        result.error = ['ENOENT', 'EACCES', 'EPERM', 'ENODEV', 'ENXIO', 'ELOOP'].includes(error?.code) ? error.code : 'OPEN_FAILED';
+        if (error?.code === 'ENOENT') result.exists = false;
+      }
+    } finally {
+      if (descriptor !== undefined) try { close(descriptor); }
+      catch { closeFailed = true; }
+    }
+  }
+  if (closeFailed) { result.openReadWrite = false; result.error = 'CLOSE_FAILED'; }
+  return result;
+}
+async function prepareKvm({ env = process.env, platform = process.platform, run = command,
+  read = fs.readFileSync, inspect = kvmDeviceAccess, save = kvm => record({ kvm }) } = {}) {
+  requireValue(platform === 'linux' && env.GITHUB_ACTIONS === 'true' && env.RUNNER_OS === 'Linux'
+    && env.RUNNER_ENVIRONMENT === 'github-hosted' && env.PINNING_EPHEMERAL_AVD === 'true', 'KVM_REQUIRES_EPHEMERAL_HOSTED_LINUX');
+  let cpu = '';
+  try { cpu = read('/proc/cpuinfo', 'utf8'); } catch { /* No registrar contenido del host. */ }
+  const report = { status: 'preparing', scope: 'device-access-only-avd-proves-acceleration',
+    cpu: { vmx: /\bvmx\b/.test(cpu), svm: /\bsvm\b/.test(cpu) }, before: inspect(), steps: [] };
+  save(report);
+  const attempt = async (name, args, timeout = 15000) => {
+    let success = false;
+    try { await run('sudo', ['-n', ...args], { timeout, maxBuffer: 65536 }); success = true; } catch { /* Sólo estado seguro. */ }
+    report.steps.push({ name, success }); return success;
+  };
+  try {
+    requireValue(report.before.characterDevice !== false, 'KVM_DEVICE_NOT_CHARACTER');
+    await attempt('module_kvm', ['modprobe', 'kvm']);
+    if (report.cpu.vmx) await attempt('module_cpu', ['modprobe', 'kvm_intel']);
+    else if (report.cpu.svm) await attempt('module_cpu', ['modprobe', 'kvm_amd']);
+    const reload = await attempt('udev_reload', ['udevadm', 'control', '--reload-rules']);
+    const trigger = await attempt('udev_trigger', ['udevadm', 'trigger', '--name-match=/dev/kvm']);
+    const settled = await attempt('udev_settle', ['udevadm', 'settle', '--timeout=15'], 20000);
+    const permissions = reload && trigger && settled
+      ? await attempt('device_permissions', ['chmod', '0666', '--', '/dev/kvm']) : false;
+    report.after = inspect();
+    requireValue(report.after.exists !== false, 'KVM_DEVICE_ABSENT');
+    requireValue(report.after.characterDevice !== false, 'KVM_DEVICE_NOT_CHARACTER');
+    requireValue(!['EACCES', 'EPERM'].includes(report.after.error), 'KVM_PERMISSION_DENIED');
+    requireValue(reload && trigger && settled && permissions, 'KVM_PREPARATION_FAILED');
+    requireValue(report.after.openReadWrite === true, 'KVM_DEVICE_OPEN_FAILED');
+    report.status = 'access_ready';
+  } catch (error) {
+    report.status = 'blocked'; report.reason = error instanceof ProbeError ? error.code : 'KVM_PREPARATION_FAILED';
+    throw new ProbeError(report.reason);
+  } finally {
+    if (!report.after) report.after = inspect();
+    save(report);
+  }
+  return report;
+}
 async function main(mode, env = process.env) {
   const files = locations(env);
   if (mode === 'prepare') {
@@ -310,6 +373,7 @@ async function main(mode, env = process.env) {
     record({ apkHashVerified: true });
     return;
   }
+  if (mode === 'kvm') { resolveSourceContext(env); return prepareKvm({ env }); }
   if (mode === 'api34') return acceptApi34({ env });
   if (mode === 'probe') { resolveSourceContext(env); return probe({ env }); }
   if (mode === 'gate') {
@@ -338,7 +402,7 @@ async function main(mode, env = process.env) {
   else process.stdout.write(text);
 }
 module.exports = { SOURCE, AUTOMATION_FILES, ProbeError, verifyAutomation, verifyParent, verifyMetadata,
-  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, main };
+  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main };
 if (require.main === module) main(process.argv[2]).catch(error => {
   const code = error instanceof ProbeError ? error.code : 'INTERNAL_ERROR';
   const easRead = error instanceof EasReadError ? { category: error.category, exitCode: error.exitCode } : undefined;

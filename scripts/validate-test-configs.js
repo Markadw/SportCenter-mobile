@@ -27,9 +27,13 @@ function validateNativeWorkflow(workflow) {
   assert.equal(install?.run, 'npm ci --no-audit --no-fund', 'EAS build:view requiere dependencias exactas del lockfile');
   assert.ok(!install.if, 'La instalación nativa no puede omitirse');
   const ordered = ['node scripts/android-16k.js prepare', 'npm ci --no-audit --no-fund', 'node scripts/android-16k.js view',
-    'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js'];
+    'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js', 'node scripts/android-16k.js kvm'];
   const indices = ordered.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(indices.every((index, offset) => index >= 0 && (offset === 0 || index > indices[offset - 1])), 'Procedencia, descarga e inspección deben preceder Android');
+  const kvm = job.steps.find(step => step.id === 'kvm');
+  assert.equal(kvm?.run, 'node scripts/android-16k.js kvm');
+  assert.equal(kvm['timeout-minutes'], 2);
+  assert.ok(!kvm.if && !kvm['continue-on-error'], 'KVM no puede omitirse');
   let previous = indices.at(-1);
   const names = new Set();
   for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],

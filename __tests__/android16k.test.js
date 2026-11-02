@@ -10,7 +10,7 @@ const { Readable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const YAML = require('yaml');
 const { SOURCE, AUTOMATION_FILES, verifyAutomation, verifyParent, verifyMetadata, verifyBuild,
-  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, main } = require('../scripts/android-16k');
+  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main } = require('../scripts/android-16k');
 
 const automation = { commit: 'a'.repeat(40), ref: 'refs/tags/validation/android-same-apk', repository: SOURCE.repository,
   changed: 'scripts/android-16k.js\n.github/workflows/ci.yml\n' };
@@ -47,7 +47,7 @@ test('separa SHA de automatización y fuente y admite sólo rutas exactas', () =
   for (const file of AUTOMATION_FILES) expect(() => verifyAutomation({ ...automation, changed: file })).not.toThrow();
 });
 test.each(['src/app/index.tsx', 'app.json', 'assets/icon.png', 'package-lock.json', 'plugins/with-network-security.js',
-  'README.md', 'scripts/android-16k.js/../app.json', 'scripts/android-16k.js\napp.json', '.github/workflows/api-android.yml'])('bloquea cambio fuera del ámbito: %s', changed => {
+  'src/app/_layout.tsx', 'scripts/android-16k.js/../app.json', 'scripts/android-16k.js\napp.json', '.github/workflows/api-android.yml'])('bloquea cambio fuera del ámbito: %s', changed => {
   expect(() => verifyAutomation({ ...automation, changed })).toThrow('APP_TREE_CHANGED');
 });
 test.each([{ commit: SOURCE.commit }, { commit: SOURCE.commit.slice(0, 7) }, { ref: 'refs/heads/main' },
@@ -377,4 +377,95 @@ test('JSON EAS malformado queda en unknown sin filtrar el contenido de la salida
   catch (error) { captured = error; }
   expect(captured).toMatchObject({ code: 'EAS_READ_FAILED', category: 'unknown', exitCode: null });
   expect(captured.message).not.toContain('private-json-content');
+});
+
+function kvmSimulation({ before, after, cpu = 'flags: vmx', fail } = {}) {
+  const ready = { exists: true, characterDevice: true, readable: true, writable: true, openReadWrite: true, error: 'none' };
+  return { platform: 'linux', env: { GITHUB_ACTIONS: 'true', RUNNER_OS: 'Linux', RUNNER_ENVIRONMENT: 'github-hosted', PINNING_EPHEMERAL_AVD: 'true' },
+    read: jest.fn(() => cpu), inspect: jest.fn().mockReturnValueOnce(before || ready).mockReturnValue(after || ready), save: jest.fn(),
+    run: jest.fn(async (_file, args) => { if (fail?.(args)) throw new Error('PRIVATE_HOST_OUTPUT_123'); return ''; }) };
+}
+test('KVM recupera permisos con módulos/udev acotados antes del chmod exacto y apertura real', async () => {
+  const options = kvmSimulation({ before: { exists: null, characterDevice: null, readable: false, writable: false, openReadWrite: false, error: 'EACCES' } });
+  const report = await prepareKvm(options);
+  expect(report.status).toBe('access_ready');
+  expect(report.scope).toBe('device-access-only-avd-proves-acceleration');
+  expect(report.cpu).toEqual({ vmx: true, svm: false });
+  expect(options.run.mock.calls.map(([file, args]) => [file, ...args])).toEqual([
+    ['sudo', '-n', 'modprobe', 'kvm'], ['sudo', '-n', 'modprobe', 'kvm_intel'],
+    ['sudo', '-n', 'udevadm', 'control', '--reload-rules'], ['sudo', '-n', 'udevadm', 'trigger', '--name-match=/dev/kvm'],
+    ['sudo', '-n', 'udevadm', 'settle', '--timeout=15'], ['sudo', '-n', 'chmod', '0666', '--', '/dev/kvm'],
+  ]);
+  expect(options.run.mock.calls.every(([, , config]) => config.timeout > 0 && config.timeout <= 20000)).toBe(true);
+  expect(options.inspect).toHaveBeenCalledTimes(2);
+  expect(report.after.openReadWrite).toBe(true);
+  expect(report.acceleration).toBeUndefined();
+});
+test('KVM selecciona AMD sólo cuando svm está visible y no publica cpuinfo ni errores raw', async () => {
+  const options = kvmSimulation({ cpu: 'PRIVATE_HOST_OUTPUT_123 flags: svm', fail: args => args.includes('modprobe') });
+  const report = await prepareKvm(options);
+  expect(options.run.mock.calls.some(([, args]) => args.includes('kvm_amd'))).toBe(true);
+  expect(options.run.mock.calls.some(([, args]) => args.includes('kvm_intel'))).toBe(false);
+  expect(report.status).toBe('access_ready'); // Un módulo ya integrado puede suministrar el dispositivo.
+  expect(JSON.stringify(report)).not.toContain('PRIVATE_HOST_OUTPUT_123');
+});
+test('KVM puede aparecer tras modprobe pero no inventa módulos CPU sin flags', async () => {
+  const options = kvmSimulation({ cpu: '', before: { exists: false, characterDevice: null, readable: false, writable: false, openReadWrite: false, error: 'ENOENT' } });
+  expect((await prepareKvm(options)).status).toBe('access_ready');
+  expect(options.run.mock.calls.filter(([, args]) => args.includes('modprobe'))).toHaveLength(1);
+});
+test.each([
+  [{ exists: false, characterDevice: null, openReadWrite: false, error: 'ENOENT' }, 'KVM_DEVICE_ABSENT'],
+  [{ exists: true, characterDevice: false, openReadWrite: false, error: 'NOT_CHARACTER_DEVICE' }, 'KVM_DEVICE_NOT_CHARACTER'],
+  [{ exists: null, characterDevice: null, openReadWrite: false, error: 'EACCES' }, 'KVM_PERMISSION_DENIED'],
+  [{ exists: true, characterDevice: true, openReadWrite: false, error: 'EPERM' }, 'KVM_PERMISSION_DENIED'],
+  [{ exists: true, characterDevice: true, openReadWrite: false, error: 'OPEN_FAILED' }, 'KVM_DEVICE_OPEN_FAILED'],
+])('KVM bloquea con diagnóstico específico del dispositivo %#', async (after, reason) => {
+  const options = kvmSimulation({ after });
+  await expect(prepareKvm(options)).rejects.toThrow(reason);
+  expect(options.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'blocked', reason, after }));
+});
+test('KVM no aplica chmod si udev no termina y mantiene el fallo de preparación', async () => {
+  const options = kvmSimulation({ fail: args => args.includes('settle') });
+  await expect(prepareKvm(options)).rejects.toThrow('KVM_PREPARATION_FAILED');
+  expect(options.run.mock.calls.some(([, args]) => args.includes('chmod'))).toBe(false);
+  expect(options.save.mock.calls.at(-1)[0].steps).toContainEqual({ name: 'udev_settle', success: false });
+});
+test('KVM informa error de chmod aunque el dispositivo siga accesible', async () => {
+  const options = kvmSimulation({ fail: args => args.includes('chmod') });
+  await expect(prepareKvm(options)).rejects.toThrow('KVM_PREPARATION_FAILED');
+});
+test.each([{ GITHUB_ACTIONS: 'false' }, { RUNNER_OS: 'Windows' }, { RUNNER_ENVIRONMENT: 'self-hosted' }, { PINNING_EPHEMERAL_AVD: 'false' }])('KVM no cambia hosts fuera del runner efímero %#', async change => {
+  const options = kvmSimulation(); options.env = { ...options.env, ...change };
+  await expect(prepareKvm(options)).rejects.toThrow('KVM_REQUIRES_EPHEMERAL_HOSTED_LINUX');
+  expect(options.run).not.toHaveBeenCalled(); expect(options.inspect).not.toHaveBeenCalled();
+});
+test('inspección KVM abre/fstat/cierra descriptores y exige un O_RDWR real', () => {
+  const open = jest.fn(() => 42), stat = jest.fn(() => ({ isCharacterDevice: () => true })), close = jest.fn();
+  expect(kvmDeviceAccess({ open, stat, close })).toEqual({ exists: true, characterDevice: true, readable: true, writable: true, openReadWrite: true, error: 'none' });
+  expect(open).toHaveBeenCalledTimes(3); expect(stat).toHaveBeenCalledTimes(3); expect(close).toHaveBeenCalledTimes(3);
+  expect(open.mock.calls[2][0]).toBe('/dev/kvm');
+  expect(open.mock.calls[2][1] & fs.constants.O_RDWR).toBe(fs.constants.O_RDWR);
+  if (fs.constants.O_NOFOLLOW) expect(open.mock.calls[2][1] & fs.constants.O_NOFOLLOW).toBe(fs.constants.O_NOFOLLOW);
+});
+test('inspección KVM diferencia lectura disponible de escritura denegada sin stat por nombre', () => {
+  const open = jest.fn((_file, flags) => { if ((flags & 3) !== fs.constants.O_RDONLY) throw Object.assign(new Error('PRIVATE_HOST_OUTPUT_123'), { code: 'EACCES' }); return 42; });
+  const close = jest.fn();
+  expect(kvmDeviceAccess({ open, stat: () => ({ isCharacterDevice: () => true }), close }))
+    .toEqual({ exists: true, characterDevice: true, readable: true, writable: false, openReadWrite: false, error: 'EACCES' });
+  expect(close).toHaveBeenCalledTimes(1);
+});
+test('inspección KVM no infiere dispositivo ausente de un error de permisos y no filtra detalles', () => {
+  const inspect = code => kvmDeviceAccess({ open: () => { throw Object.assign(new Error('PRIVATE_HOST_OUTPUT_123'), { code }); } });
+  expect(inspect('ENOENT')).toMatchObject({ exists: false, characterDevice: null, openReadWrite: false, error: 'ENOENT' });
+  expect(inspect('EACCES')).toMatchObject({ exists: null, characterDevice: null, error: 'EACCES' });
+  expect(JSON.stringify(inspect('unexpected-private-code'))).not.toContain('PRIVATE_HOST_OUTPUT_123');
+});
+test('inspección KVM cierra ante fstat fallido y bloquea si falla algún cierre', () => {
+  const close = jest.fn();
+  expect(kvmDeviceAccess({ open: () => 42, stat: () => { throw Error('PRIVATE_HOST_OUTPUT_123'); }, close }))
+    .toMatchObject({ openReadWrite: false, error: 'OPEN_FAILED' });
+  expect(close).toHaveBeenCalledTimes(3);
+  expect(kvmDeviceAccess({ open: () => 42, stat: () => ({ isCharacterDevice: () => true }), close: () => { throw Error('close'); } }))
+    .toMatchObject({ openReadWrite: false, error: 'CLOSE_FAILED' });
 });
