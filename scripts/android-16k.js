@@ -80,16 +80,36 @@ function verifyBuild(build, meta, candidate, now = Date.now()) {
   try { return selectAndroidBuild([build], SOURCE.commit); }
   catch { throw new ProbeError('EAS_APK_NOT_FINISHED'); }
 }
-function verifyImage(properties) {
-  const pairs = properties.split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith('#'))
-    .map(line => line.split('=').map(part => part.trim()));
-  const required = { 'Pkg.Revision': '7', 'AndroidVersion.ApiLevel': '36',
-    'SystemImage.Abi': 'x86_64', 'SystemImage.TagId': 'google_apis_ps16k' };
-  for (const [key, value] of Object.entries(required)) {
-    const entries = pairs.filter(pair => pair[0] === key);
-    requireValue(entries.length === 1 && entries[0].length === 2 && entries[0][1] === value, 'SYSTEM_IMAGE_MISMATCH');
+class SystemImageError extends ProbeError {
+  constructor(property, expected, actual) {
+    super('SYSTEM_IMAGE_MISMATCH'); this.diagnostic = { property, expected, actual };
   }
+}
+function systemImageEvidence(properties, required) {
+  const pairs = typeof properties === 'string' && properties.length <= 65536
+    ? properties.split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith('#'))
+      .map(line => line.split('=').map(part => part.trim())) : [];
+  for (const [property, expected] of Object.entries(required)) {
+    const entries = pairs.filter(pair => pair[0] === property);
+    if (entries.length === 1 && entries[0].length === 2 && entries[0][1] === expected) continue;
+    const value = entries.length === 1 && entries[0].length === 2 ? entries[0][1] : null;
+    const known = property === 'SystemImage.Abi' ? ['x86', 'x86_64', 'arm64-v8a', 'armeabi-v7a']
+      : ['default', 'google_apis', 'page_size_16kb', 'google_apis_ps16k', 'google_apis_playstore', 'google_apis,page_size_16kb'];
+    const actual = entries.length > 1 ? '[duplicate]' : value === null ? (entries.length ? '[unrecognized]' : null)
+      : ((property === 'Pkg.Revision' || property === 'AndroidVersion.ApiLevel') && /^\d{1,3}$/.test(value)) || known.includes(value)
+        ? value : '[unrecognized]';
+    throw new SystemImageError(property, expected, actual);
+  }
+}
+function verifyImage(properties) {
+  systemImageEvidence(properties, { 'Pkg.Revision': '7', 'AndroidVersion.ApiLevel': '36',
+    'SystemImage.Abi': 'x86_64', 'SystemImage.TagId': 'google_apis,page_size_16kb' });
   return { package: SOURCE.image, revision: 7 };
+}
+function verifyAospImage(properties) {
+  systemImageEvidence(properties, { 'Pkg.Revision': '11', 'AndroidVersion.ApiLevel': '30',
+    'SystemImage.Abi': 'x86_64', 'SystemImage.TagId': 'default' });
+  return { package: 'system-images;android-30;default;x86_64', revision: 11 };
 }
 function verifyRuntime({ pageSize, abi, api }) {
   requireValue(pageSize.trim() === '16384', 'PAGE_SIZE_NOT_16KB');
@@ -402,11 +422,12 @@ async function main(mode, env = process.env) {
   else process.stdout.write(text);
 }
 module.exports = { SOURCE, AUTOMATION_FILES, ProbeError, verifyAutomation, verifyParent, verifyMetadata,
-  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main };
+  verifyBuild, verifyImage, verifyAospImage, SystemImageError, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main };
 if (require.main === module) main(process.argv[2]).catch(error => {
   const code = error instanceof ProbeError ? error.code : 'INTERNAL_ERROR';
   const easRead = error instanceof EasReadError ? { category: error.category, exitCode: error.exitCode } : undefined;
-  record({ outcome: 'blocked', reason: code, ...(easRead ? { easRead } : {}) });
+  record({ outcome: 'blocked', reason: code, ...(easRead ? { easRead } : {}),
+    ...(error instanceof SystemImageError ? { systemImageMismatch: error.diagnostic } : {}) });
   console.error('Prueba 16KB bloqueada: ' + code + (easRead
     ? ' category=' + easRead.category + ' exitCode=' + (easRead.exitCode ?? 'unknown') : '') + '.');
   process.exitCode = 1;

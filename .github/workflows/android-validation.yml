@@ -35,7 +35,7 @@ jobs:
       keep_evidence: 'true'
       PINNING_CANDIDATE: 'true'
       PINNING_EPHEMERAL_AVD: 'true'
-      PINNING_SYSTEM_IMAGE: system-images;android-30;google_apis;x86_64
+      PINNING_SYSTEM_IMAGE: system-images;android-30;default;x86_64
       PINNING_EXPECTED_BUILD_ID: 2bf40b15-71fc-41c9-9ad6-bf825096b394
       PINNING_EXPECTED_COMMIT: c8168584e92d620b9cdf75b6d27228128b12bc81
       PINNING_EXPECTED_SHA256: 1ac0a14bec648434d8733d64ef817d3e41329fe47e1c6fea843cdda1a7bb814d
@@ -125,7 +125,7 @@ jobs:
         with:
           api-level: 30
           arch: x86_64
-          target: google_apis
+          target: default
           disable-linux-hw-accel: false
           force-avd-creation: true
           avd-name: sportcenter30

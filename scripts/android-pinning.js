@@ -9,6 +9,7 @@ const { promisify } = require('node:util');
 const execute = promisify(execFile);
 const { SOURCE, resolveSourceContext, verifyApi34Evidence } = require('./android-source-context');
 const { androidTools } = require('./inspect-android-artifact');
+const { verifyAospImage, SystemImageError } = require('./android-16k');
 const APP = 'com.markadw.sportcenter';
 const TOOL = Object.freeze({ version: '12.3.1', url: 'https://downloads.mitmproxy.org/12.3.1/mitmproxy-12.3.1-linux-x86_64.tar.gz',
   sha256: 'f7b4237f5702f6cd21357fe6e4680a7e905f8f9b816b872230d018ea696c34d5' });
@@ -148,7 +149,7 @@ function compiledPolicy(manifest, nsc, api, image, expectedPins, resource) {
 function emulatorEvidence(properties) {
   assert.match(properties.serial || '', /^emulator-\d+$/, 'Nunca ejecutar contra un dispositivo físico.');
   assert.equal(properties.sdk, '30'); assert.equal(properties.qemu, '1'); assert.equal(properties.type, 'userdebug');
-  assert.equal(properties.abi, 'x86_64'); assert.equal(properties.root, '0'); assert.equal(properties.playStore, false);
+  assert.equal(properties.abi, 'x86_64'); assert.equal(properties.root, '0'); assert.equal(properties.playStore, false, 'PLAY_STORE_PRESENT');
   return { api: 30, abi: 'x86_64', type: 'userdebug', ephemeral: true };
 }
 function minSdkEvidence(value) {
@@ -267,7 +268,7 @@ async function preflight(env = process.env) {
 }
 async function pilot(env = process.env) {
   assert.equal(process.platform, 'linux', 'El piloto nativo sólo se ejecuta en runner Linux efímero.');
-  assert.equal(env.PINNING_EPHEMERAL_AVD, 'true'); assert.equal(env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;google_apis;x86_64');
+  assert.equal(env.PINNING_EPHEMERAL_AVD, 'true'); assert.equal(env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;default;x86_64');
   const serial = env.ANDROID_SERIAL || 'emulator-5554'; assert.match(serial, /^emulator-\d+$/);
   const temporary = path.resolve(env.RUNNER_TEMP || os.tmpdir()), scratch = fs.mkdtempSync(path.join(temporary, 'sport-pinning-'));
   const result = { status: 'blocked', controls: {}, tool: TOOL.version }; let proxy, proxyLog, caDevice, installedCa = false, proxyChanged = false;
@@ -285,6 +286,9 @@ async function pilot(env = process.env) {
     assert.ok(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0 && env.PRODUCT_NAME.length < 200 && !/[\r\n]/.test(env.PRODUCT_NAME), 'Falta producto público visible para control UI.');
     const policy = await readCompiledPolicy(env, apk, meta, result.controls);
     const { apiHost, imageHost } = policy;
+    const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
+    assert.ok(typeof sdk === 'string' && path.isAbsolute(sdk), 'ANDROID_SDK_REQUIRED');
+    result.controls.systemImage = verifyAospImage(fs.readFileSync(path.join(sdk, 'system-images/android-30/default/x86_64/source.properties'), 'utf8'));
     const version = await command(env.MITMDUMP || 'mitmdump', ['--version']); assert.match(version, /^Mitmproxy:\s+12\.3\.1(?: binary)?\s*$/m, 'Versión mitmproxy distinta de la fijada.');
     const priorProxy = (await adb('shell', 'settings', 'get', 'global', 'http_proxy')).trim();
     assert.ok(['null', '', ':0'].includes(priorProxy), 'El AVD ya tenía proxy: no es un control limpio.');
@@ -355,6 +359,7 @@ async function pilot(env = process.env) {
     await adb('shell', 'rm', '-f', uiPath);
   } catch (error) {
     result.status = 'blocked_or_failed'; result.reason = error instanceof Error ? error.message.slice(0, 240) : 'Piloto incompleto.';
+    if (error instanceof SystemImageError) result.systemImageMismatch = error.diagnostic;
   } finally {
     try { if (proxyChanged) await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); if (installedCa) { await adb('root'); await adb('wait-for-device'); await adb('shell', 'rm', '-f', caDevice); } }
     catch { result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.'; }

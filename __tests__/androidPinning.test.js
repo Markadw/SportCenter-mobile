@@ -66,6 +66,13 @@ test('physical devices, Play builds, a different API, ABI or non-root adbd never
     expect(() => emulatorEvidence({ ...properties, ...change })).toThrow();
   }
 });
+test('AOSP no relaja la exclusión de Vending, userdebug ni adbd root', () => {
+  const properties = { serial: 'emulator-5554', sdk: '30', qemu: '1', type: 'userdebug', abi: 'x86_64', root: '0', playStore: false };
+  expect(() => emulatorEvidence({ ...properties, playStore: true })).toThrow('PLAY_STORE_PRESENT');
+  expect(() => emulatorEvidence({ ...properties, type: 'user' })).toThrow();
+  expect(() => emulatorEvidence({ ...properties, root: '2000' })).toThrow();
+});
+
 test('only the complete native differential control and recovery yields the limited verdict', () => {
   expect(verdict(proof(), context())).toMatchObject({ status: 'passed_controlled_native_rejection', nativePinExceptionCaptured: false });
 });

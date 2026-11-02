@@ -10,7 +10,7 @@ const { Readable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const YAML = require('yaml');
 const { SOURCE, AUTOMATION_FILES, verifyAutomation, verifyParent, verifyMetadata, verifyBuild,
-  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main } = require('../scripts/android-16k');
+  verifyImage, verifyAospImage, SystemImageError, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, kvmDeviceAccess, prepareKvm, main } = require('../scripts/android-16k');
 
 const automation = { commit: 'a'.repeat(40), ref: 'refs/tags/validation/android-same-apk', repository: SOURCE.repository,
   changed: 'scripts/android-16k.js\n.github/workflows/ci.yml\n' };
@@ -38,7 +38,7 @@ function build() {
     message: 'sport-center-candidate-v1:' + 'd'.repeat(64), platform: 'ANDROID', status: 'FINISHED',
     gitCommitHash: SOURCE.commit, artifacts: { applicationArchiveUrl: 'https://example.invalid/same.apk?signed=private' } };
 }
-const image = 'Pkg.Revision=7\nAndroidVersion.ApiLevel=36\nSystemImage.Abi=x86_64\nSystemImage.TagId=google_apis_ps16k\n';
+const image = 'Pkg.Revision=7\nAndroidVersion.ApiLevel=36\nSystemImage.Abi=x86_64\nSystemImage.TagId=google_apis,page_size_16kb\n';
 const runtime = { pageSize: '16384\r\n', abi: 'x86_64\n', api: '36\n' };
 const junit = '<testsuite><testcase name="catalog"/><testcase name="detail"/></testsuite>';
 
@@ -126,10 +126,37 @@ test('hash APK auténtico: acepta bytes idénticos y elimina descarga discrepant
 test('exige la imagen oficial y revisión revisada; no acepta una imagen normal/otra API', () => {
   expect(verifyImage(image)).toEqual({ package: SOURCE.image, revision: 7 });
   for (const value of [image.replace('=7', '=8'), image.replace('=36', '=35'), image.replace('=x86_64', '=arm64-v8a'),
-    image.replace('=google_apis_ps16k', '=google_apis'), image + 'Pkg.Revision=7\n', '']) {
+    image.replace('=google_apis,page_size_16kb', '=google_apis'), image + 'Pkg.Revision=7\n', '']) {
     expect(() => verifyImage(value)).toThrow('SYSTEM_IMAGE_MISMATCH');
   }
 });
+test.each(['page_size_16kb', 'google_apis_ps16k', 'google_apis,page_size_16kb,page_size_16kb',
+  'google_apis,page_size_16kb,unknown', 'google_apis,google_apis', ''])('rechaza tags 16KB incompletos, repetidos o desconocidos: %s', tags => {
+  expect(() => verifyImage(image.replace('google_apis,page_size_16kb', tags))).toThrow('SYSTEM_IMAGE_MISMATCH');
+});
+
+test('acepta sólo AOSP API30 default revisión11 y conserva diagnósticos acotados por propiedad', () => {
+  const aosp = 'Pkg.Revision=11\nAndroidVersion.ApiLevel=30\nSystemImage.Abi=x86_64\nSystemImage.TagId=default\n';
+  expect(verifyAospImage(aosp)).toEqual({ package: 'system-images;android-30;default;x86_64', revision: 11 });
+  for (const [property, expected, value] of [['Pkg.Revision', '11', '12'], ['AndroidVersion.ApiLevel', '30', '34'],
+    ['SystemImage.Abi', 'x86_64', 'arm64-v8a'], ['SystemImage.TagId', 'default', 'google_apis']]) {
+    try { verifyAospImage(aosp.replace(property + '=' + expected, property + '=' + value)); throw Error('Expected rejection'); }
+    catch (error) { expect(error).toBeInstanceOf(SystemImageError); expect(error.diagnostic).toEqual({ property, expected, actual: value }); }
+  }
+});
+
+test('diagnóstico de imagen no expone URLs, tokens ni líneas ajenas; detecta duplicados/ausentes', () => {
+  const privateValue = 'https://private.invalid/signed?token=SECRET';
+  for (const [value, actual] of [[image.replace('=7', '=' + privateValue), '[unrecognized]'],
+    [image + 'Pkg.Revision=7\n', '[duplicate]'], [image.replace('Pkg.Revision=7\n', ''), null]]) {
+    try { verifyImage(value + 'Private.Token=SECRET\n'); throw Error('Expected rejection'); }
+    catch (error) {
+      expect(error.diagnostic).toEqual({ property: 'Pkg.Revision', expected: '7', actual });
+      expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|Private.Token/);
+    }
+  }
+});
+
 test('exige 16384 reales y ABI/API antes y después, sin 4KB ni ARM', () => {
   expect(verifyRuntime(runtime)).toEqual({ pageSize: 16384, abi: 'x86_64', api: 36 });
   for (const change of [{ pageSize: '4096' }, { pageSize: '16384\n4096' }, { abi: 'arm64-v8a' }, { api: '35' }]) {

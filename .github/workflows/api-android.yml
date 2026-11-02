@@ -321,7 +321,7 @@ jobs:
     env:
       PINNING_CANDIDATE: "true"
       PINNING_EPHEMERAL_AVD: "true"
-      PINNING_SYSTEM_IMAGE: system-images;android-30;google_apis;x86_64
+      PINNING_SYSTEM_IMAGE: system-images;android-30;default;x86_64
       PINNING_EXPECTED_BUILD_ID: ${{ needs.android.outputs.build_id }}
       PINNING_EXPECTED_COMMIT: ${{ needs.android.outputs.commit }}
       PINNING_EXPECTED_SHA256: ${{ needs.android.outputs.apk_sha256 }}
@@ -372,7 +372,7 @@ jobs:
         with:
           api-level: 30
           arch: x86_64
-          target: google_apis
+          target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio
             -no-boot-anim -camera-back none -writable-system

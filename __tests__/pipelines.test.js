@@ -326,6 +326,18 @@ describe('Revalidación nativa del mismo APK sin EAS build', () => {
   });
 });
 
+test.each(['android-validation.yml', 'api-android.yml'])('piloto AOSP requiere ruta y target exactos en %s', file => {
+  const configs = workflows(), job = configs.get(file).jobs[file === 'android-validation.yml' ? 'native' : 'pinning'];
+  const step = job.steps.find(step => step.with?.script === 'node scripts/android-pinning.js');
+  expect(step.with.target).toBe('default');
+  expect(job.env.PINNING_SYSTEM_IMAGE).toBe('system-images;android-30;default;x86_64');
+  step.with.target = 'google_apis';
+  expect(() => validateWorkflows(configs)).toThrow();
+  step.with.target = 'default';
+  job.env.PINNING_SYSTEM_IMAGE = 'system-images;android-30;google_apis;x86_64';
+  expect(() => validateWorkflows(configs)).toThrow();
+});
+
 describe('Dependencias de Expo config antes de EAS build:view', () => {
   test.each([
     config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'install'); },

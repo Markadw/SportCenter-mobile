@@ -30,6 +30,7 @@ function validateNativeWorkflow(workflow) {
   assert.deepEqual(job.needs, ['quality', 'security']);
   assert.equal(job['runs-on'], 'ubuntu-24.04');
   assert.equal(job.env.EXPO_TOKEN, undefined, 'EXPO_TOKEN sólo en build:view');
+  assert.equal(job.env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;default;x86_64');
   const tokenSteps = job.steps.filter(step => step.env?.EXPO_TOKEN);
   assert.equal(tokenSteps.length, 1, 'EXPO_TOKEN sólo en build:view');
   assert.equal(tokenSteps[0].run, 'node scripts/android-16k.js view');
@@ -58,7 +59,7 @@ function validateNativeWorkflow(workflow) {
   let previous = indices.at(-1);
   const names = new Set();
   for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],
-    ['pinning', 30, 'google_apis', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
+    ['pinning', 30, 'default', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
     const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
     assert.ok(index > previous && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
     if (id === 'pages16k') assert.equal(step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}", '16KB exige prerrequisitos aprobados y ausencia de cancelación, independientemente de pinning');
@@ -192,7 +193,10 @@ function validateWorkflows(workflows) {
   assert.equal(pinning.env.CANDIDATE_APK_URL, '${{ needs.android.outputs.apk_url }}');
   assert.ok(!pinning.steps.some(step => step.run?.includes('eas-cli') || step.run?.includes('eas-candidate')), 'Pinning no recompila APK');
   const pinningEmulator = pinning.steps.find(step => step.uses?.startsWith('reactivecircus/android-emulator-runner@'));
+  assert.equal(pinning.env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;default;x86_64');
   assert.equal(pinningEmulator?.with['api-level'], 30);
+  assert.equal(pinningEmulator.with.target, 'default');
+  assert.equal(pinningEmulator.with.arch, 'x86_64');
   assert.ok(pinningEmulator.with['emulator-options'].includes('-writable-system'));
   assert.equal(pinningEmulator.with.script, 'node scripts/android-pinning.js');
   validateDecoder23(pinning, pinning.steps.indexOf(pinningEmulator),
