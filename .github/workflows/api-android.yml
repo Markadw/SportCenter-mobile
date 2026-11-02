@@ -188,6 +188,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Instalar y verificar decoder oficial Command-line Tools 23.0
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
       - name: Inspeccionar firma, manifiesto, ABI, alineación y clases del APK real
         id: artifact_inspection
         timeout-minutes: 10
@@ -235,6 +245,7 @@ jobs:
             test-results/android-summary.md
             test-results/android-build.json
             test-results/api-tls-pins.json
+            test-results/android-command-line-tools.json
             test-results/android-inspection.json
             test-results/android-inspection.txt
             test-results/maestro.xml
@@ -337,6 +348,16 @@ jobs:
           "$RUNNER_TEMP/sport-center.apk" "$CANDIDATE_APK_URL"
 
           bash scripts/android-pinning-install.sh
+      - name: Instalar y verificar decoder oficial Command-line Tools 23.0
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
       - name: Habilitar aceleración del AVD efímero
         run: >
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666",
@@ -364,6 +385,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-pinning-evidence
-          path: test-results/android-pinning.json
+          path: |
+            test-results/android-pinning.json
+            test-results/android-command-line-tools.json
           if-no-files-found: error
           retention-days: 14

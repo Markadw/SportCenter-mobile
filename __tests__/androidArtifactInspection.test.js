@@ -9,7 +9,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const YAML = require('yaml');
 const { PACKAGE, JADX, manifestEvidence, signatureEvidence, nativeEntries, zipAlignmentEvidence, loadAlignmentEvidence,
-  relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, tool } = require('../scripts/inspect-android-artifact');
+  relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, tool, COMMAND_LINE_TOOLS, commandLineToolsEvidence, pinnedAnalyzerEvidence, selectApkanalyzer } = require('../scripts/inspect-android-artifact');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const root = path.resolve(__dirname, '..');
 const cleanManifest = { applicationId: PACKAGE, targetSdk: '36\n', debuggable: 'false\n',
@@ -205,4 +205,49 @@ describe('Regresiones observadas en APK c816: SDK Build Tools 37 y padding RELRO
     expect(() => relroGeometryEvidence(overlap, [relro])).toThrow('invade');
     expect(() => relroGeometryEvidence(loads, [{ ...relro, start: relro.start + 1n }])).toThrow();
   });
+});
+
+const decoderHashes = {
+  'lib/apkparser/cli/analyzer-cli.jar': '28b1fab252938439e6bfe3121dfe47598d45f16775e33a66c7f06b52c8bddff4',
+  'lib/apkparser/tools.binary-resources.jar': '7e4c2ff34cac9bb1bccbcda15d796a300c3e2a85462419fcce412a62b1119f62',
+};
+describe('Decoder oficial23 reproducido en Linux y Windows', () => {
+  test('exige revisión23.0 y los dos JAR exactos comparados offline', () => {
+    expect(COMMAND_LINE_TOOLS).toEqual({ version: '23.0', jars: decoderHashes });
+    expect(commandLineToolsEvidence('Pkg.Revision=23.0\nPkg.Desc=Android SDK Command-line Tools\n', decoderHashes))
+      .toEqual({ version: '23.0', jars: decoderHashes });
+  });
+  test.each(['', 'Pkg.Revision=22.0', 'Pkg.Revision=23.1', 'Pkg.Revision=23.0.1',
+    'Pkg.Revision=23.0\nPkg.Revision=23.0', 'Pkg.Desc=23.0'])('bloquea versión ausente, distinta o ambigua %#', properties => {
+    expect(() => commandLineToolsEvidence(properties, decoderHashes)).toThrow('CMDLINE_TOOLS_VERSION_MISMATCH');
+  });
+  test.each(Object.keys(decoderHashes))('un JAR alterado o ausente nunca acredita decoder23: %s', jar => {
+    expect(() => commandLineToolsEvidence('Pkg.Revision=23.0', { ...decoderHashes, [jar]: '0'.repeat(64) }))
+      .toThrow('CMDLINE_TOOLS_JAR_HASH_MISMATCH');
+    const missing = { ...decoderHashes }; delete missing[jar];
+    expect(() => commandLineToolsEvidence('Pkg.Revision=23.0', missing)).toThrow('CMDLINE_TOOLS_JARS_REQUIRED');
+  });
+  test('override explícito23 gana a latest; override ausente no cae silenciosamente a latest', () => temporary(directory => {
+    const old = path.join(directory, 'cmdline-tools/latest/bin/apkanalyzer');
+    const pinned = path.join(directory, 'cmdline-tools/23.0/bin/apkanalyzer');
+    for (const file of [old, pinned]) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'test launcher'); }
+    expect(selectApkanalyzer(directory, pinned)).toBe(pinned);
+    expect(selectApkanalyzer(directory)).toBe(old);
+    expect(() => selectApkanalyzer(directory, path.join(directory, 'missing/bin/apkanalyzer'))).toThrow('APKANALYZER_OVERRIDE_UNAVAILABLE');
+  }));
+  test('carga por rutas revisadas y bloquea bytecode corrupto antes de producir informe/usar launcher', () => temporary(directory => {
+    const analyzer = path.join(directory, '23.0/bin/apkanalyzer');
+    fs.mkdirSync(path.dirname(analyzer), { recursive: true }); fs.writeFileSync(analyzer, 'test launcher');
+    const toolDirectory = path.dirname(path.dirname(analyzer));
+    fs.writeFileSync(path.join(toolDirectory, 'source.properties'), 'Pkg.Revision=23.0');
+    for (const file of Object.keys(decoderHashes)) {
+      const target = path.join(toolDirectory, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, 'corrupt fixture');
+    }
+    expect(() => pinnedAnalyzerEvidence(analyzer)).toThrow('CMDLINE_TOOLS_JAR_HASH_MISMATCH');
+    const result = spawnSync(process.execPath, [path.join(root, 'scripts/inspect-android-artifact.js'), 'verify-tools23'],
+      { cwd: directory, env: { ...process.env, APKANALYZER: analyzer }, encoding: 'utf8' });
+    expect(result.status).toBe(1); expect(result.stderr).toContain('CMDLINE_TOOLS_23_VERIFICATION_FAILED');
+    expect(fs.existsSync(path.join(directory, 'test-results/android-command-line-tools.json'))).toBe(false);
+    expect(result.stderr).not.toContain('corrupt fixture');
+  }));
 });

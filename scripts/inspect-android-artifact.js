@@ -149,6 +149,46 @@ function versions(directory) {
   return fs.readdirSync(directory).filter(name => /^\d+(?:\.\d+)+$/.test(name))
     .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
 }
+const COMMAND_LINE_TOOLS = Object.freeze({ version: '23.0', jars: Object.freeze({
+  'lib/apkparser/cli/analyzer-cli.jar': '28b1fab252938439e6bfe3121dfe47598d45f16775e33a66c7f06b52c8bddff4',
+  'lib/apkparser/tools.binary-resources.jar': '7e4c2ff34cac9bb1bccbcda15d796a300c3e2a85462419fcce412a62b1119f62',
+}) });
+function commandLineToolsEvidence(properties, hashes) {
+  assert.ok(typeof properties === 'string', 'CMDLINE_TOOLS_PROPERTIES_REQUIRED');
+  const versions = properties.split(/\r?\n/).filter(line => /^Pkg\.Revision\s*=/.test(line));
+  assert.ok(versions.length === 1 && /^Pkg\.Revision\s*=\s*23\.0\s*$/.test(versions[0]), 'CMDLINE_TOOLS_VERSION_MISMATCH');
+  assert.ok(hashes && Object.keys(hashes).length === 2, 'CMDLINE_TOOLS_JARS_REQUIRED');
+  for (const [file, hash] of Object.entries(COMMAND_LINE_TOOLS.jars)) assert.ok(hashes[file] === hash, 'CMDLINE_TOOLS_JAR_HASH_MISMATCH');
+  return { version: COMMAND_LINE_TOOLS.version, jars: { ...hashes } };
+}
+function pinnedAnalyzerEvidence(analyzer) {
+  assert.ok(typeof analyzer === 'string' && path.isAbsolute(analyzer), 'CMDLINE_TOOLS_ANALYZER_REQUIRED');
+  const directory = path.dirname(path.dirname(analyzer));
+  let properties, hashes;
+  try {
+    properties = fs.readFileSync(path.join(directory, 'source.properties'), 'utf8');
+    hashes = Object.fromEntries(Object.keys(COMMAND_LINE_TOOLS.jars).map(file =>
+      [file, createHash('sha256').update(fs.readFileSync(path.join(directory, file))).digest('hex')]));
+  } catch { throw new Error('CMDLINE_TOOLS_FILES_UNAVAILABLE'); }
+  return commandLineToolsEvidence(properties, hashes);
+}
+function selectApkanalyzer(sdk, override) {
+  if (override) {
+    assert.ok(typeof override === 'string' && path.isAbsolute(override) && fs.existsSync(override), 'APKANALYZER_OVERRIDE_UNAVAILABLE');
+    return override;
+  }
+  const directories = ['latest', ...versions(path.join(sdk, 'cmdline-tools'))];
+  const analyzer = directories.map(value => path.join(sdk, 'cmdline-tools', value, 'bin', 'apkanalyzer')).find(file => fs.existsSync(file));
+  assert.ok(analyzer, 'Falta cmdline-tools/bin/apkanalyzer del SDK Android.');
+  return analyzer;
+}
+function verifyTools23(env = process.env) {
+  const evidence = pinnedAnalyzerEvidence(env.APKANALYZER);
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/android-command-line-tools.json', JSON.stringify(evidence, null, 2) + '\n');
+  console.log('Command-line Tools ' + evidence.version + ': revisión y dos JAR SHA256 verificados.');
+  return evidence;
+}
 function androidTools(env) {
   assert.equal(process.platform, 'linux', 'La inspección de herramientas nativas requiere el runner Linux configurado.');
   const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
@@ -156,14 +196,13 @@ function androidTools(env) {
   const buildVersion = versions(path.join(sdk, 'build-tools')).find(value => Number(value.split('.')[0]) >= 35
     && ['apksigner', 'zipalign'].every(tool => fs.existsSync(path.join(sdk, 'build-tools', value, tool))));
   assert.ok(buildVersion, 'Se requieren Android SDK Build-Tools 35 o superiores.');
-  const commandDirectories = ['latest', ...versions(path.join(sdk, 'cmdline-tools'))];
-  const analyzer = commandDirectories.map(value => path.join(sdk, 'cmdline-tools', value, 'bin', 'apkanalyzer')).find(file => fs.existsSync(file));
-  assert.ok(analyzer, 'Falta cmdline-tools/bin/apkanalyzer del SDK Android.');
+  const analyzer = selectApkanalyzer(sdk, env.APKANALYZER);
+  const commandLineTools = env.APKANALYZER ? pinnedAnalyzerEvidence(analyzer) : undefined;
   const ndkVersion = versions(path.join(sdk, 'ndk')).find(value =>
     ['llvm-objdump', 'llvm-readelf'].every(tool => fs.existsSync(path.join(sdk, 'ndk', value, 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin', tool))));
   assert.ok(ndkVersion, 'Faltan llvm-objdump y llvm-readelf del NDK Android.');
   const build = path.join(sdk, 'build-tools', buildVersion), llvm = path.join(sdk, 'ndk', ndkVersion, 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin');
-  return { buildVersion, ndkVersion, analyzer, aapt2: path.join(build, 'aapt2'), signer: path.join(build, 'apksigner'), zipalign: path.join(build, 'zipalign'),
+  return { buildVersion, ndkVersion, analyzer, commandLineTools, aapt2: path.join(build, 'aapt2'), signer: path.join(build, 'apksigner'), zipalign: path.join(build, 'zipalign'),
     objdump: path.join(llvm, 'llvm-objdump'), readelf: path.join(llvm, 'llvm-readelf') };
 }
 async function tool(command, args, options = {}) {
@@ -233,7 +272,7 @@ async function inspect(env = process.env) {
     const candidate = await check('candidate', async () => candidateEvidence(meta, await sha256(apk), context.artifactSourceCommit, context));
     assert.ok(candidate, 'No se inspecciona un APK cuya procedencia no coincide con la candidata.');
     const tools = androidTools(env);
-    report.tools = { buildTools: tools.buildVersion, ndk: tools.ndkVersion, jadx: JADX };
+    report.tools = { buildTools: tools.buildVersion, ndk: tools.ndkVersion, jadx: JADX, commandLineTools: tools.commandLineTools };
     scratch = fs.mkdtempSync(path.join(temporaryRoot, 'sport-apk-inspection-'));
     await check('signature', async () => signatureEvidence(await tool(tools.signer, ['verify', '--verbose', '--print-certs', apk])));
     await check('manifest', async () => {
@@ -290,6 +329,9 @@ async function inspect(env = process.env) {
   return report;
 }
 module.exports = { PACKAGE, JADX, manifestEvidence, signatureEvidence, nativeEntries, zipAlignmentEvidence,
-  loadAlignmentEvidence, relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool, androidTools };
-if (require.main === module) inspect().then(report => { process.exitCode = report.status === 'passed_for_static_scope' ? 0 : 1; })
+  loadAlignmentEvidence, relroEvidence, relroGeometryEvidence, entrypointClasses, decompiledEvidence, candidateEvidence, inspectionVerdict, writeReport, inspect, tool, androidTools, COMMAND_LINE_TOOLS, commandLineToolsEvidence, pinnedAnalyzerEvidence, selectApkanalyzer, verifyTools23 };
+if (require.main === module && process.argv[2] === 'verify-tools23') {
+  try { verifyTools23(); } catch { console.error('CMDLINE_TOOLS_23_VERIFICATION_FAILED'); process.exitCode = 1; }
+}
+else if (require.main === module) inspect().then(report => { process.exitCode = report.status === 'passed_for_static_scope' ? 0 : 1; })
   .catch(() => { console.error('Falló la escritura del informe de inspección Android.'); process.exitCode = 1; });

@@ -3,6 +3,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const YAML = require('yaml');
 
+function validateDecoder23(job, beforeIndex, afterIndex = -1) {
+  const decoderIndex = job.steps.findIndex(step => step.id === 'command_line_tools');
+  const decoder = job.steps[decoderIndex];
+  assert.ok(decoderIndex > afterIndex && decoderIndex < beforeIndex && !decoder.if && !decoder['continue-on-error'], 'Decoder23 debe verificarse antes de inspector/preflight');
+  assert.equal(decoder['timeout-minutes'], 5);
+  assert.ok(decoder.run.includes('"$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0"'), 'Instalar Command-line Tools23 oficial exacto');
+  assert.ok(decoder.run.includes('APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23'), 'Verificar versión/JAR antes de usar decoder');
+  assert.ok(decoder.run.indexOf('verify-tools23') < decoder.run.indexOf('>> "$GITHUB_ENV"')
+    && decoder.run.includes('echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"'), 'Exportar decoder23 sólo después de verificarlo');
+  assert.ok(decoder.run.startsWith('set -euo pipefail\n'), 'Verificación decoder debe detenerse al fallar');
+  const evidence = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(evidence?.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
+}
+
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
   assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*'] } }, 'Validación sólo en tags validation/android-*');
@@ -30,10 +44,12 @@ function validateNativeWorkflow(workflow) {
     'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js', 'node scripts/android-pinning.js preflight', 'node scripts/android-16k.js kvm'];
   const indices = ordered.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(indices.every((index, offset) => index >= 0 && (offset === 0 || index > indices[offset - 1])), 'Procedencia, descarga e inspección deben preceder Android');
+  validateDecoder23(job, indices[4], indices[3]);
   const preflight = job.steps.find(step => step.id === 'nsc_preflight');
   assert.equal(preflight?.run, 'node scripts/android-pinning.js preflight');
   assert.ok(!preflight.if && !preflight['continue-on-error'], 'NSC preflight debe ser obligatorio antes de AVD');
   const evidence = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(evidence.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
   assert.ok(evidence.with.path.includes('test-results/android-pinning-preflight.json'), 'Falta evidencia NSC preflight');
   const kvm = job.steps.find(step => step.id === 'kvm');
   assert.equal(kvm?.run, 'node scripts/android-16k.js kvm');
@@ -179,12 +195,16 @@ function validateWorkflows(workflows) {
   assert.equal(pinningEmulator?.with['api-level'], 30);
   assert.ok(pinningEmulator.with['emulator-options'].includes('-writable-system'));
   assert.equal(pinningEmulator.with.script, 'node scripts/android-pinning.js');
+  validateDecoder23(pinning, pinning.steps.indexOf(pinningEmulator),
+    pinning.steps.findIndex(step => step.uses?.startsWith('actions/download-artifact@')));
 
   const nativeInspection = integration.jobs.android.steps.filter(step => step.id === 'artifact_inspection');
   assert.equal(nativeInspection.length, 1, 'La candidata requiere una sola inspección APK real');
   assert.equal(nativeInspection[0].run, 'node scripts/inspect-android-artifact.js');
   assert.equal(nativeInspection[0].if, undefined, 'La inspección de la candidata no puede omitirse');
   assert.equal(nativeInspection[0]['timeout-minutes'], 10, 'La inspección debe tener un límite de ejecución');
+  validateDecoder23(integration.jobs.android, integration.jobs.android.steps.indexOf(nativeInspection[0]),
+    integration.jobs.android.steps.findIndex(step => step.uses?.startsWith('actions/setup-java@')));
   const stepPosition = id => integration.jobs.android.steps.findIndex(step => step.id === id);
   const javaPosition = integration.jobs.android.steps.findIndex(step => step.uses?.startsWith('actions/setup-java@'));
   assert.ok(stepPosition('artifact_inspection') > stepPosition('apk') && stepPosition('artifact_inspection') > javaPosition

@@ -130,7 +130,7 @@ describe('Dependencias reales de los YAML', () => {
   test('rechaza omitir las capturas del artefacto de diagnóstico Android', () => {
     const config = workflows();
     const evidence = config.get('api-android.yml').jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
-    evidence.with.path = 'test-results/maestro.xml';
+    evidence.with.path = evidence.with.path.replace('test-results/maestro/', '');
     expect(() => validateWorkflows(config)).toThrow('incluir las capturas');
   });
   test('detecta artefactos añadidos a una simple inspección', () => {
@@ -403,5 +403,42 @@ describe('16KB independiente del rechazo TLS, con prerrequisitos y cancelación 
       RESULT_NATIVE: 'failure', PAGES16K_OUTCOME: 'success', PINNING_OUTCOME: 'failure' })).rejects.toThrow('NATIVE_VALIDATION_NOT_SUCCESSFUL');
     const broken = workflows(); broken.get('android-validation.yml').jobs.native.steps.find(step => step.id === 'pinning')['continue-on-error'] = true;
     expect(() => validateWorkflows(broken)).toThrow();
+  });
+});
+
+describe('Command-line Tools23 exacto antes de inspector y NSC', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'command_line_tools'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'command_line_tools'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'command_line_tools').run = config.jobs.native.steps.find(step => step.id === 'command_line_tools').run.replace('cmdline-tools;23.0', 'cmdline-tools;22.0'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'command_line_tools'); step.run = step.run.replace('node scripts/inspect-android-artifact.js verify-tools23', 'true'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'command_line_tools').if = 'false'; },
+    config => { const artifact = config.jobs.native.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')); artifact.with.path = artifact.with.path.replace('test-results/android-command-line-tools.json', ''); },
+  ])('bloquea decoder sin pin/verificación/evidencia o con orden incorrecto %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('Decoder23 en los dos runners principales independientes', () => {
+  test.each(['android', 'pinning'])('el job principal %s verifica y exporta su propio decoder23', jobName => {
+    const config=workflows();
+    const job=config.get('api-android.yml').jobs[jobName];
+    expect(job.steps.filter(step=>step.id==='command_line_tools')).toHaveLength(1);
+    expect(job.steps.find(step=>step.id==='command_line_tools').run).toContain('verify-tools23');
+    expect(()=>validateWorkflows(config)).not.toThrow();
+  });
+  test.each(['android', 'pinning'])('no permite %s sin instalar/verificar/exportar el decoder exacto', jobName => {
+    for(const mutation of [
+      job=>{job.steps=job.steps.filter(step=>step.id!=='command_line_tools');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('cmdline-tools;23.0','cmdline-tools;22.0');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('verify-tools23','skip-verification');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');job.steps=[...job.steps.filter(item=>item!==step),step];},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('set -euo pipefail','set +e');},
+      job=>{const artifact=job.steps.find(step=>step.uses?.startsWith('actions/upload-artifact@'));artifact.with.path=artifact.with.path.replace('test-results/android-command-line-tools.json','');},
+    ]) {
+      const config=workflows();mutation(config.get('api-android.yml').jobs[jobName]);
+      expect(()=>validateWorkflows(config)).toThrow();
+    }
   });
 });

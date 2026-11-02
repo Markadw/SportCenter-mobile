@@ -6,7 +6,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile', runId: 
   apkSha256: '1ac0a14bec648434d8733d64ef817d3e41329fe47e1c6fea843cdda1a7bb814d',
   projectId: 'c608a591-dfad-47d6-98cf-e714e821c269', appId: 'com.markadw.sportcenter', profile: 'preview',
   api: 'https://back-sport-ghxk.onrender.com', image: 'system-images;android-36;google_apis_ps16k;x86_64', maestro: '2.12.0' });
-const AUTOMATION_FILES = Object.freeze(['.github/workflows/android-validation.yml', '.github/workflows/ci.yml',
+const AUTOMATION_FILES = Object.freeze(['.github/workflows/android-validation.yml', '.github/workflows/ci.yml', '.github/workflows/api-android.yml',
   'scripts/android-16k.js', 'scripts/android-source-context.js', 'scripts/inspect-android-artifact.js',
   'scripts/android-pinning.js', 'scripts/validate-test-configs.js', '__tests__/android16k.test.js',
   '__tests__/androidSourceContext.test.js', '__tests__/androidArtifactInspection.test.js',

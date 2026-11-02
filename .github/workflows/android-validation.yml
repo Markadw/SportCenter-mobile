@@ -75,6 +75,16 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       - name: Descargar el mismo APK y exigir su SHA256 conocido
         run: node scripts/android-16k.js download
+      - name: Instalar y verificar decoder oficial Command-line Tools 23.0
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
       - name: Inspección corregida de firma, manifiesto, ABI, ZIP, ELF y JADX
         id: inspection
         run: node scripts/inspect-android-artifact.js
@@ -150,6 +160,7 @@ jobs:
             test-results/android-validation-source.json
             test-results/android-build.json
             test-results/eas-candidate.json
+            test-results/android-command-line-tools.json
             test-results/android-inspection.json
             test-results/android-inspection.txt
             test-results/android34.json

@@ -47,7 +47,7 @@ test('separa SHA de automatización y fuente y admite sólo rutas exactas', () =
   for (const file of AUTOMATION_FILES) expect(() => verifyAutomation({ ...automation, changed: file })).not.toThrow();
 });
 test.each(['src/app/index.tsx', 'app.json', 'assets/icon.png', 'package-lock.json', 'plugins/with-network-security.js',
-  'src/app/_layout.tsx', 'scripts/android-16k.js/../app.json', 'scripts/android-16k.js\napp.json', '.github/workflows/api-android.yml'])('bloquea cambio fuera del ámbito: %s', changed => {
+  'src/app/_layout.tsx', 'scripts/android-16k.js/../app.json', 'scripts/android-16k.js\napp.json', '.github/workflows/security.yml'])('bloquea cambio fuera del ámbito: %s', changed => {
   expect(() => verifyAutomation({ ...automation, changed })).toThrow('APP_TREE_CHANGED');
 });
 test.each([{ commit: SOURCE.commit }, { commit: SOURCE.commit.slice(0, 7) }, { ref: 'refs/heads/main' },
