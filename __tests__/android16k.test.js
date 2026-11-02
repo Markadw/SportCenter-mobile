@@ -10,7 +10,7 @@ const { Readable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const YAML = require('yaml');
 const { SOURCE, AUTOMATION_FILES, verifyAutomation, verifyParent, verifyMetadata, verifyBuild,
-  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, main } = require('../scripts/android-16k');
+  verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, main } = require('../scripts/android-16k');
 
 const automation = { commit: 'a'.repeat(40), ref: 'refs/tags/validation/android-same-apk', repository: SOURCE.repository,
   changed: 'scripts/android-16k.js\n.github/workflows/ci.yml\n' };
@@ -340,3 +340,41 @@ test.each([false, true])('record propaga fallo de cierre y preserva un error pre
   expect(closed).toHaveBeenCalledTimes(1);
   expect(() => fs.fstatSync(closed.mock.calls[0][0])).toThrow();
 }));
+
+test.each([
+  ['dependency_config', { code: 1, stderr: 'Failed to resolve plugin for module "expo-router".' }, 1],
+  ['dependency_config', { code: 'ENOENT', message: 'CLI executable missing' }, null],
+  ['dependency_config', { code: 1, stderr: 'Cannot find module expo-secure-store' }, 1],
+  ['authentication', { code: 1, stderr: 'Invalid access token' }, 1],
+  ['authentication', { code: 1, stderr: 'HTTP 401 Unauthorized' }, 1],
+  ['network', { code: 'ENOTFOUND', message: 'getaddrinfo failure' }, null],
+  ['network', { code: 1, stderr: 'request failed: getaddrinfo ENOTFOUND' }, 1],
+  ['network', { code: 1, stderr: 'fetch failed: socket hang up' }, 1],
+  ['unknown', { code: 2, stderr: 'Unexpected CLI state' }, 2],
+  ['unknown', { code: 'untrusted-text', stdout: 'Unexpected output' }, null],
+  ['unknown', null, null],
+])('clasifica el fallo EAS como %s sin propagar salida externa', (category, error, exitCode) => {
+  expect(classifyEasFailure(error)).toEqual({ category, exitCode });
+});
+test('build:view conserva categoría y exitCode; no expone URL firmada, tokens, stdout ni stderr', async () => {
+  const raw = Object.assign(new Error('Failed to resolve plugin; private-message-value'), { code: 1,
+    stderr: 'private-token-value https://private.invalid/artifact.apk?token=private-signature-value',
+    stdout: 'private-stdout-value', cause: 'private-cause-value' });
+  let captured;
+  try { await viewBuild(jest.fn().mockRejectedValue(raw), { EXPO_TOKEN: 'private-env-token-value' }); }
+  catch (error) { captured = error; }
+  expect(captured).toBeInstanceOf(EasReadError);
+  expect(captured).toMatchObject({ code: 'EAS_READ_FAILED', category: 'dependency_config', exitCode: 1 });
+  const safe = JSON.stringify({ message: captured.message, stack: captured.stack, ...captured });
+  for (const text of ['private-message-value', 'private-token-value', 'private.invalid', 'private-signature-value',
+    'private-stdout-value', 'private-cause-value', 'private-env-token-value']) expect(safe).not.toContain(text);
+  expect(captured.stdout).toBeUndefined(); expect(captured.stderr).toBeUndefined(); expect(captured.cause).toBeUndefined();
+  await expect(viewBuild(jest.fn().mockRejectedValue(captured), { EXPO_TOKEN: 'fixture' })).rejects.toBe(captured);
+});
+test('JSON EAS malformado queda en unknown sin filtrar el contenido de la salida', async () => {
+  let captured;
+  try { await viewBuild(jest.fn().mockResolvedValue('private-json-content https://private.invalid/'), { EXPO_TOKEN: 'fixture' }); }
+  catch (error) { captured = error; }
+  expect(captured).toMatchObject({ code: 'EAS_READ_FAILED', category: 'unknown', exitCode: null });
+  expect(captured.message).not.toContain('private-json-content');
+});

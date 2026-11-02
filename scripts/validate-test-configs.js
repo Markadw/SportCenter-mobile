@@ -23,7 +23,10 @@ function validateNativeWorkflow(workflow) {
   for (const step of job.steps) assert.ok(!step.env?.GITHUB_SHA && !step.env?.GITHUB_REF, 'No sustituir procedencia GitHub');
   const commands = job.steps.map(step => step.run || '').join('\n');
   assert.ok(!/eas-cli[^\n]*\sbuild\s|node scripts\/eas-candidate/.test(commands), 'No crear builds en validación');
-  const ordered = ['node scripts/android-16k.js prepare', 'node scripts/android-16k.js view',
+  const install = job.steps.find(step => step.id === 'install');
+  assert.equal(install?.run, 'npm ci --no-audit --no-fund', 'EAS build:view requiere dependencias exactas del lockfile');
+  assert.ok(!install.if, 'La instalación nativa no puede omitirse');
+  const ordered = ['node scripts/android-16k.js prepare', 'npm ci --no-audit --no-fund', 'node scripts/android-16k.js view',
     'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js'];
   const indices = ordered.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(indices.every((index, offset) => index >= 0 && (offset === 0 || index > indices[offset - 1])), 'Procedencia, descarga e inspección deben preceder Android');

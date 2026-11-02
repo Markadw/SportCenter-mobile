@@ -325,3 +325,18 @@ describe('Revalidación nativa del mismo APK sin EAS build', () => {
     expect(() => validateWorkflows(configs)).toThrow('una sola vez');
   });
 });
+
+describe('Dependencias de Expo config antes de EAS build:view', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'install'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'install');
+      config.jobs.native.steps = [step, ...config.jobs.native.steps.filter(item => item !== step)]; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'install');
+      config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'install').run = 'npm install'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'install').if = 'false'; },
+  ])('rechaza instalación ausente, antes de source prepare, después de EAS u omisible %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});

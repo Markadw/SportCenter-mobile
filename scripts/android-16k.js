@@ -106,12 +106,31 @@ function verifyCrashLog(log) {
   requireValue(!(ownProcess && /FATAL EXCEPTION|Fatal signal|Abort message|signal \d+ \(SIG/.test(log)), 'APP_FATAL_CRASH');
   return { fatalCrashDetected: false, scope: 'crash-buffer-since-launch-package-identity' };
 }
+function classifyEasFailure(error) {
+  const output = [error?.message, error?.stderr, error?.stdout].filter(value => typeof value === 'string')
+    .map(value => value.slice(0, 8192)).join('\n');
+  let category = 'unknown';
+  if (error?.code === 'ENOENT' || /Failed to resolve plugin|Cannot find (?:module|package)|MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|ConfigError|PluginError|Cannot evaluate (?:app|Expo) config/i.test(output)) category = 'dependency_config';
+  else if (/not logged in|not authenticated|unauthorized|authentication (?:failed|required)|invalid (?:access )?token|expired (?:access )?token|invalid credentials|HTTP (?:401|403)/i.test(output)) category = 'authentication';
+  else if (['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH'].includes(error?.code)
+    || /fetch failed|network request failed|socket hang up|network timeout|request timed out|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENETUNREACH|HTTP 5[0-9]{2}/i.test(output)) category = 'network';
+  return { category, exitCode: Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null };
+}
+class EasReadError extends ProbeError {
+  constructor(error) {
+    super('EAS_READ_FAILED');
+    Object.assign(this, classifyEasFailure(error));
+  }
+}
 async function command(file, args, options = {}) {
   try {
     const { stdout } = await promisify(execFile)(file, args, { encoding: 'utf8', timeout: 30000,
       maxBuffer: 1024 * 1024, windowsHide: true, ...options });
     return stdout;
-  } catch { throw new ProbeError('COMMAND_FAILED'); }
+  } catch (error) {
+    if (file === 'npx' && args.includes('build:view')) throw new EasReadError(error);
+    throw new ProbeError('COMMAND_FAILED');
+  }
 }
 async function viewBuild(request = command, env = process.env) {
   requireValue(typeof env.EXPO_TOKEN === 'string' && env.EXPO_TOKEN.length > 0, 'EAS_READ_TOKEN_REQUIRED');
@@ -120,7 +139,7 @@ async function viewBuild(request = command, env = process.env) {
     const raw = await request('npx', ['--yes', 'eas-cli@latest', 'build:view', SOURCE.buildId, '--json'],
       { env, timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
     return JSON.parse(raw);
-  } catch { throw new ProbeError('EAS_READ_FAILED'); }
+  } catch (error) { throw error instanceof EasReadError ? error : new EasReadError(error); }
 }
 async function github(endpoint, token, fetchApi = fetch) {
   requireValue(typeof token === 'string' && token.length > 0, 'GITHUB_READ_TOKEN_REQUIRED');
@@ -319,9 +338,12 @@ async function main(mode, env = process.env) {
   else process.stdout.write(text);
 }
 module.exports = { SOURCE, AUTOMATION_FILES, ProbeError, verifyAutomation, verifyParent, verifyMetadata,
-  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, main };
+  verifyBuild, verifyImage, verifyRuntime, verifyPid, verifyCrashLog, viewBuild, downloadApk, probe, acceptApi34, record, classifyEasFailure, EasReadError, main };
 if (require.main === module) main(process.argv[2]).catch(error => {
   const code = error instanceof ProbeError ? error.code : 'INTERNAL_ERROR';
-  record({ outcome: 'blocked', reason: code });
-  console.error('Prueba 16KB bloqueada: ' + code + '.'); process.exitCode = 1;
+  const easRead = error instanceof EasReadError ? { category: error.category, exitCode: error.exitCode } : undefined;
+  record({ outcome: 'blocked', reason: code, ...(easRead ? { easRead } : {}) });
+  console.error('Prueba 16KB bloqueada: ' + code + (easRead
+    ? ' category=' + easRead.category + ' exitCode=' + (easRead.exitCode ?? 'unknown') : '') + '.');
+  process.exitCode = 1;
 });

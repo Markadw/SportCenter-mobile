@@ -57,6 +57,9 @@ jobs:
         run: node scripts/android-16k.js prepare
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar dependencias del lockfile para resolver la configuración Expo
+        id: install
+        run: npm ci --no-audit --no-fund
       - name: Recuperar sólo la procedencia del mismo APK
         uses: actions/download-artifact@v4
         with:
