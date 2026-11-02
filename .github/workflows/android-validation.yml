@@ -78,6 +78,9 @@ jobs:
       - name: Inspección corregida de firma, manifiesto, ABI, ZIP, ELF y JADX
         id: inspection
         run: node scripts/inspect-android-artifact.js
+      - name: Verificar NSC compilada antes de iniciar cualquier AVD
+        id: nsc_preflight
+        run: node scripts/android-pinning.js preflight
       - name: Instalar herramientas verificadas sin compilar la aplicación
         shell: bash
         run: |
@@ -121,6 +124,7 @@ jobs:
           script: node scripts/android-pinning.js
       - name: Ejecución 16KB x86_64 API36 en AVD nuevo
         id: pages16k
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
@@ -151,6 +155,7 @@ jobs:
             test-results/android34.json
             test-results/maestro.xml
             test-results/maestro/
+            test-results/android-pinning-preflight.json
             test-results/android-pinning.json
             test-results/android16k.json
             test-results/android16k-summary.md

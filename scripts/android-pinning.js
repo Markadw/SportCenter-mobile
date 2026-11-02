@@ -81,7 +81,7 @@ function manifestApplication(manifest) {
 function nscReference(manifest) {
   const reference = manifestApplication(manifest).attrs['android:networkSecurityConfig'];
   assert.ok(reference === '@xml/network_security_config' || reference === '@' + APP + ':xml/network_security_config'
-    || /^@0x[0-9a-f]{8}$/i.test(reference || ''), 'NSC_MANIFEST_REFERENCE_INVALID');
+    || /^@(?:ref\/)?0x[0-9a-f]{8}$/i.test(reference || ''), 'NSC_MANIFEST_REFERENCE_INVALID');
   return reference;
 }
 function resolveNscResource(manifest, table) {
@@ -102,7 +102,8 @@ function resolveNscResource(manifest, table) {
   const resource = matches[0];
   assert.ok(resource.id.slice(2, 4) === resource.pkg.id && records.filter(value => value.id === resource.id).length === 1,
     'NSC_RESOURCE_ID_AMBIGUOUS');
-  assert.ok(!/^@0x/i.test(reference) || reference.slice(1).toLowerCase() === resource.id, 'NSC_RESOURCE_REFERENCE_MISMATCH');
+  const numeric = reference.match(/^@(?:ref\/)?(0x[0-9a-f]{8})$/i);
+  assert.ok(!numeric || numeric[1].toLowerCase() === resource.id, 'NSC_RESOURCE_REFERENCE_MISMATCH');
   assert.ok(resource.values.length === 1, 'NSC_RESOURCE_DEFAULT_ONLY_REQUIRED');
   const value = resource.values[0].match(/^\(\) \(file\) (res\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.xml) type=XML$/);
   assert.ok(value && value[1].length <= 240, 'NSC_RESOURCE_DEFAULT_XML_REQUIRED');
@@ -195,11 +196,11 @@ async function command(binary, args, options = {}) {
   try { return (await execute(binary, args, { timeout: 45000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: cleanEnv(process.env), ...executionOptions })).stdout; }
   catch (error) {
     const labels = ['NSC_MANIFEST', 'NSC_RESOURCE_TABLE', 'NSC_APK_ENTRIES', 'NSC_COMPILED_XML'];
+    const exit = Number.isInteger(error.code) ? error.code : error.code === 'ENOENT' ? 'unavailable' : error.killed ? 'timeout' : 'unknown';
     if (labels.includes(diagnostic)) {
-      const exit = Number.isInteger(error.code) ? error.code : error.code === 'ENOENT' ? 'unavailable' : error.killed ? 'timeout' : 'unknown';
       throw new Error('PILOT_TOOL_FAILED ' + diagnostic + ' exit=' + exit);
     }
-    throw new Error(path.basename(binary) + ': comando del piloto fallido; diagnóstico bruto sólo temporal.');
+    throw new Error(path.basename(binary) + ': comando del piloto fallido; exit=' + exit + '; diagnóstico bruto sólo temporal.');
   }
 }
 const sleep = ms => new Promise(resolve => globalThis.setTimeout(resolve, ms));
@@ -235,6 +236,35 @@ function tapBounds(xml, expected) {
   const b = matches[0].bounds?.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/); assert.ok(b);
   assert.ok(+b[3] > +b[1] && +b[4] > +b[2]); return [Math.floor((+b[1] + +b[3]) / 2), Math.floor((+b[2] + +b[4]) / 2)];
 }
+async function readCompiledPolicy(env, apk, meta, controls = {}) {
+  const pinsConfig = JSON.parse(fs.readFileSync('config/security-pins.json', 'utf8'));
+  const apiHost = hostname(pinsConfig.domain), imageHost = hostname(env.PINNING_IMAGE_HOST);
+  assert.equal(new URL(meta.api).origin, 'https://' + apiHost, 'API de metadatos distinta del dominio compilado.');
+  const tools = androidTools(env), analyzer = env.APKANALYZER || tools.analyzer;
+  assert.equal((await command(analyzer, ['manifest', 'application-id', apk])).trim(), APP);
+  assert.equal((await command(analyzer, ['manifest', 'debuggable', apk])).trim(), 'false');
+  controls.minSdk = minSdkEvidence(await command(analyzer, ['manifest', 'min-sdk', apk]));
+  const manifest = await command(analyzer, ['manifest', 'print', apk], { diagnostic: 'NSC_MANIFEST' });
+  const nsc = await loadCompiledNsc(manifest, apk, { analyzer, aapt2: tools.aapt2 });
+  controls.nscResource = nsc.resource;
+  const policy = compiledPolicy(manifest, nsc.xml, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256), nsc.resource);
+  controls.compiledNsc = { compiled: true, systemOnly: true, apiHost, imageHost, pinCount: policy.pins.length };
+  return policy;
+}
+async function preflight(env = process.env) {
+  const result = { status: 'blocked', scope: 'compiled-nsc-only-no-avd-no-tls', controls: {} };
+  try {
+    assert.equal(process.platform, 'linux', 'NSC_PREFLIGHT_REQUIRES_LINUX');
+    const apk = path.resolve(env.PINNING_APK || path.join(env.RUNNER_TEMP || os.tmpdir(), 'sport-center.apk'));
+    const meta = JSON.parse(fs.readFileSync(env.PINNING_BUILD_META || 'test-results/android-build.json', 'utf8'));
+    result.candidate = candidate(meta, await sha256(apk), env, resolveSourceContext(env));
+    await readCompiledPolicy(env, apk, meta, result.controls);
+    result.status = 'passed_compiled_nsc_preflight';
+  } catch (error) { result.reason = error instanceof Error ? error.message.slice(0, 240) : 'NSC_PREFLIGHT_FAILED'; }
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/android-pinning-preflight.json', JSON.stringify(result, null, 2) + '\n');
+  return result;
+}
 async function pilot(env = process.env) {
   assert.equal(process.platform, 'linux', 'El piloto nativo sólo se ejecuta en runner Linux efímero.');
   assert.equal(env.PINNING_EPHEMERAL_AVD, 'true'); assert.equal(env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;google_apis;x86_64');
@@ -252,21 +282,9 @@ async function pilot(env = process.env) {
     const context = resolveSourceContext(env);
     if (context.revalidation) verifyApi34Evidence(JSON.parse(fs.readFileSync('test-results/android34.json', 'utf8')), context);
     result.candidate = candidate(meta, await sha256(apk), env, context);
-    const pinsConfig = JSON.parse(fs.readFileSync('config/security-pins.json', 'utf8'));
-    const apiHost = hostname(pinsConfig.domain), imageHost = hostname(env.PINNING_IMAGE_HOST);
-    assert.equal(new URL(meta.api).origin, 'https://' + apiHost, 'API de metadatos distinta del dominio compilado.');
     assert.ok(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0 && env.PRODUCT_NAME.length < 200 && !/[\r\n]/.test(env.PRODUCT_NAME), 'Falta producto público visible para control UI.');
-    const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT; assert.ok(sdk);
-    const tools = androidTools(env);
-    const analyzer = env.APKANALYZER || tools.analyzer;
-    assert.equal((await command(analyzer, ['manifest', 'application-id', apk])).trim(), APP);
-    assert.equal((await command(analyzer, ['manifest', 'debuggable', apk])).trim(), 'false');
-    result.controls.minSdk = minSdkEvidence(await command(analyzer, ['manifest', 'min-sdk', apk]));
-    const manifest = await command(analyzer, ['manifest', 'print', apk], { diagnostic: 'NSC_MANIFEST' });
-    const nsc = await loadCompiledNsc(manifest, apk, { analyzer, aapt2: tools.aapt2 });
-    const policy = compiledPolicy(manifest, nsc.xml, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256), nsc.resource);
-    result.controls.nscResource = nsc.resource;
-    result.controls.compiledNsc = { compiled: true, systemOnly: true, apiHost, imageHost, pinCount: policy.pins.length };
+    const policy = await readCompiledPolicy(env, apk, meta, result.controls);
+    const { apiHost, imageHost } = policy;
     const version = await command(env.MITMDUMP || 'mitmdump', ['--version']); assert.match(version, /^Mitmproxy:\s+12\.3\.1(?: binary)?\s*$/m, 'Versión mitmproxy distinta de la fijada.');
     const priorProxy = (await adb('shell', 'settings', 'get', 'global', 'http_proxy')).trim();
     assert.ok(['null', '', ':0'].includes(priorProxy), 'El AVD ya tenía proxy: no es un control limpio.');
@@ -348,6 +366,12 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, pilot };
-if (require.main === module) pilot().then(result => { console.log('Piloto pinning nativo: ' + result.status + '. Informe saneado: test-results/android-pinning.json'); process.exitCode = result.status === 'passed_controlled_native_rejection' ? 0 : 1; })
-  .catch(() => { console.error('Piloto bloqueado antes de poder iniciarse.'); process.exitCode = 1; });
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
+if (require.main === module) {
+  const isPreflight = process.argv[2] === 'preflight';
+  (isPreflight ? preflight() : pilot()).then(result => {
+    console.log((isPreflight ? 'Preflight NSC compilada: ' : 'Piloto pinning nativo: ') + result.status
+      + '. Informe saneado: test-results/' + (isPreflight ? 'android-pinning-preflight.json' : 'android-pinning.json'));
+    process.exitCode = result.status === (isPreflight ? 'passed_compiled_nsc_preflight' : 'passed_controlled_native_rejection') ? 0 : 1;
+  }).catch(() => { console.error('Piloto/preflight bloqueado antes de poder iniciarse.'); process.exitCode = 1; });
+}

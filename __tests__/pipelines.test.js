@@ -353,3 +353,55 @@ describe('KVM obligatorio, acotado y sin fallback', () => {
     expect(() => validateWorkflows(config)).toThrow();
   });
 });
+
+describe('NSC estático antes de arrancar el primer AVD', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'nsc_preflight'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'nsc_preflight').if = 'false'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'nsc_preflight')['continue-on-error'] = true; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'nsc_preflight'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { const artifact = config.jobs.native.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')); artifact.with.path = artifact.with.path.replace('test-results/android-pinning-preflight.json', ''); },
+  ])('bloquea NSC omitido, tardío, tolerado o sin evidencia %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('16KB independiente del rechazo TLS, con prerrequisitos y cancelación estrictos', () => {
+  test.each(['inspection', 'nsc_preflight', 'kvm', 'api34'])('no permite omitir prerrequisito %s', prerequisite => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace(" && steps." + prerequisite + ".outcome == 'success'", '');
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test.each(['inspection', 'nsc_preflight', 'kvm', 'api34'])('no admite un prerrequisito omitido %s', prerequisite => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace('steps.' + prerequisite + ".outcome == 'success'", 'steps.' + prerequisite + ".outcome == 'skipped'");
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test.each(['always()', 'cancelled()', 'success()'])('no sustituye !cancelled por %s', status => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace('!cancelled()', status);
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test('no permite volver a condicionar 16KB al éxito de pinning ni omitir su condición', () => {
+    for (const change of [undefined, " && steps.pinning.outcome == 'success'"]) {
+      const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+      step.if = change ? step.if.replace(' }}', change + ' }}') : undefined;
+      expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+    }
+  });
+  test('pinning no se tolera aunque 16KB sea independiente; el agregado conserva el fallo nativo', async () => {
+    const workflow = workflows().get('android-validation.yml');
+    const pages = workflow.jobs.native.steps.find(step => step.id === 'pages16k');
+    const pinning = workflow.jobs.native.steps.find(step => step.id === 'pinning');
+    expect(pages.if).not.toMatch(/pinning|success\(\)/);
+    expect(workflow.jobs.native['continue-on-error']).toBeUndefined();
+    expect(pinning['continue-on-error']).toBeUndefined(); expect(pinning.if).toBeUndefined();
+    expect(pages['continue-on-error']).toBeUndefined();
+    const { main } = require('../scripts/android-16k');
+    await expect(main('gate', { RUNNER_TEMP: os.tmpdir(), RESULT_QUALITY: 'success', RESULT_SECURITY: 'success',
+      RESULT_NATIVE: 'failure', PAGES16K_OUTCOME: 'success', PINNING_OUTCOME: 'failure' })).rejects.toThrow('NATIVE_VALIDATION_NOT_SUCCESSFUL');
+    const broken = workflows(); broken.get('android-validation.yml').jobs.native.steps.find(step => step.id === 'pinning')['continue-on-error'] = true;
+    expect(() => validateWorkflows(broken)).toThrow();
+  });
+});

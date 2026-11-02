@@ -27,9 +27,14 @@ function validateNativeWorkflow(workflow) {
   assert.equal(install?.run, 'npm ci --no-audit --no-fund', 'EAS build:view requiere dependencias exactas del lockfile');
   assert.ok(!install.if, 'La instalación nativa no puede omitirse');
   const ordered = ['node scripts/android-16k.js prepare', 'npm ci --no-audit --no-fund', 'node scripts/android-16k.js view',
-    'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js', 'node scripts/android-16k.js kvm'];
+    'node scripts/android-16k.js download', 'node scripts/inspect-android-artifact.js', 'node scripts/android-pinning.js preflight', 'node scripts/android-16k.js kvm'];
   const indices = ordered.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(indices.every((index, offset) => index >= 0 && (offset === 0 || index > indices[offset - 1])), 'Procedencia, descarga e inspección deben preceder Android');
+  const preflight = job.steps.find(step => step.id === 'nsc_preflight');
+  assert.equal(preflight?.run, 'node scripts/android-pinning.js preflight');
+  assert.ok(!preflight.if && !preflight['continue-on-error'], 'NSC preflight debe ser obligatorio antes de AVD');
+  const evidence = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(evidence.with.path.includes('test-results/android-pinning-preflight.json'), 'Falta evidencia NSC preflight');
   const kvm = job.steps.find(step => step.id === 'kvm');
   assert.equal(kvm?.run, 'node scripts/android-16k.js kvm');
   assert.equal(kvm['timeout-minutes'], 2);
@@ -39,7 +44,9 @@ function validateNativeWorkflow(workflow) {
   for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],
     ['pinning', 30, 'google_apis', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
     const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
-    assert.ok(index > previous && !step.if && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
+    assert.ok(index > previous && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
+    if (id === 'pages16k') assert.equal(step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}", '16KB exige prerrequisitos aprobados y ausencia de cancelación, independientemente de pinning');
+    else assert.ok(!step.if, 'API34 y MITM conservan sus guardias obligatorias');
     assert.equal(step.uses, 'reactivecircus/android-emulator-runner@v2');
     assert.equal(step.with['api-level'], api); assert.equal(step.with.arch, 'x86_64'); assert.equal(step.with.target, target);
     assert.equal(step.with.script, command); assert.equal(step.with['disable-linux-hw-accel'], false);

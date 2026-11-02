@@ -458,3 +458,39 @@ test('fallo de herramienta NSC informa operación y exitCode sin stderr, URLs ni
   expect(failure.message).toBe('PILOT_TOOL_FAILED NSC_RESOURCE_TABLE exit=9');
   expect(String(failure.stack)).not.toMatch(/PRIVATE_NSC_MESSAGE|private.invalid|SECRET_NSC/);
 });
+
+test('notación @ref/0x del apkanalyzer23 real mantiene igualdad exacta con ID de tabla', () => {
+  const decoded = manifest.replace('@xml/network_security_config', '@ref/0x7f140006');
+  const resource = resolveNscResource(decoded, shortenedNscTable);
+  expect(resource.reference).toBe('@ref/0x7f140006'); expect(resource.id).toBe('0x7f140006');
+  expect(resource.path).toBe('res/8G.xml');
+  expect(compiledPolicy(decoded, nsc, api, image, pinConfig.pins.map(pin => pin.sha256), resource)).toMatchObject({ compiled: true });
+  expect(() => resolveNscResource(decoded.replace('0x7f140006', '0x7f140099'), shortenedNscTable)).toThrow('REFERENCE_MISMATCH');
+});
+test.each(['@ref/7f140006', '@ref/0x7f14006', '@ref/0x7f14000600', '@dref/0x7f140006', '@attr/0x7f140006',
+  '@ref/0x7f140006?x=1', 'https://external.invalid/0x7f140006'])('rechaza prefijos/IDs no explícitos: %s', reference => {
+  expect(() => resolveNscResource(manifest.replace('@xml/network_security_config', reference), shortenedNscTable)).toThrow('REFERENCE_INVALID');
+});
+test('preflight CLI falla antes de herramientas/AVD cuando no existe APK/procedencia y no acredita TLS', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sport-preflight-'));
+  try {
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/android-pinning.js'), 'preflight'],
+      { cwd: directory, env: { ...process.env, RUNNER_TEMP: directory }, encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(fs.readFileSync(path.join(directory, 'test-results/android-pinning-preflight.json'), 'utf8'));
+    expect(report).toMatchObject({ status: 'blocked', scope: 'compiled-nsc-only-no-avd-no-tls', controls: {} });
+    expect(fs.existsSync(path.join(directory, 'test-results/android-pinning.json'))).toBe(false);
+  } finally {
+    if (path.dirname(path.resolve(directory)) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('sport-preflight-')) throw Error('Ruta temporal inesperada');
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('error fuera de NSC conserva exit/timeout/unavailable sin mensajes raw ni args', async () => {
+  await expect(command(process.execPath, ['-e', 'process.stderr.write("PRIVATE_ARG_SECRET");process.exit(7)']))
+    .rejects.toThrow('exit=7;');
+  try { await command(process.execPath, ['-e', 'process.stderr.write("PRIVATE_ARG_SECRET");process.exit(7)']); }
+  catch (error) { expect(error.message).not.toContain('PRIVATE_ARG_SECRET'); }
+  await expect(command(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeout: 30 })).rejects.toThrow('exit=timeout;');
+  await expect(command('nonexistent-pinning-tool-safe-fixture', [])).rejects.toThrow('exit=unavailable;');
+});
