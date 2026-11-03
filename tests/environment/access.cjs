@@ -1,10 +1,23 @@
 const http = require('node:http');
-http.createServer((request, response) => {
+function forwardedHeaders(headers) {
+  const result = { accept: 'application/json' };
+  const authorization = headers.authorization;
+  if (authorization !== undefined) {
+    if (typeof authorization !== 'string' || authorization.length > 2048 ||
+      !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization)) return null;
+    result.authorization = authorization;
+  }
+  return result;
+}
+function createGateway(requestUpstream = http.request) {
+  return http.createServer((request, response) => {
   if (!['GET', 'HEAD'].includes(request.method) || !request.url.startsWith('/')) {
     response.writeHead(405); response.end(); return;
   }
-  const upstream = http.request({ hostname: 'api', port: 3000, path: request.url,
-    method: request.method, headers: { accept: 'application/json' }, timeout: 15000 }, (result) => {
+  const headers = forwardedHeaders(request.headers);
+  if (!headers) { response.writeHead(400); response.end(); return; }
+  const upstream = requestUpstream({ hostname: 'api', port: 3000, path: request.url,
+    method: request.method, headers, timeout: 15000 }, (result) => {
     response.writeHead(result.statusCode, result.headers);
     result.pipe(response);
   });
@@ -14,4 +27,8 @@ http.createServer((request, response) => {
     response.end();
   });
   upstream.end();
-}).listen(3000, '0.0.0.0');
+  });
+}
+// Compose publishes this container port only on host 127.0.0.1:3011.
+if (require.main === module) createGateway().listen(3000, '0.0.0.0');
+module.exports = { forwardedHeaders, createGateway };
