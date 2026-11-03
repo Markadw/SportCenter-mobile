@@ -153,20 +153,69 @@ function emulatorEvidence(properties) {
   return { api: 30, abi: 'x86_64', type: 'userdebug', ephemeral: true };
 }
 function verifyAospPackage(listing) {
-  const packagePath = 'system-images;android-30;default;x86_64';
-  const location = 'system-images/android-30/default/x86_64';
-  const fail = (property, expected, actual) => { throw new SystemImageError(property, expected, actual); };
-  if (typeof listing !== 'string' || listing.length > 4 * 1024 * 1024) fail('InstalledPackage.Table', 'single installed table', '[invalid]');
-  const lines = listing.split(/\r?\n/).map(line => line.trim());
-  const heading = lines.indexOf('Installed packages:');
-  const headers = lines.map((line, index) => line.split('|').map(cell => cell.trim()).join('|') === 'Path|Version|Description|Location' ? index : -1).filter(index => index >= 0);
-  if (heading < 0 || lines.lastIndexOf('Installed packages:') !== heading || headers.length !== 1 || headers[0] <= heading)
-    fail('InstalledPackage.Table', 'single installed table', '[missing_or_ambiguous]');
-  const rows = lines.slice(headers[0] + 1).map(line => line.split('|').map(cell => cell.trim())).filter(cells => cells[0] === packagePath);
-  if (rows.length !== 1 || rows[0].length !== 4) fail('InstalledPackage.Path', packagePath, rows.length > 1 ? '[duplicate]' : '[missing_or_malformed]');
-  if (rows[0][1] !== '11') fail('InstalledPackage.Revision', '11', /^\d{1,3}$/.test(rows[0][1]) ? rows[0][1] : '[unrecognized]');
-  if (rows[0][3] !== location && rows[0][3] !== location + '/') fail('InstalledPackage.Location', location, '[unrecognized]');
-  return { package: packagePath, packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed' };
+  const packagePath = 'system-images;android-30;default;x86_64', location = 'system-images/android-30/default/x86_64';
+  const evidence = { format: 'unknown', installedSections: 0, matchingRows: 0, sgrSequences: 0 };
+  const fail = (property, expected, actual) => {
+    const error = new SystemImageError(property, expected, actual); error.packageListing = { ...evidence }; throw error;
+  };
+  if (typeof listing !== 'string' || listing.length > 4 * 1024 * 1024) fail('InstalledPackage.Table', 'bounded installed listing', '[invalid]');
+  // Consume only bounded SGR colors/styles. Cursor movement, OSC, bare CR and other controls fail closed.
+  const fragments = []; let offset = 0, from = 0;
+  while (offset < listing.length) {
+    const value = listing.charCodeAt(offset);
+    if (value === 27) {
+      const sgr = listing.slice(offset, offset + 48).match(/^\x1b\[([0-9;]{0,39})m/);
+      if (!sgr || ++evidence.sgrSequences > 10000) fail('InstalledPackage.Controls', 'bounded SGR only', '[invalid]');
+      const codes = sgr[1] === '' ? [0] : sgr[1].split(';').map(value => /^\d{1,3}$/.test(value) ? Number(value) : -1);
+      if (codes.length > 8) fail('InstalledPackage.Controls', 'bounded SGR only', '[invalid]');
+      for (let index = 0; index < codes.length; index++) {
+        const code = codes[index];
+        if ([0, 1, 2, 3, 4, 22, 23, 24, 39, 49].includes(code) || (code >= 30 && code <= 37)
+          || (code >= 40 && code <= 47) || (code >= 90 && code <= 97) || (code >= 100 && code <= 107)) continue;
+        const length = codes[index + 1] === 5 ? 1 : codes[index + 1] === 2 ? 3 : 0;
+        if (![38, 48].includes(code) || !length || codes.length < index + length + 2
+          || !codes.slice(index + 2, index + length + 2).every(value => value >= 0 && value <= 255))
+          fail('InstalledPackage.Controls', 'bounded SGR only', '[invalid]');
+        index += length + 1;
+      }
+      fragments.push(listing.slice(from, offset)); offset += sgr[0].length; from = offset; continue;
+    }
+    if ((value < 32 && value !== 9 && value !== 10 && !(value === 13 && listing[offset + 1] === '\n'))
+      || (value >= 127 && value <= 159)) fail('InstalledPackage.Controls', 'bounded SGR only', '[invalid]');
+    offset++;
+  }
+  fragments.push(listing.slice(from));
+  const lines = fragments.join('').split(/\r?\n/).map(line => line.trim());
+  const headings = lines.map((line, index) => /^Installed packages:$/i.test(line) ? index : -1).filter(index => index >= 0);
+  evidence.installedSections = headings.length;
+  if (headings.length !== 1) fail('InstalledPackage.Table', 'single installed section', '[missing_or_ambiguous]');
+  const nextSection = lines.findIndex((line, index) => index > headings[0] && line.endsWith(':'));
+  const section = lines.slice(headings[0] + 1, nextSection < 0 ? lines.length : nextSection).filter(Boolean);
+  const headers = section.map((line, index) => line.split('|').map(cell => cell.trim()).join('|') === 'Path|Version|Description|Location' ? index : -1).filter(index => index >= 0);
+  evidence.format = headers.length ? 'legacy-sdkmanager' : section.some(line => line.includes('|')) ? 'unsupported' : 'android-cli';
+  if (evidence.format === 'unsupported' || headers.length > 1) fail('InstalledPackage.Table', 'recognized installed format', '[missing_or_ambiguous]');
+  const exactPath = token => token === packagePath || token === location;
+  const rows = section.map((line, index) => ({ line, index })).filter(row => exactPath(row.line.split(/[ \t|]/)[0]));
+  evidence.matchingRows = rows.length;
+  if (rows.length !== 1) fail('InstalledPackage.Path', packagePath, rows.length > 1 ? '[duplicate]' : '[missing]');
+  let version;
+  if (evidence.format === 'legacy-sdkmanager') {
+    const cells = rows[0].line.split('|').map(cell => cell.trim());
+    if (rows[0].index <= headers[0] || cells.length !== 4 || !exactPath(cells[0]) || !cells[2])
+      fail('InstalledPackage.Table', 'legacy row with location', '[malformed]');
+    version = cells[1];
+    if (cells[3] !== location && cells[3] !== location + '/') fail('InstalledPackage.Location', location, '[unrecognized]');
+  } else {
+    const cells = rows[0].line.split(/[ \t]+/); version = cells[1];
+    const arrow = cells[2] === '->';
+    if (cells.length < (arrow ? 5 : 3) || (arrow && !/^\d{1,3}(?:\.\d{1,3}){0,2}$/.test(cells[3])))
+      fail('InstalledPackage.Table', 'path installed-version description', '[malformed]');
+    evidence.updateAvailable = arrow;
+  }
+  if (!['11', '11.0', '11.0.0'].includes(version))
+    fail('InstalledPackage.Revision', '11', /^\d{1,3}(?:\.\d{1,3}){0,2}$/.test(version || '') ? version : '[unrecognized]');
+  evidence.installedVersion = version;
+  return { package: packagePath, packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed', packageListing: evidence };
 }
 function minSdkEvidence(value) {
   assert.match(value.trim(), /^\d+$/, 'minSdk no disponible.');
@@ -376,7 +425,10 @@ async function pilot(env = process.env) {
     await adb('shell', 'rm', '-f', uiPath);
   } catch (error) {
     result.status = 'blocked_or_failed'; result.reason = error instanceof Error ? error.message.slice(0, 240) : 'Piloto incompleto.';
-    if (error instanceof SystemImageError) result.systemImageMismatch = error.diagnostic;
+    if (error instanceof SystemImageError) {
+      result.systemImageMismatch = error.diagnostic;
+      if (error.packageListing) result.packageListing = error.packageListing;
+    }
   } finally {
     try { if (proxyChanged) await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); if (installedCa) { await adb('root'); await adb('wait-for-device'); await adb('shell', 'rm', '-f', caDevice); } }
     catch { result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.'; }

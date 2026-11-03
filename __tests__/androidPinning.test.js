@@ -66,10 +66,10 @@ test('physical devices, Play builds, a different API, ABI or non-root adbd never
     expect(() => emulatorEvidence({ ...properties, ...change })).toThrow();
   }
 });
-// SDKManager23 ListAction reads LocalPackage metadata; its non-verbose TableFormatter uses these four columns.
+// Legacy Java formatter retained for compatibility; SDKManager23 launcher actually delegates to Android CLI.
 const installedAosp = 'Installed packages:\n  Path | Version | Description | Location\n  ------- | ------- | ------- | -------\n  system-images;android-30;default;x86_64 | 11 | Intel x86_64 Atom System Image | system-images/android-30/default/x86_64/\n';
 test('distingue paquete instalado11 de propiedad legada10 sin leer XML de licencias', () => {
-  expect(verifyAospPackage(installedAosp)).toEqual({ package: 'system-images;android-30;default;x86_64', packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed' });
+  expect(verifyAospPackage(installedAosp)).toMatchObject({ package: 'system-images;android-30;default;x86_64', packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed', packageListing: { format: 'legacy-sdkmanager', matchingRows: 1 } });
 });
 test.each([
   listing => listing.replace(' | 11 | ', ' | 10 | '),
@@ -90,6 +90,64 @@ test('diagnóstico instalado separa revisión y nunca publica filas, rutas local
       expect(error.diagnostic).toEqual({ property: 'InstalledPackage.Revision', expected: '11', actual });
       expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|Intel x86/);
     }
+  }
+});
+
+// This minimal AOSP row follows the official documented formatter; it is not a captured installed AOSP11 row.
+const modernPath = 'system-images/android-30/default/x86_64';
+const modernAosp = 'Installed packages:\n  ' + modernPath + '  11  Intel x86_64 Atom System Image\n';
+test.each(['11', '11.0', '11.0.0'])('nuevo formatter admite revisión canónica %s y ambas rutas exactas', version => {
+  for (const packagePath of [modernPath, 'system-images;android-30;default;x86_64']) {
+    expect(verifyAospPackage(modernAosp.replace(modernPath, packagePath).replace('  11  ', '  ' + version + '  ')))
+      .toMatchObject({ packageRevision: 11, packageListing: { format: 'android-cli', installedVersion: version, matchingRows: 1, updateAvailable: false } });
+  }
+});
+test('versión instalada11 puede tener actualización12; versión10 con flecha a11 nunca aprueba', () => {
+  expect(verifyAospPackage(modernAosp.replace('  11  ', '  11 -> 12  '))).toMatchObject({ packageListing: { installedVersion: '11', updateAvailable: true } });
+  try { verifyAospPackage(modernAosp.replace('  11  ', '  10 -> 11  ')); throw Error('Expected rejection'); }
+  catch (error) { expect(error.diagnostic).toEqual({ property: 'InstalledPackage.Revision', expected: '11', actual: '10' }); }
+});
+test('sección Installed termina antes de Available/Updates/Obsolete, nunca usa una fila disponible', () => {
+  for (const boundary of ['Available packages:', 'Available Updates:', 'Installed Obsolete Packages:', 'Available packages (stable):']) {
+    expect(verifyAospPackage(modernAosp + boundary + '\n  ' + modernPath + '  12  Available image\n').packageRevision).toBe(11);
+    expect(() => verifyAospPackage('Installed packages:\n  platforms/android-30  3  Platform\n' + boundary + '\n  ' + modernPath + '  11  Available image\n')).toThrow();
+  }
+});
+test.each([
+  listing => listing + listing,
+  listing => listing + listing.split('\n')[1] + '\n',
+  listing => listing + listing.split('\n')[1].replace(modernPath, 'system-images;android-30;default;x86_64') + '\n',
+  listing => listing.replace('Installed packages:', 'Available packages:'),
+  listing => listing.replace(modernPath, modernPath + '-other'),
+  listing => listing.replace(modernPath, 'system-images;android-30/default;x86_64'),
+  listing => listing.replace('  11  ', '  011  '),
+  listing => listing.replace('  11  ', '  11.1  '),
+  listing => listing.replace('  11  Intel x86_64 Atom System Image', '  11 -> 12'),
+  listing => listing.replace('  11  ', '  11 -> unknown  '),
+])('nuevo formatter falla cerrado con ambigüedad/otra revisión/formato incompleto %#', mutate => {
+  expect(() => verifyAospPackage(mutate(modernAosp))).toThrow('SYSTEM_IMAGE_MISMATCH');
+});
+test.each(['\x1b[32m', '\x1b[1;93m', '\x1b[38;5;120m', '\x1b[1;38;2;10;20;30m'])('acepta únicamente SGR acotado %j', color => {
+  expect(verifyAospPackage(color + modernAosp + '\x1b[0m').packageListing).toMatchObject({ format: 'android-cli', sgrSequences: 2 });
+});
+test.each(['\x1b[2J', '\x1b]8;;https://private.invalid\x07', '\x1b[999m', '\x1b[38;5;999m',
+  '\x1b[1;2;3;4;22;23;24;30;31m', '\x00', '\x08', '\x07', '\x85', '\r', '\x1b[31\nm'])('rechaza controles noSGR o colores fuera de límites %j', control => {
+  try { verifyAospPackage(control + modernAosp); throw Error('Expected rejection'); }
+  catch (error) {
+    expect(error.diagnostic.property).toBe('InstalledPackage.Controls');
+    expect(JSON.stringify(error)).not.toMatch(/private.invalid|Intel x86/);
+  }
+});
+test('CRLF y ANSI legacy preservan ubicación obligatoria; no admite mezclas de formatos ni colores ilimitados', () => {
+  expect(verifyAospPackage('\x1b[32m' + installedAosp.split('\n').join('\r\n') + '\x1b[0m').packageListing.format).toBe('legacy-sdkmanager');
+  expect(() => verifyAospPackage(installedAosp + modernAosp.split('\n')[1])).toThrow();
+  expect(() => verifyAospPackage('\x1b[32m'.repeat(10001) + modernAosp)).toThrow();
+});
+test('diagnóstico nuevo identifica formato/conteos seguros y nunca publica descripción o rutas arbitrarias', () => {
+  try { verifyAospPackage(modernAosp.replace('  11  ', '  10 -> 11  ') + 'PRIVATE SECRET https://private.invalid\n'); throw Error('Expected rejection'); }
+  catch (error) {
+    expect(error.packageListing).toMatchObject({ format: 'android-cli', installedSections: 1, matchingRows: 1, updateAvailable: true });
+    expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|Intel x86/);
   }
 });
 
