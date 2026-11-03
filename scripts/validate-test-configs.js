@@ -76,6 +76,68 @@ function validateProfilesWorkflow(workflow) {
   for (const id of ['quality', 'security', 'profiles']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '$' + '{{ needs.' + id + '.result }}');
 }
 
+function validateReleaseWorkflow(workflow) {
+  const job = workflow.jobs.release, result = workflow.jobs.release_result;
+  assert.ok(job && result, 'Falta validación Release AAB independiente');
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/release-') }}", 'Release sólo en su etiqueta explícita');
+  assert.deepEqual(job.needs, ['quality', 'security'], 'Release exige calidad y seguridad antes de artefactos');
+  assert.equal(job['runs-on'], 'ubuntu-24.04'); assert.equal(job['timeout-minutes'], 60);
+  assert.equal(job.env.keep_evidence, 'true'); assert.equal(job.env.PINNING_EPHEMERAL_AVD, 'true');
+  for (const key of ['EXPO_TOKEN', 'GITHUB_TOKEN', 'GITHUB_SHA', 'GITHUB_REF']) assert.equal(job.env[key], undefined, 'No ampliar tokens ni sustituir fuente');
+  let previous = -1;
+  for (const mode of ['prepare', 'view', 'download', 'inspect', 'kvm', 'release34', 'api36', 'finish']) {
+    const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-release.js ' + mode
+      || step.with?.script === 'node scripts/android-release.js ' + mode);
+    assert.equal(matches.length, 1, 'Cada fase Release se ejecuta una vez: ' + mode);
+    const { step, index } = matches[0];
+    assert.ok(index > previous && !step['continue-on-error'], 'Release sin fases duplicadas, omitidas o desordenadas');
+    if (['release34', 'api36', 'finish'].includes(mode)) assert.equal(step.if,
+      "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'Release conserva precondiciones e independencia de resultados por API');
+    else assert.ok(!step.if, 'Precondición Release no puede omitirse');
+    previous = index;
+  }
+  const install = job.steps.findIndex(step => step.run === 'npm ci --no-audit --no-fund');
+  assert.ok(install > job.steps.findIndex(step => step.run === 'node scripts/android-release.js prepare') &&
+    install < job.steps.findIndex(step => step.run === 'node scripts/android-release.js view'), 'Consultar EAS sólo con lockfile instalado');
+  const expo = job.steps.filter(step => step.env?.EXPO_TOKEN), github = job.steps.filter(step => step.env?.GITHUB_TOKEN);
+  assert.equal(expo.length, 1); assert.equal(expo[0].run, 'node scripts/android-release.js view');
+  assert.equal(github.length, 1); assert.equal(github[0].run, 'node scripts/android-release.js prepare');
+  for (const step of job.steps) assert.ok(!step.env?.GITHUB_SHA && !step.env?.GITHUB_REF && !step['continue-on-error'], 'Release no sustituye fuente ni oculta fallos');
+  const commands = job.steps.map(step => step.run || '').join('\n');
+  assert.ok(!/eas-cli[^\n]*\sbuild\s|eas-cli[^\n]*\s(?:submit|update)\b|eas-candidate|android-profiles\.js|debug34/.test(commands), 'Release sólo valida su AAB; no construye ni reutiliza Debug histórico');
+  const inspection = job.steps.findIndex(step => step.run === 'node scripts/android-release.js inspect');
+  validateDecoder23(job, inspection, job.steps.findIndex(step => step.run === 'node scripts/android-release.js download'));
+  assert.ok(job.steps.find(step => step.id === 'command_line_tools').run.includes('"build-tools;37.0.0"'));
+  assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
+  const names = new Set();
+  for (const [id, api, target, name, command] of [['release34', 34, 'google_apis', 'profiles-release34', 'release34'],
+    ['pages16k', 36, 'google_apis_ps16k', 'profiles16k', 'api36']]) {
+    const step = job.steps.find(value => value.id === id);
+    assert.equal(step?.uses, 'reactivecircus/android-emulator-runner@v2');
+    assert.equal(step.with['api-level'], api); assert.equal(step.with.arch, 'x86_64'); assert.equal(step.with.target, target);
+    assert.equal(step.with['avd-name'], name); assert.equal(step.with['force-avd-creation'], true); assert.equal(step.with['disable-linux-hw-accel'], false);
+    assert.equal(step.with.script, 'node scripts/android-release.js ' + command);
+    assert.ok(step.with['emulator-options'].includes('-accel on') && step.with['emulator-options'].includes('-no-snapshot'));
+    if (api === 36) validate16kMemory(step); else assert.equal(step.with['ram-size'], undefined, 'Release34 no cambia RAM');
+    names.add(step.with['avd-name']);
+  }
+  assert.equal(job.steps.filter(step => step.uses === 'reactivecircus/android-emulator-runner@v2').length, 2, 'Release usa sólo dos AVD nuevas');
+  assert.equal(names.size, 2);
+  for (const mode of ['summary', 'cleanup']) assert.equal(job.steps.find(step => step.run === 'node scripts/android-release.js ' + mode)?.if, 'always()');
+  const evidence = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(evidence.with.name, 'android-release-evidence'); assert.equal(evidence.with['retention-days'], 14);
+  const paths = ['test-results/android-release-source.json', 'test-results/android-release.json', 'test-results/android-release-summary.md',
+    'test-results/android-command-line-tools.json', 'test-results/release-production.xml', 'test-results/release-production16k.xml',
+    'test-results/release-production/**/*.png', 'test-results/release-production16k/**/*.png'];
+  for (const api of [34, 36]) for (const id of ['L01', 'L02']) paths.push('test-results/release-incoming' + api + '-' + id + '.xml',
+    'test-results/release-incoming' + api + '-' + id + '/**/*.png');
+  validateAndroidEvidence(job, paths);
+  assert.equal(result.name, 'Resultado de Release AAB'); assert.deepEqual(result.needs, ['quality', 'security', 'release']);
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/release-') }}");
+  const gate = result.steps.find(step => step.run === 'node scripts/android-release.js gate'); assert.ok(gate, 'Falta gate Release');
+  for (const id of ['quality', 'security', 'release']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '${{ needs.' + id + '.result }}');
+}
+
 function validateAndroidEvidence(job, allowedPaths) {
   const uploads = job.steps.filter(step => step.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(uploads.length, 1, 'Cada job Android conserva una sola allowlist exacta de evidencia');
@@ -94,7 +156,7 @@ function validate16kMemory(step) {
 
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
-  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*'] } }, 'Validación sólo en tags validation/android-*');
+  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*', 'validation/release-*'] } }, 'Validación sólo en tags validation/android-*');
   assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'read' }, 'No elevar permisos globales');
   assert.equal(workflow.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.equal(workflow.jobs.quality.with.keep_evidence, true);
@@ -197,9 +259,9 @@ function validateWorkflows(workflows) {
   assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
     'TypeScript debe informar también cuando ESLint falle');
   const cryptoSetup = client.jobs.validate.steps.find(step => step.run === 'bash scripts/android-pinning-install.sh');
-  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
+  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
   assert.equal(client.jobs.validate.steps.find(step => step.id === 'tests').env.PINNING_TEST_MITMDUMP,
-    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
   const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
     'El artefacto existente debe conservar los informes estáticos');
@@ -359,6 +421,7 @@ function validateWorkflows(workflows) {
 
   validateNativeWorkflow(workflows.get('android-validation.yml'));
   validateProfilesWorkflow(workflows.get('android-validation.yml'));
+  validateReleaseWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {

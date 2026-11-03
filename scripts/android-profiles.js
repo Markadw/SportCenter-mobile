@@ -340,8 +340,9 @@ const RUNTIME_PHASES = Object.freeze({
   release34: Object.freeze({ api: 34, phase: 'production', avd: 'profiles-release34' }),
   api36: Object.freeze({ api: 36, phase: 'production16k', avd: 'profiles16k' }),
 });
-function api34Aggregate(state) {
-  const phases = ['development', 'production'];
+function api34Aggregate(state, releaseOnly = false) {
+  need(typeof releaseOnly === 'boolean', 'PROFILE_AGGREGATE_SCOPE_INVALID');
+  const phases = releaseOnly ? ['production'] : ['development', 'production'];
   const missing = phases.filter(phase => !state[phase]);
   const failures = phases.filter(phase => state[phase] && (state[phase].status !== 'passed_public_scope' || state[phase].cleanup !== 'passed'))
     .map(phase => ({ phase, reason: state[phase].reason || (state[phase].cleanup !== 'passed' ? 'PROFILE_CLEANUP_FAILED' : 'PUBLIC_PROFILE_ACCEPTANCE_FAILED') }));
@@ -382,11 +383,26 @@ async function observeFailure(adb) {
     process: valid ? { status: 'observed', appRunning: true, pids } : { status: 'unknown', appRunning: null, pids: [] },
     crash: crash.status === 'fulfilled' ? failureCrashEvidence(crash.value) : { status: 'unknown', codes: [] } };
 }
+function verifyReleaseRuntimeContract(value, context, env, mode) {
+  need(value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).sort().join(',') === 'buildId,sha256,sourceCommit', 'RELEASE_RUNTIME_CONTRACT_SCHEMA');
+  need(['release34', 'api36'].includes(mode) && /^refs\/tags\/validation\/release-[A-Za-z0-9_.-]+$/.test(env.GITHUB_REF || '') &&
+    env.GITHUB_REPOSITORY === SOURCE.repository, 'RELEASE_RUNTIME_SCOPE');
+  need(typeof value.sourceCommit === 'string' && /^[a-f0-9]{40}$/.test(value.sourceCommit) &&
+    typeof value.buildId === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value.buildId) &&
+    typeof value.sha256 === 'string' && HEX.test(value.sha256), 'RELEASE_RUNTIME_ARTIFACT_IDENTITY');
+  need(context?.validationMode === 'production-release-only' && context.artifactSourceCommit === value.sourceCommit &&
+    context.automationCommit === env.GITHUB_SHA && context.productionBuildId === value.buildId &&
+    context.productionSha256 === value.sha256 && HEX.test(context.receiptSha256 || ''), 'RELEASE_RUNTIME_PROOF_MISMATCH');
+  return { id: value.buildId, sha256: value.sha256 };
+}
 async function runtime(env, mode, { run = command, save = report, wait = waitForService, sleep = pause, source = sourceContext,
-  read = fs.readFileSync, fileHash = hash, platform = process.platform, idle = metroAbsent, start = spawn, ready = waitMetro, stop = stopMetro, getMetroContext = queryMetroContext } = {}) {
+  read = fs.readFileSync, fileHash = hash, platform = process.platform, idle = metroAbsent, start = spawn, ready = waitMetro, stop = stopMetro, getMetroContext = queryMetroContext, releaseContract, afterPublic } = {}) {
   const spec = Object.hasOwn(RUNTIME_PHASES, mode) ? RUNTIME_PHASES[mode] : null; need(spec, 'PROFILE_RUNTIME_MODE_REQUIRED');
   const { api } = spec;
   const context = await source(env, run), files = locations(env);
+  const releaseOnly = releaseContract !== undefined;
+  const expectedProduction = releaseOnly ? verifyReleaseRuntimeContract(releaseContract, context, env, mode) : BUILDS.production;
   need(platform === 'linux' && env.GITHUB_ACTIONS === 'true' && env.RUNNER_ENVIRONMENT === 'github-hosted'
     && env.PINNING_EPHEMERAL_AVD === 'true', 'EPHEMERAL_HOSTED_AVD_REQUIRED');
   const devices = (await run('adb', ['devices'])).trim().split(/\r?\n/).filter(line => /\tdevice$/.test(line));
@@ -396,18 +412,25 @@ async function runtime(env, mode, { run = command, save = report, wait = waitFor
   need((await adb(['shell', 'getprop', 'ro.kernel.qemu'])).trim() === '1'
     && (await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === String(api)
     && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'EMULATOR_RUNTIME_MISMATCH');
-  const state = JSON.parse(read('test-results/android-profiles.json', 'utf8'));
-  need(state.offlineStatus === 'passed' && state.productionDerived?.aabSha256 === BUILDS.production.sha256
+  const state = JSON.parse(read(releaseOnly ? 'test-results/android-release.json' : 'test-results/android-profiles.json', 'utf8'));
+  if (releaseOnly) need(state.validationMode === 'production-release-only' && !state.development && !state.developmentInspection
+    && state.artifactSourceCommit === context.artifactSourceCommit && state.automationCommit === context.automationCommit
+    && state.productionBuildId === expectedProduction.id && state.productionSha256 === expectedProduction.sha256, 'RELEASE_STATE_SCOPE_MISMATCH');
+  need(state.offlineStatus === 'passed' && state.productionDerived?.aabSha256 === expectedProduction.sha256
     && await fileHash(files.derived) === state.productionDerived.apkSha256, 'DERIVED_RECEIPT_MISMATCH');
   need(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0
     && env.PRODUCT_NAME.length <= 160 && !/[\r\n\x00-\x1f]/.test(env.PRODUCT_NAME), 'PRODUCT_NAME_REQUIRED');
   need((await wait({ apiUrl: SOURCE.api, android: true })).ready === true, 'CATALOG_NOT_READY');
   need(!Object.hasOwn(state, spec.phase), 'PROFILE_PHASE_ALREADY_RECORDED');
-  if (mode === 'release34') need(state.development?.cleanup === 'passed'
+  if (!releaseOnly && mode === 'release34') need(state.development?.cleanup === 'passed'
     && ['passed_public_scope', 'failed'].includes(state.development?.status)
     && state.development.api === 34 && state.development.profile === 'development'
     && state.development.artifactSourceCommit === SOURCE.commit
     && state.development.automationCommit === context.automationCommit, 'DEBUG_CLEANUP_NOT_PASSED');
+  if (releaseOnly && mode === 'api36') need(state.production?.cleanup === 'passed'
+    && ['passed_public_scope', 'failed'].includes(state.production.status)
+    && state.production.artifactSourceCommit === context.artifactSourceCommit
+    && state.production.automationCommit === context.automationCommit, 'RELEASE_API34_CLEANUP_NOT_PASSED');
   const phases = [spec.phase];
   const failures = [], statusKey = api === 34 ? 'runtimeApi34Status' : 'runtimeApi36Status';
   for (const phase of phases) {
@@ -456,11 +479,17 @@ async function runtime(env, mode, { run = command, save = report, wait = waitFor
         need(!(await adb(['reverse', '--list'])).includes('tcp:8081'), 'ADB_REVERSE_STILL_PRESENT');
         entry.independentOfMetro = true;
       }
-      const output = 'test-results/profiles-' + phase;
+      const output = (releaseOnly ? 'test-results/release-' : 'test-results/profiles-') + phase;
       suiteStarted = true;
       await run('maestro', ['--device', serial, 'test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
         '--format', 'junit', '--output', output + '.xml', '--test-output-dir', output, flowDirectory], { timeout: 600000, env });
       need(assertAndroidReport(read(output + '.xml', 'utf8')) === 2, 'PUBLIC_FLOWS_INCOMPLETE');
+      if (releaseOnly) {
+        need(typeof afterPublic === 'function', 'RELEASE_ENTRY_CHECK_REQUIRED');
+        entry.incomingLinks = await afterPublic({ run, adb, serial, env, files, api });
+        need(entry.incomingLinks?.scope === 'native-entry-routing-not-decoder-recovery' &&
+          entry.incomingLinks.cases?.length === 2 && entry.incomingLinks.cases.every(item => item.status === 'passed'), 'RELEASE_ENTRY_CHECK_NOT_PASSED');
+      }
       entry.selectedDevice = serial; entry.publicFlows = 2; entry.processAfter = verifyPid(await adb(['shell', 'pidof', SOURCE.appId]));
       entry.crashCheck = verifyCrashLog(await adb(['logcat', '-b', 'crash', '-d', '-v', 'brief']));
       if (api === 36) entry.runtimeAfter = verifyRuntime({ pageSize: await adb(['shell', 'getconf', 'PAGE_SIZE']), abi: 'x86_64', api: '36' });
@@ -483,14 +512,14 @@ async function runtime(env, mode, { run = command, save = report, wait = waitFor
       if (cleanupFailed) { entry.status = 'failed'; failure ||= new ProfileError('PROFILE_CLEANUP_FAILED'); }
       entry.scope = api === 36 ? 'derived-AAB-x86_64-16KB-simulation-not-native-ARM64' : development ? 'Debug-with-Metro-public-flows' : 'AAB-derived-release-public-flows-without-Metro';
       state[phase] = entry;
-      save({ [phase]: entry, ...(api === 34 ? api34Aggregate(state) : {}) });
+      save({ [phase]: entry, ...(api === 34 ? api34Aggregate(state, releaseOnly) : {}) });
     }
     if (failure) {
       failures.push({ phase, reason: failure.code });
-      if (entry.cleanup !== 'passed') { save({ ...(api === 34 ? api34Aggregate(state) : { [statusKey]: 'failed' }), abortedAfterCleanupFailure: true }); throw new ProfileError('PROFILE_CLEANUP_FAILED'); }
+      if (entry.cleanup !== 'passed') { save({ ...(api === 34 ? api34Aggregate(state, releaseOnly) : { [statusKey]: 'failed' }), abortedAfterCleanupFailure: true }); throw new ProfileError('PROFILE_CLEANUP_FAILED'); }
     }
   }
-  save(api === 34 ? api34Aggregate(state) : { [statusKey]: failures.length ? 'failed' : 'passed', runtimeApi36Failures: failures });
+  save(api === 34 ? api34Aggregate(state, releaseOnly) : { [statusKey]: failures.length ? 'failed' : 'passed', runtimeApi36Failures: failures });
   if (failures.length) throw new ProfileError('PROFILE_PUBLIC_PHASES_FAILED');
 }
 async function main(mode, env = process.env) {
@@ -552,6 +581,6 @@ async function main(mode, env = process.env) {
   throw new ProfileError('PROFILE_MODE_UNKNOWN');
 }
 module.exports = { SOURCE, BUILDS, BUNDLETOOL, FILES, ProfileError, verifySource, verifyProducer, verifyBuild,
-  download, application, resolvePolicy, policyEvidence, inspectApk, METRO_SERVER, verifyMetroContext, queryMetroContext, debugFlows, waitMetro, stopMetro, metroAbsent, RUNTIME_PHASES, api34Aggregate, failureCrashEvidence, observeFailure, runtime, main };
+  download, report, extractUniversal, application, resolvePolicy, policyEvidence, inspectApk, METRO_SERVER, verifyMetroContext, queryMetroContext, debugFlows, waitMetro, stopMetro, metroAbsent, RUNTIME_PHASES, api34Aggregate, verifyReleaseRuntimeContract, failureCrashEvidence, observeFailure, runtime, main };
 if (require.main === module) main(process.argv[2]).catch(error => { console.error('Validación de perfiles bloqueada: ' + (error instanceof ProfileError ? error.code : 'PROFILE_VALIDATION_FAILED'));
   process.exitCode = 1; });
