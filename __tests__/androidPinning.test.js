@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, PilotProxyError, resetOwnProxy, prepareRecoveryProxy, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -249,6 +249,133 @@ test('a reused connection, unrelated run or forbidden request cannot pass', () =
   expect(() => verdict([...proof(), { runId: 'other' }], context())).toThrow();
   expect(() => verdict([...proof(), event('control', 'forbidden_request', image, 'image')], context())).toThrow();
 });
+function proxyHarness(change = {}) {
+  const values = { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '10.0.2.2', global_http_proxy_port: '18080',
+    global_http_proxy_exclusion_list: '', global_proxy_pac_url: '', ...change.values };
+  let disabled = false, polls = 0, failAfterWrite = change.failAfterWrite;
+  const runAdb = jest.fn(async (args, options) => {
+    expect(options.timeout).toBeGreaterThan(0); expect(options.timeout).toBeLessThanOrEqual(1000);
+    expect(options.killSignal).toBe('SIGKILL'); expect(options.maxBuffer).toBe(1024);
+    if (change.fail === args.join(' ')) throw Error('SECRET https://private.invalid');
+    const key = args[4];
+    if (args[2] === 'get') {
+      if (disabled && key === 'http_proxy') {
+        polls++;
+        if (!change.noAck && polls >= (change.ackAt || 1)) {
+          Object.assign(values, { global_http_proxy_host: '', global_http_proxy_port: '0', global_http_proxy_exclusion_list: '', global_proxy_pac_url: '' }, change.after);
+        }
+      }
+      return (Object.hasOwn(values, key) ? values[key] : 'null') + '\n';
+    }
+    expect(args).toEqual(['shell', 'settings', 'put', 'global', 'http_proxy', ':0']);
+    values.http_proxy = ':0'; disabled = true;
+    if (failAfterWrite) { failAfterWrite = false; throw Error('SECRET write completed before transport failed'); }
+    return '';
+  });
+  return { values, runAdb, get polls() { return polls; } };
+}
+
+test('reset requires its own active proxy then observes the AOSP handler clearing modern keys, never writes those keys itself', async () => {
+  const h = proxyHarness(), report = await resetOwnProxy(h.runAdb, 'recovery');
+  expect(report).toMatchObject({ status: 'passed', ackMethod: 'aosp11-settings-handler-order', directServiceQuery: false,
+    ownProxyBefore: true, handlerAckObserved: true, consistentNoProxySettingsObserved: true, readAttempts: 1,
+    before: { deprecated: 'own', host: 'own', port: 'own' }, after: { deprecated: 'disabled', host: 'none', port: 'zero' } });
+  expect(h.runAdb.mock.calls.filter(([args]) => args[2] !== 'get').map(([args]) => args))
+    .toEqual([['shell', 'settings', 'put', 'global', 'http_proxy', ':0']]);
+});
+
+test('delete-only scenario with a retained global proxy is not accepted as recovery; cleanup still resets it', async () => {
+  const h = proxyHarness({ values: { http_proxy: 'null' } });
+  await expect(resetOwnProxy(h.runAdb, 'recovery')).rejects.toMatchObject({ code: 'PILOT_PROXY_OWNERSHIP_UNVERIFIED',
+    proxyEvidence: { before: { deprecated: 'absent', host: 'own', port: 'own' }, handlerAckObserved: false } });
+  expect(h.runAdb.mock.calls.every(([args]) => args[2] === 'get')).toBe(true);
+  expect(await resetOwnProxy(h.runAdb, 'cleanup')).toMatchObject({ status: 'passed', handlerAckObserved: true });
+});
+
+test.each([
+  { http_proxy: ':0', global_http_proxy_host: '', global_http_proxy_port: '0' },
+  { http_proxy: 'null', global_http_proxy_host: 'null', global_http_proxy_port: 'null' },
+  { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '', global_http_proxy_port: 'null' },
+  { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '10.0.2.2', global_http_proxy_port: '0' },
+])('cleanup accepts already-none or own pending setup, without fabricating an active prestate: %j', async values => {
+  const h = proxyHarness({ values }), report = await resetOwnProxy(h.runAdb, 'cleanup');
+  expect(report).toMatchObject({ status: 'passed', ownProxyBefore: false, consistentNoProxySettingsObserved: true });
+  expect(report.handlerAckObserved).toBe(false);
+});
+
+test.each([
+  { http_proxy: 'SECRET https://private.invalid' }, { global_http_proxy_host: 'SECRET' },
+  { global_http_proxy_port: '9999' }, { global_proxy_pac_url: 'SECRET' }, { global_http_proxy_exclusion_list: 'SECRET' },
+])('foreign or ambiguous proxy configuration fails before mutation and never exposes raw values: %j', async values => {
+  const h = proxyHarness({ values }); let error;
+  try { await resetOwnProxy(h.runAdb, 'cleanup'); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(PilotProxyError); expect(error.code).toBe('PILOT_PROXY_OWNERSHIP_UNVERIFIED');
+  expect(h.runAdb.mock.calls.every(([args]) => args[2] === 'get')).toBe(true);
+  expect(JSON.stringify(error.proxyEvidence)).not.toMatch(/SECRET|private.invalid|9999/);
+});
+
+test('legacy :0 alone cannot acknowledge a still-cached proxy; reads stop at the explicit bound', async () => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const h = proxyHarness({ noAck: true }), pending = resetOwnProxy(h.runAdb, 'recovery').catch(error => error);
+    await jest.advanceTimersByTimeAsync(3000); const error = await pending;
+    expect(error).toMatchObject({ code: 'PILOT_PROXY_ACK_TIMEOUT', proxyEvidence: { operation: 'read_ack', handlerAckObserved: false, readAttempts: 30,
+      after: { deprecated: 'disabled', host: 'own', port: 'own' } } });
+    expect(h.polls).toBe(30); expect(Date.now()).toBe(3000);
+  } finally { jest.useRealTimers(); }
+});
+
+test('a delayed local observer acknowledgement is bounded without an HTTP or app retry', async () => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const h = proxyHarness({ ackAt: 3 }), pending = resetOwnProxy(h.runAdb, 'recovery');
+    await jest.advanceTimersByTimeAsync(200); expect(await pending).toMatchObject({ status: 'passed', readAttempts: 3 });
+    expect(h.runAdb.mock.calls.every(([args]) => args[0] === 'shell' && args[1] === 'settings')).toBe(true);
+  } finally { jest.useRealTimers(); }
+});
+
+test.each(['shell settings get global global_http_proxy_host', 'shell settings put global http_proxy :0'])('transport failure keeps operation and no raw message: %s', async fail => {
+  const h = proxyHarness({ fail }), error = await resetOwnProxy(h.runAdb, 'cleanup').catch(error => error);
+  expect(error).toMatchObject({ code: 'PILOT_PROXY_ADB_FAILED', proxyEvidence: { status: 'failed', handlerAckObserved: false } });
+  expect(JSON.stringify(error.proxyEvidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test.each([{ global_http_proxy_host: 'private.invalid' }, { global_proxy_pac_url: 'SECRET' }])('unexpected post-write changes block acknowledgement: %j', after => {
+  const h = proxyHarness({ after });
+  return expect(resetOwnProxy(h.runAdb, 'cleanup')).rejects.toMatchObject({ code: 'PILOT_PROXY_STATE_CHANGED' });
+});
+
+test.each(['SECRET\u0001', 'x'.repeat(513)])('malformed/unbounded settings are not normalized into a clean proxy', value => {
+  const h = proxyHarness({ values: { global_http_proxy_host: value } });
+  return expect(resetOwnProxy(h.runAdb, 'cleanup')).rejects.toMatchObject({ code: 'PILOT_PROXY_STATE_INVALID' });
+});
+
+test('recovery stops the old app and marks the phase before reset; it cannot launch until acknowledgement', async () => {
+  const h = proxyHarness(), order = [], adb = jest.fn(async (...args) => { expect(args).toEqual(['shell', 'am', 'force-stop', '--user', '0', 'com.markadw.sportcenter']); order.push('stop'); });
+  const request = async (args, options) => { order.push(args[2]); return h.runAdb(args, options); };
+  const result = await prepareRecoveryProxy(adb, request, phase => order.push(phase)); order.push('launch permitted');
+  expect(order.slice(0, 2)).toEqual(['stop', 'recovery']); expect(order.indexOf('put')).toBeGreaterThan(1);
+  expect(order.at(-1)).toBe('launch permitted'); expect(result.handlerAckObserved).toBe(true);
+});
+
+test('write may mutate then fail; recovery cannot launch and cleanup must still verify the own reset', async () => {
+  const h = proxyHarness({ failAfterWrite: true }), launch = jest.fn();
+  await expect((async () => { await prepareRecoveryProxy(async () => {}, h.runAdb, () => {}); launch(); })()).rejects.toMatchObject({ code: 'PILOT_PROXY_ADB_FAILED' });
+  expect(h.values.http_proxy).toBe(':0'); expect(launch).not.toHaveBeenCalled();
+  expect(await resetOwnProxy(h.runAdb, 'cleanup')).toMatchObject({ status: 'passed', consistentNoProxySettingsObserved: true });
+});
+
+test('failure to stop the old process does not mutate proxy or phase', async () => {
+  const request = jest.fn(), phase = jest.fn();
+  await expect(prepareRecoveryProxy(async () => { throw Error('stop failed'); }, request, phase)).rejects.toThrow('stop failed');
+  expect(request).not.toHaveBeenCalled(); expect(phase).not.toHaveBeenCalled();
+});
+
+test('new recovery traffic through the proxy is rejected by the existing verdict invalid-configuration guard', () => {
+  expect(() => verdict([...proof(), event('recovery', 'invalid_configuration', api, 'unexpected-recovery')], context()))
+    .toThrow('El proxy detectó configuración o tráfico no admitido.');
+});
+
 const navNode = (attrs = {}, children = '') => '<node ' + Object.entries({ package: 'com.markadw.sportcenter',
   class: 'android.view.View', enabled: 'true', clickable: 'true', text: 'Catálogo', bounds: '[100,580][220,630]', ...attrs })
   .map(([key, value]) => key + '="' + value + '"').join(' ') + '>' + children + '</node>';
@@ -671,6 +798,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from OpenSSL import SSL
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -771,6 +899,13 @@ class Checks:
             check("matching_ca_pin_detected", pilot.certificate(data, client.sni)["pinMatches"])
             pilot.client_disconnected(client)
             check("disconnect_discards_cached_certificate", client.id not in pilot.client_certificates)
+            pilot.connections["existing-attack"] = {"phase": "attack", "host": client.sni, "connId": "existing-attack"}
+            Path(pilot.config["phaseFile"]).write_text("recovery", encoding="utf-8")
+            hello = SimpleNamespace(context=SimpleNamespace(client=SimpleNamespace(id="recovery-connection"), server=SimpleNamespace(address=(client.sni, 443))),
+                                    client_hello=SimpleNamespace(sni=client.sni), ignore_connection=False, establish_server_tls_first=False)
+            pilot.tls_clienthello(hello)
+            check("recovery_proxy_connection_invalidates_configuration", emitted[-1]["event"] == "invalid_configuration" and emitted[-1]["phase"] == "recovery" and hello.ignore_connection and not hello.establish_server_tls_first)
+            check("existing_attack_connection_not_relabelled", pilot.connections["recovery-connection"]["phase"] == "recovery" and pilot.connections["existing-attack"]["phase"] == "attack")
             result = {"passed": True, "checks": checks}
         except Exception:
             result = {"passed": False, "checks": checks, "failure": "offline crypto/API check failed"}
@@ -789,7 +924,7 @@ addons = [pilot, Checks()]
     expect(fs.existsSync(path.join(directory, 'result.json'))).toBe(true);
     const checks = JSON.parse(fs.readFileSync(path.join(directory, 'result.json'), 'utf8'));
     expect(checks.passed).toBe(true);
-    expect(checks.checks).toHaveLength(19);
+    expect(checks.checks).toHaveLength(21);
   } finally {
     if (path.dirname(path.resolve(directory)) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('sport-pinning-crypto-')) throw Error('Ruta temporal inesperada');
     fs.rmSync(directory, { recursive: true, force: true });

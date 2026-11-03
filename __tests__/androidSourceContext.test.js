@@ -39,3 +39,11 @@ test('pinning debe consumir API34 real de la automatización actual y del mismo 
   expect(() => verifyApi34Evidence(report, context)).not.toThrow();
   for (const key of Object.keys(report)) expect(() => verifyApi34Evidence({ ...report, [key]: 'wrong' }, context)).toThrow('API34_NOT_VERIFIED');
 });
+
+
+test('admite sólo la ruta auditada exacta del addon y rechaza vecinos/runtime', () => {
+  const check = changed => verifyAutomation({ commit: env.GITHUB_SHA, ref: env.GITHUB_REF, repository: env.GITHUB_REPOSITORY, changed });
+  expect(check('scripts/android-pinning-proxy.py')).toMatchObject({ changedAutomationFiles: 1 });
+  for (const route of ['scripts/android-pinning-proxy.py.bak', 'scripts/android-pinning-proxy.py/../app.json', 'scripts/android-pinning-install.sh', 'scripts/private-proxy.py', 'src/app/index.tsx', 'app.json'])
+    expect(() => check(route)).toThrow('APP_TREE_CHANGED');
+});

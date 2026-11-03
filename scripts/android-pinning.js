@@ -460,6 +460,60 @@ async function failureDiagnostics({ runAdb, xml = '', productName, readEvents, r
   })());
   await Promise.allSettled(tasks); return report;
 }
+const PROXY_SETTING_KEYS = ['http_proxy', 'global_http_proxy_host', 'global_http_proxy_port',
+  'global_http_proxy_exclusion_list', 'global_proxy_pac_url'];
+class PilotProxyError extends Error {
+  constructor(code, evidence) { super(code); this.code = code; this.proxyEvidence = { ...evidence, status: 'failed' }; }
+}
+async function resetOwnProxy(runAdb, mode) {
+  assert.ok(mode === 'recovery' || mode === 'cleanup', 'PILOT_PROXY_MODE_INVALID');
+  const evidence = { status: 'checking', mode, operation: 'read_before', ackMethod: 'aosp11-settings-handler-order',
+    directServiceQuery: false, handlerAckObserved: false, readAttempts: 0 };
+  const fail = code => { throw new PilotProxyError(code, evidence); };
+  const deadline = Date.now() + 3000;
+  const request = async args => {
+    const remaining = deadline - Date.now(); if (remaining <= 0) fail('PILOT_PROXY_ACK_TIMEOUT');
+    return runAdb(args, { timeout: Math.min(1000, remaining), killSignal: 'SIGKILL', maxBuffer: 1024 });
+  };
+  const snapshot = async () => {
+    const values = await Promise.all(PROXY_SETTING_KEYS.map(key => request(['shell', 'settings', 'get', 'global', key])));
+    if (values.some(value => typeof value !== 'string' || value.length > 512 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value))) fail('PILOT_PROXY_STATE_INVALID');
+    const [deprecated, host, port, exclusions, pac] = values.map(value => value.trim()), empty = value => value === '' || value === 'null';
+    return { deprecated: deprecated === '10.0.2.2:18080' ? 'own' : deprecated === ':0' ? 'disabled' : empty(deprecated) ? 'absent' : 'other',
+      host: host === '10.0.2.2' ? 'own' : empty(host) ? 'none' : 'other',
+      port: port === '18080' ? 'own' : port === '0' ? 'zero' : empty(port) ? 'absent' : 'other',
+      exclusionsEmpty: empty(exclusions), pacEmpty: empty(pac) };
+  };
+  try {
+    const before = evidence.before = await snapshot(); evidence.operation = 'verify_ownership';
+    const safe = before.deprecated !== 'other' && before.host !== 'other' && before.port !== 'other' && before.exclusionsEmpty && before.pacEmpty;
+    evidence.ownProxyBefore = before.deprecated === 'own' && before.host === 'own' && before.port === 'own' && safe;
+    evidence.alreadyNoneBefore = ['disabled', 'absent'].includes(before.deprecated) && before.host === 'none'
+      && ['zero', 'absent'].includes(before.port) && safe;
+    if (!safe || mode === 'recovery' && !evidence.ownProxyBefore) fail('PILOT_PROXY_OWNERSHIP_UNVERIFIED');
+    evidence.operation = 'write_disabled'; await request(['shell', 'settings', 'put', 'global', 'http_proxy', ':0']);
+    evidence.operation = 'read_ack';
+    for (let attempt = 0; attempt < 30; attempt++) {
+      evidence.readAttempts = attempt + 1; const after = evidence.after = await snapshot();
+      if (after.deprecated === 'disabled' && after.host === 'none' && after.port === 'zero' && after.exclusionsEmpty && after.pacEmpty) {
+        // AOSP11 clears mGlobalProxy before writing these modern keys. We never write those keys ourselves.
+        evidence.handlerAckObserved = before.host === 'own' && before.port === 'own';
+        evidence.consistentNoProxySettingsObserved = true; evidence.operation = 'complete'; evidence.status = 'passed'; return evidence;
+      }
+      if (after.deprecated === 'other' || after.host === 'other' || after.port === 'other' || !after.exclusionsEmpty || !after.pacEmpty) fail('PILOT_PROXY_STATE_CHANGED');
+      if (attempt < 29 && Date.now() < deadline) await sleep(Math.min(100, deadline - Date.now()));
+    }
+    fail('PILOT_PROXY_ACK_TIMEOUT');
+  } catch (error) {
+    if (error instanceof PilotProxyError) throw error;
+    throw new PilotProxyError('PILOT_PROXY_ADB_FAILED', evidence);
+  }
+}
+async function prepareRecoveryProxy(adb, runAdb, writePhase) {
+  await adb('shell', 'am', 'force-stop', '--user', '0', APP);
+  writePhase('recovery');
+  return resetOwnProxy(runAdb, 'recovery');
+}
 async function playStorePresent(adb) {
   // pm path devuelve 1 cuando el paquete no existe: list packages representa esa ausencia con éxito.
   const output = await adb('shell', 'pm', 'list', 'packages', 'com.android.vending');
@@ -660,6 +714,7 @@ async function pilot(env = process.env) {
   const progress = createPilotProgress(result); let lastUi = '';
   let proxy, proxyLog, caDevice, ownCaHash, installedCa = false, proxyChanged = false;
   const adb = (...args) => command('adb', ['-s', serial, ...args]);
+  const proxyAdb = (args, options) => command('adb', ['-s', serial, ...args], options);
   const output = path.resolve('test-results/android-pinning.json');
   const runId = randomUUID(), file = name => path.join(scratch, name);
   const writePhase = phase => fs.writeFileSync(file('phase'), phase, { mode: 0o600 });
@@ -738,7 +793,8 @@ async function pilot(env = process.env) {
     const reinstall = await progress.action('setup', 'apk_reinstall', () => reinstallSameApk(adb, apk, result.candidate.sha256));
     result.controls.installAfterCa = { installSuccess: reinstall.installSuccess, packagePathConfirmed: reinstall.packagePathConfirmed };
     result.controls.packageAfterReinstall = reinstall.packagePresent;
-    await progress.action('control', 'proxy_enabled', () => adb('shell', 'settings', 'put', 'global', 'http_proxy', '10.0.2.2:18080')); proxyChanged = true;
+    proxyChanged = true; // A command may mutate the setting before reporting an error. Cleanup must still attempt its own reset.
+    await progress.action('control', 'proxy_enabled', () => adb('shell', 'settings', 'put', 'global', 'http_proxy', '10.0.2.2:18080'));
     const uiPath = '/data/local/tmp/sport-pinning-' + runId + '.xml';
     const ui = async () => { lastUi = ''; lastUi = await readUiDump(adb, uiPath); return lastUi; };
     async function catalog(phase) {
@@ -766,7 +822,8 @@ async function pilot(env = process.env) {
     await progress.wait('attack', 'error_visible', async () => { const xml = await ui(); return visible(xml, 'No se pudo cargar el catálogo') && visible(xml, 'Reintentar') && !visible(xml, env.PRODUCT_NAME); });
     result.controls.negativeUi = true;
     await progress.wait('attack', 'tls_failure_event', async () => readEvents().some(e => e.phase === 'attack' && e.event === 'client_tls_failed'));
-    await progress.action('recovery', 'proxy_removed', () => adb('shell', 'settings', 'delete', 'global', 'http_proxy')); proxyChanged = false;
+    result.controls.proxyRecovery = await progress.action('recovery', 'proxy_removed', () => prepareRecoveryProxy(adb, proxyAdb, writePhase));
+    proxyChanged = false; // Only the handler acknowledgement permits the recovery launch to proceed.
     await catalog('recovery'); await progress.wait('recovery', 'product_visible', async () => visible(await ui(), env.PRODUCT_NAME)); result.controls.recoveryUi = true;
     progress.enter('recovery', 'apk_hash'); assert.equal(await sha256(apk), result.candidate.sha256, 'El APK cambió durante el piloto.'); progress.complete();
     progress.enter('recovery', 'verdict');
@@ -775,6 +832,7 @@ async function pilot(env = process.env) {
   } catch (error) {
     result.status = 'blocked_or_failed'; result.errorCode = error instanceof PilotLaunchError ? error.code : progress.errorCode(error); result.reason = result.errorCode;
     if (error instanceof PilotLaunchError) result.launchEvidence = error.launchEvidence;
+    if (error instanceof PilotProxyError) { result.proxyErrorCode = error.code; result.proxyEvidence = error.proxyEvidence; }
     if (error instanceof SystemImageError) {
       result.systemImageMismatch = error.diagnostic;
       if (error.packageListing) result.packageListing = error.packageListing;
@@ -788,8 +846,11 @@ async function pilot(env = process.env) {
   } finally {
     result.cleanupChecks = { proxy: 'not_required', ca: { status: 'not_required' } }; const cleanupErrors = [];
     if (proxyChanged) {
-      try { await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); result.cleanupChecks.proxy = 'restore_command_completed'; }
-      catch { result.cleanupChecks.proxy = 'failed'; cleanupErrors.push('PILOT_CLEANUP_PROXY_RESTORE_FAILED'); }
+      try { result.cleanupChecks.proxy = await resetOwnProxy(proxyAdb, 'cleanup'); proxyChanged = false; }
+      catch (error) {
+        result.cleanupChecks.proxy = error instanceof PilotProxyError ? error.proxyEvidence : { status: 'failed', operation: 'unknown' };
+        cleanupErrors.push(error instanceof PilotProxyError ? error.code : 'PILOT_CLEANUP_PROXY_RESTORE_FAILED');
+      }
     }
     if (installedCa) {
       try { result.cleanupChecks.ca = await removeOwnCa(adb, caDevice, ownCaHash); }
@@ -810,7 +871,7 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv, preflight, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, PilotProxyError, resetOwnProxy, prepareRecoveryProxy, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv, preflight, pilot };
 if (require.main === module) {
   const isPreflight = process.argv[2] === 'preflight';
   (isPreflight ? preflight() : pilot()).then(result => {

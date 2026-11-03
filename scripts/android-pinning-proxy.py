@@ -59,9 +59,14 @@ class PinningPilot:
             port = data.context.server.address[1] if data.context.server.address else 0
             conn = {"phase": phase, "host": host, "connId": data.context.client.id}
             self.connections[data.context.client.id] = conn
-            if phase not in ("control", "attack"):
+            if phase not in ("control", "attack", "recovery"):
                 data.ignore_connection = True
                 self.emit("addon_error", conn)
+                return
+            if phase == "recovery":
+                # Recovery must bypass this proxy. A new connection here invalidates the existing verdict guard.
+                data.ignore_connection = True
+                self.emit("invalid_configuration", conn)
                 return
             intercept = port == 443 and (
                 (phase == "control" and host == self.config["imageHost"])
