@@ -337,7 +337,7 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
       if (development) {
         need(state.developmentInspection.manifest.schemes.includes('exp+sport-center-mobile'), 'DEVCLIENT_SCHEME_NOT_DECLARED');
         metroFd = fs.openSync(path.join(files.scratch, 'metro-private.log'), 'wx', 0o600);
-        metro = start(process.execPath, [path.resolve('node_modules/expo/bin/cli'), 'start', '--dev-client', '--localhost', '--port', '8081'],
+        metro = start(process.execPath, ['--dns-result-order=ipv4first', path.resolve('node_modules/expo/bin/cli'), 'start', '--dev-client', '--localhost', '--port', '8081'],
           { env: { ...env, CI: '1', EXPO_NO_TELEMETRY: '1', EXPO_PUBLIC_API_URL: SOURCE.api }, detached: true, stdio: ['ignore', metroFd, metroFd] });
         metro.on('error', () => { metro.spawnFailure = true; });
         await ready(metro);

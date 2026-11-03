@@ -133,7 +133,7 @@ test('limpieza de Metro termina sólo el grupo propio y espera su salida', async
     expect(kill).toHaveBeenCalledWith(-123456, 'SIGTERM'); expect(child.kill).not.toHaveBeenCalled(); }
   finally { kill.mockRestore(); }
 });
-test('fallo Maestro Debug conserva fallo y limpia reverse, Metro y app sin ejecutar release', async () => {
+test('Debug alinea bind IPv4 con la URL y conserva limpieza ante fallo Maestro', async () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'sport-profiles-runtime-'));
   fs.mkdirSync(path.join(temporary, 'sport-center-profiles'));
   const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, pid: 123456 });
@@ -147,12 +147,15 @@ test('fallo Maestro Debug conserva fallo y limpia reverse, Metro y app sin ejecu
     if (args.includes('ro.product.cpu.abi')) return 'x86_64';
     return '';
   });
-  const stop = jest.fn(async () => { child.signalCode = 'SIGTERM'; }); const save = jest.fn();
+  const stop = jest.fn(async () => { child.signalCode = 'SIGTERM'; }); const save = jest.fn(), start = jest.fn(() => child);
   try {
     await expect(runtime({ RUNNER_TEMP: temporary, GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', PINNING_EPHEMERAL_AVD: 'true', PRODUCT_NAME: 'Test product' }, 34,
       { run, save, stop, platform: 'linux', source: async () => ({}), fileHash: async file => file.endsWith('development.apk') ? BUILDS.development.sha256 : 'd'.repeat(64),
         read: () => JSON.stringify(state), wait: async () => ({ ready: true }), idle: async () => true,
-        start: () => child, ready: async () => {} })).rejects.toThrow('PUBLIC_PROFILE_ACCEPTANCE_FAILED');
+        start, ready: async () => {} })).rejects.toThrow('PUBLIC_PROFILE_ACCEPTANCE_FAILED');
+    expect(start).toHaveBeenCalledWith(process.execPath, ['--dns-result-order=ipv4first', path.resolve('node_modules/expo/bin/cli'),
+      'start', '--dev-client', '--localhost', '--port', '8081'], expect.objectContaining({ detached: true }));
+    expect(start.mock.calls[0][2].env.NODE_OPTIONS).toBeUndefined();
     expect(stop).toHaveBeenCalledWith(child, expect.any(Function));
     expect(run.mock.calls.some(([, args]) => args.includes('--remove'))).toBe(true);
     expect(run.mock.calls.some(([, args]) => args.includes('uninstall'))).toBe(true);
