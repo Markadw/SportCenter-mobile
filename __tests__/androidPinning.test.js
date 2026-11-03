@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -149,6 +149,69 @@ test('diagnóstico nuevo identifica formato/conteos seguros y nunca publica desc
     expect(error.packageListing).toMatchObject({ format: 'android-cli', installedSections: 1, matchingRows: 1, updateAvailable: true });
     expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|Intel x86/);
   }
+});
+
+const activityComponent = 'com.markadw.sportcenter/com.markadw.sportcenter.MainActivity';
+const launcherManifest = '<manifest package="com.markadw.sportcenter"><application android:debuggable="false"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>';
+test('launcher único se obtiene del manifiesto compilado, no se adivina del nombre del paquete', () => {
+  expect(compiledLauncher(launcherManifest)).toEqual({ component: activityComponent, launcherCount: 1, exported: true });
+  for (const xml of [launcherManifest.replace('android:name=".MainActivity"', ''), launcherManifest.replace('exported="true"', 'exported="false"'),
+    launcherManifest.replace('</application>', launcherManifest.match(/<activity[\s\S]*<\/activity>/)[0] + '</application>'),
+    launcherManifest.replace('android.intent.category.LAUNCHER', 'android.intent.category.DEFAULT')]) expect(() => compiledLauncher(xml)).toThrow('PILOT_COMPILED_LAUNCHER_INVALID');
+});
+test('presencia, Success y pm path se verifican sin exponer rutas ni aceptar un APK diferente por texto ambiguo', () => {
+  expect(packagePresence('package:com.markadw.sportcenter\n')).toBe(true); expect(packagePresence('')).toBe(false);
+  expect(packagePresence('package:com.markadw.sportcenter.other\n')).toBe(false);
+  expect(installedApkEvidence('Performing Streamed Install\nSuccess\n', 'package:/data/app/~~abc==/com.markadw.sportcenter-123/base.apk\n'))
+    .toEqual({ installSuccess: true, packagePathConfirmed: true });
+  for (const [install, paths] of [['Failure [SECRET]', 'package:/data/app/a/base.apk'], ['Success\nSuccess', 'package:/data/app/a/base.apk'],
+    ['Success', 'package:/data/app/a/base.apk\npackage:/data/app/b/base.apk'], ['Success', 'package:/data/app/../base.apk'], ['Success', 'SECRET https://private.invalid']])
+    expect(() => installedApkEvidence(install, paths)).toThrow();
+});
+test('reinstalar tras CA usa sólo el APK con hash exacto y confirma Success/path/presencia', async () => {
+  const adb = jest.fn(async (...args) => args[0] === 'install' ? 'Performing Streamed Install\nSuccess\n'
+    : args.includes('path') ? 'package:/data/app/abc/base.apk\n' : 'package:com.markadw.sportcenter\n');
+  const hash = jest.fn(async () => digest);
+  expect(await reinstallSameApk(adb, '/private/same.apk', digest, hash)).toEqual({ installSuccess: true, packagePathConfirmed: true, packagePresent: true });
+  expect(adb.mock.calls[0]).toEqual(['install', '-r', '/private/same.apk']); expect(hash).toHaveBeenCalledWith('/private/same.apk');
+  const forbidden = jest.fn(); await expect(reinstallSameApk(forbidden, '/private/changed.apk', digest, async () => '0'.repeat(64))).rejects.toThrow('PILOT_APK_HASH_MISMATCH');
+  expect(forbidden).not.toHaveBeenCalled();
+});
+function launchAdb(change = {}) {
+  return jest.fn(async (...args) => {
+    const key = args.join(' ');
+    if (key.startsWith('shell cmd package list packages')) return change.absent ? '' : 'package:com.markadw.sportcenter\n';
+    if (key.startsWith('shell am force-stop')) return '';
+    if (key.startsWith('shell pm clear')) return change.clear || 'Success\n';
+    if (key.includes('query-activities')) return change.query || 'com.markadw.sportcenter/.MainActivity\n';
+    if (key.includes('resolve-activity')) return change.resolve || 'com.markadw.sportcenter/.MainActivity\n';
+    if (key.startsWith('shell am start')) return change.start || 'Starting: Intent\nStatus: ok\nActivity: com.markadw.sportcenter/.MainActivity\nComplete\n';
+    if (key.startsWith('shell pidof')) return change.pid ?? '123\n';
+    if (key === 'shell dumpsys activity activities') return change.foreground || 'mResumedActivity: ActivityRecord{123 u0 com.markadw.sportcenter/.MainActivity t1}\n';
+    throw Error('SECRET unexpected adb output');
+  });
+}
+test('arranque explícito requiere componente real, Status+Activity, PID y resumed; exit0 solo no basta', async () => {
+  const adb = launchAdb(); const result = await launchInstalledApp(adb, activityComponent);
+  expect(result).toEqual({ packagePresent: true, clearSucceeded: true, launcherUnique: true, resolverMatches: true,
+    startStatus: 'ok', activityMatches: true, processRunning: true, foregroundConfirmed: true });
+  expect(adb.mock.calls.find(args => args.includes('start'))).toContain(activityComponent);
+  expect(adb.mock.calls.find(args => args.includes('start'))).not.toContain('-p');
+  expect(adb.mock.calls.find(args => args.includes('query-activities'))).toContain('--components');
+});
+test.each([
+  [{ absent: true }, 'PILOT_PACKAGE_MISSING'], [{ clear: 'Failed' }, 'PILOT_CLEAR_NOT_SUCCESS'],
+  [{ query: 'com.markadw.sportcenter/.MainActivity\ncom.markadw.sportcenter/.MainActivity\n' }, 'PILOT_RUNTIME_LAUNCHER_INVALID'],
+  [{ resolve: 'No activity found\n' }, 'PILOT_RUNTIME_LAUNCHER_INVALID'],
+  [{ start: 'Error: Activity not started, unable to resolve SECRET\n' }, 'PILOT_START_REPORTED_ERROR'],
+  [{ start: 'Starting: Intent\n' }, 'PILOT_START_STATUS_INVALID'],
+  [{ start: 'Status: timeout\nActivity: com.markadw.sportcenter/.MainActivity\n' }, 'PILOT_START_STATUS_INVALID'],
+  [{ start: 'Status: ok\nActivity: another.package/.MainActivity\n' }, 'PILOT_START_ACTIVITY_INVALID'],
+  [{ pid: '' }, 'PILOT_PROCESS_MISSING'],
+  [{ foreground: 'mResumedActivity: ActivityRecord{a u0 com.android.launcher3/.Launcher t1}' }, 'PILOT_FOREGROUND_MISMATCH'],
+])('evidencia parcial o error am con exit0 falla cerrado %#', async (change, code) => {
+  try { await launchInstalledApp(launchAdb(change), activityComponent); throw Error('Expected failure'); }
+  catch (error) { expect(error).toBeInstanceOf(PilotLaunchError); expect(error.code).toBe(code); expect(JSON.stringify(error)).not.toMatch(/SECRET|ActivityRecord|Starting: Intent/); }
 });
 
 test('AOSP no relaja la exclusión de Vending, userdebug ni adbd root', () => {
@@ -354,6 +417,59 @@ test('the CA probe is valid remote-shell syntax and never opens a second unquote
   await expect(assertCaAbsent(async () => 'exists\n', '/system/etc/security/cacerts/1234abcd.0')).rejects.toThrow('Colisión');
   const unsafe = jest.fn(); await expect(assertCaAbsent(unsafe, '/tmp/cert;echo invalid')).rejects.toThrow();
   expect(unsafe).not.toHaveBeenCalled();
+});
+function cleanupAdb(change = {}) {
+  let removed = false;
+  return jest.fn(async (...args) => {
+    const key = args.join(' ');
+    if (change.fail && key === change.fail) throw Error('SECRET https://private.invalid');
+    if (key === 'root' || key === 'wait-for-device') return '';
+    if (key === 'shell id -u') return change.uid || '0\n';
+    if (key === 'remount') return 'remount succeeded\n';
+    if (key.includes('if [ -w ')) return change.writable || 'writable\n';
+    if (key.includes('then echo present')) return change.absent ? 'missing\n' : 'present\n';
+    if (key.startsWith('shell sha256sum')) return (change.hash || digest) + '  /system/etc/security/cacerts/1234abcd.0\n';
+    if (key.startsWith('shell rm -f')) { removed = true; return ''; }
+    if (key.includes('then echo exists')) return removed && !change.remains ? 'missing\n' : 'exists\n';
+    throw Error('Unexpected cleanup command');
+  });
+}
+const ownCaPath = '/system/etc/security/cacerts/1234abcd.0';
+test('cleanup reobtiene root/remount/RW, verifica identidad de CA propia y acredita ausencia tras rm único', async () => {
+  const adb = cleanupAdb(); const result = await removeOwnCa(adb, ownCaPath, digest);
+  expect(result).toMatchObject({ status: 'passed', operation: 'complete', rootVerified: true, writableState: 'writable', identityVerified: true,
+    removeCommandCompleted: true, absenceVerified: true, alreadyAbsent: false });
+  expect(adb.mock.calls.slice(0, 4)).toEqual([['root'], ['wait-for-device'], ['shell', 'id', '-u'], ['remount']]);
+  const sequence = adb.mock.calls.map(args => args.join(' '));
+  expect(sequence.findIndex(command => command.startsWith('shell sha256sum'))).toBeLessThan(sequence.findIndex(command => command.startsWith('shell rm -f')));
+  expect(adb.mock.calls.filter(args => args[1] === 'rm')).toEqual([['shell', 'rm', '-f', ownCaPath]]);
+  expect(sequence.at(-1)).toContain('then echo exists');
+});
+test.each([
+  [{ fail: 'root' }, 'root'], [{ fail: 'wait-for-device' }, 'wait_device'], [{ uid: '2000' }, 'verify_root'],
+  [{ fail: 'remount' }, 'remount'], [{ writable: 'not_writable' }, 'verify_writable'], [{ hash: '0'.repeat(64) }, 'verify_identity'],
+  [{ fail: 'shell rm -f ' + ownCaPath }, 'remove_own_ca'], [{ remains: true }, 'verify_absence'],
+])('cleanup no aprueba un paso sin acreditar y no expone stderr %#', async (change, operation) => {
+  const adb = cleanupAdb(change);
+  try { await removeOwnCa(adb, ownCaPath, digest); throw Error('Expected failure'); }
+  catch (error) {
+    expect(error).toBeInstanceOf(PilotCleanupError); expect(error.cleanupEvidence).toMatchObject({ status: 'failed', operation });
+    expect(error.code).toBe('PILOT_CLEANUP_CA_' + operation.toUpperCase() + '_FAILED');
+    expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|1234abcd|[a-f0-9]{64}/);
+  }
+  if (['root', 'wait_device', 'verify_root', 'remount', 'verify_writable', 'verify_identity'].includes(operation))
+    expect(adb.mock.calls.some(args => args[1] === 'rm')).toBe(false);
+});
+test('CA ya ausente se registra como tal; nunca se borra otro archivo ni se inventa eliminación', async () => {
+  const adb = cleanupAdb({ absent: true }); const result = await removeOwnCa(adb, ownCaPath, digest);
+  expect(result).toMatchObject({ status: 'passed', alreadyAbsent: true, absenceVerified: true, identityVerified: false, removeCommandCompleted: false });
+  expect(adb.mock.calls.some(args => args[1] === 'rm' || args[1] === 'sha256sum')).toBe(false);
+});
+test('ruta/huella inválida bloquea cleanup antes de cualquier ADB o borrado', async () => {
+  const adb = jest.fn();
+  await expect(removeOwnCa(adb, '/system/etc/security/cacerts/*', digest)).rejects.toThrow('PILOT_CLEANUP_CA_VALIDATE_TARGET_FAILED');
+  await expect(removeOwnCa(adb, ownCaPath, 'SECRET')).rejects.toThrow('PILOT_CLEANUP_CA_VALIDATE_TARGET_FAILED');
+  expect(adb).not.toHaveBeenCalled();
 });
 const uiDevice = '/data/local/tmp/sport-pinning-aabbccdd.xml';
 const uiXml = '<hierarchy rotation="0"><node package="com.markadw.sportcenter" text="Catálogo" bounds="[0,10][100,50]"/></hierarchy>';

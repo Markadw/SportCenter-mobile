@@ -218,6 +218,93 @@ function verifyAospPackage(listing) {
   evidence.installedVersion = version;
   return { package: packagePath, packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed', packageListing: evidence };
 }
+class PilotLaunchError extends Error {
+  constructor(code, evidence = {}) { super(code); this.code = code; this.launchEvidence = evidence; }
+}
+function componentName(value) {
+  if (typeof value !== 'string' || value.length > 300 || !/^[A-Za-z][A-Za-z0-9_.]*\/[.A-Za-z_$][A-Za-z0-9_.$]*$/.test(value)) return null;
+  const [pkg, activity] = value.split('/'), full = activity.startsWith('.') ? pkg + activity : activity;
+  return pkg === APP && full.startsWith(APP + '.') && /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/.test(full) ? pkg + '/' + full : null;
+}
+function compiledLauncher(manifest) {
+  const root = xmlTree(manifest), application = manifestApplication(manifest);
+  const candidates = application.children.filter(node => ['activity', 'activity-alias'].includes(node.name)
+    && node.children.some(filter => filter.name === 'intent-filter'
+      && filter.children.some(child => child.name === 'action' && child.attrs['android:name'] === 'android.intent.action.MAIN')
+      && filter.children.some(child => child.name === 'category' && child.attrs['android:name'] === 'android.intent.category.LAUNCHER')));
+  if (root.attrs.package !== APP || candidates.length !== 1 || candidates[0].name !== 'activity'
+    || candidates[0].attrs['android:exported'] !== 'true') throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  const name = candidates[0].attrs['android:name'];
+  if (typeof name !== 'string' || !name) throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  const qualified = name?.startsWith('.') ? APP + name : name?.includes('.') ? name : APP + '.' + name;
+  const component = componentName(APP + '/' + qualified);
+  if (!component) throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  return { component, launcherCount: 1, exported: true };
+}
+function packagePresence(output) {
+  if (typeof output !== 'string' || output.length > 65536) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  const lines = output.trim() ? output.trim().split(/\r?\n/).map(line => line.trim()) : [];
+  if (!lines.every(line => /^package:[A-Za-z][A-Za-z0-9_.]*$/.test(line))) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  const matches = lines.filter(line => line === 'package:' + APP).length;
+  if (matches > 1) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  return matches === 1;
+}
+function installedApkEvidence(output, packagePath) {
+  const lines = typeof output === 'string' ? output.trim().split(/\r?\n/) : [];
+  if (lines.at(-1) !== 'Success' || lines.filter(line => line === 'Success').length !== 1 || lines.some(line => /^(?:Failure|Error)\b/.test(line)))
+    throw new PilotLaunchError('PILOT_INSTALL_NOT_SUCCESS');
+  if (typeof packagePath !== 'string' || !/^package:\/data\/app\/[A-Za-z0-9_~./=+-]+\/base\.apk\s*$/.test(packagePath)
+    || packagePath.trim().split(/\r?\n/).length !== 1 || packagePath.includes('/../')) throw new PilotLaunchError('PILOT_PACKAGE_PATH_INVALID');
+  return { installSuccess: true, packagePathConfirmed: true };
+}
+async function reinstallSameApk(adb, apk, expectedHash, fileHash = sha256) {
+  if (await fileHash(apk) !== expectedHash) throw new PilotLaunchError('PILOT_APK_HASH_MISMATCH');
+  const installed = await adb('install', '-r', apk);
+  const evidence = installedApkEvidence(installed, await adb('shell', 'pm', 'path', '--user', '0', APP));
+  const packagePresent = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+  if (!packagePresent) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+  return { ...evidence, packagePresent };
+}
+async function launchInstalledApp(adb, expected) {
+  const evidence = { packagePresent: null, clearSucceeded: null, launcherUnique: null, resolverMatches: null,
+    startStatus: 'unobserved', activityMatches: null, processRunning: null, foregroundConfirmed: null };
+  try {
+    evidence.packagePresent = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+    if (!evidence.packagePresent) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+    await adb('shell', 'am', 'force-stop', '--user', '0', APP);
+    evidence.clearSucceeded = (await adb('shell', 'pm', 'clear', '--user', '0', APP)).trim() === 'Success';
+    if (!evidence.clearSucceeded) throw new PilotLaunchError('PILOT_CLEAR_NOT_SUCCESS');
+    const intent = ['--components', '--user', '0', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', APP];
+    const query = (await adb('shell', 'cmd', 'package', 'query-activities', ...intent)).trim().split(/\r?\n/).filter(Boolean);
+    const resolved = (await adb('shell', 'cmd', 'package', 'resolve-activity', ...intent)).trim().split(/\r?\n/).filter(Boolean);
+    const component = componentName(expected);
+    evidence.launcherUnique = query.length === 1 && !!component && componentName(query[0]) === component;
+    evidence.resolverMatches = resolved.length === 1 && !!component && componentName(resolved[0]) === component;
+    if (!evidence.launcherUnique || !evidence.resolverMatches) throw new PilotLaunchError('PILOT_RUNTIME_LAUNCHER_INVALID');
+    const output = await adb('shell', 'am', 'start', '--user', '0', '-W', '-n', component, '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER');
+    const lines = output.split(/\r?\n/).map(line => line.trim()), statuses = lines.filter(line => line.startsWith('Status:')),
+      activities = lines.filter(line => line.startsWith('Activity:'));
+    if (lines.some(line => /^Error(?:\s+type\s+\d+)?:/.test(line))) { evidence.startStatus = 'error'; throw new PilotLaunchError('PILOT_START_REPORTED_ERROR'); }
+    evidence.startStatus = statuses.length === 1 && statuses[0] === 'Status: ok' ? 'ok'
+      : statuses.length === 1 && statuses[0] === 'Status: timeout' ? 'timeout' : 'invalid';
+    if (evidence.startStatus !== 'ok') throw new PilotLaunchError('PILOT_START_STATUS_INVALID');
+    evidence.activityMatches = activities.length === 1 && componentName(activities[0].slice('Activity:'.length).trim()) === component;
+    if (!evidence.activityMatches) throw new PilotLaunchError('PILOT_START_ACTIVITY_INVALID');
+    const pid = (await adb('shell', 'pidof ' + APP + ' || true')).trim();
+    evidence.processRunning = /^[1-9]\d*(?:\s+[1-9]\d*)*$/.test(pid);
+    if (!evidence.processRunning) throw new PilotLaunchError('PILOT_PROCESS_MISSING');
+    const foreground = await adb('shell', 'dumpsys', 'activity', 'activities');
+    if (foreground.length > 256 * 1024) throw new PilotLaunchError('PILOT_FOREGROUND_INVALID');
+    const resumed = foreground.split(/\r?\n/).filter(line => /\b(?:mResumedActivity:|topResumedActivity=|ResumedActivity:)/.test(line))
+      .flatMap(line => line.match(/[A-Za-z][A-Za-z0-9_.]*\/[.A-Za-z_$][A-Za-z0-9_.$]*/g) || []);
+    evidence.foregroundConfirmed = resumed.length > 0 && resumed.every(value => componentName(value) === component);
+    if (!evidence.foregroundConfirmed) throw new PilotLaunchError('PILOT_FOREGROUND_MISMATCH');
+    return evidence;
+  } catch (error) {
+    if (error instanceof PilotLaunchError) { error.launchEvidence = evidence; throw error; }
+    throw new PilotLaunchError('PILOT_LAUNCH_ADB_FAILED', evidence);
+  }
+}
 function minSdkEvidence(value) {
   assert.match(value.trim(), /^\d+$/, 'minSdk no disponible.');
   const minimum = Number(value.trim());
@@ -275,7 +362,7 @@ async function until(action, timeout = 90000) { const end = Date.now() + timeout
 class PilotWaitTimeout extends Error { constructor() { super('PILOT_WAIT_TIMEOUT'); } }
 const PILOT_PHASES = ['setup', 'control', 'attack', 'recovery'];
 const PILOT_OPERATIONS = ['initialization', 'candidate', 'compiled_policy', 'system_image', 'tool_version', 'proxy_state',
-  'emulator', 'apk_install', 'proxy_start', 'proxy_ca_ready', 'proxy_listening', 'ca_prepare', 'boot_verified', 'remount',
+  'emulator', 'apk_install', 'package_after_ca', 'apk_reinstall', 'proxy_start', 'proxy_ca_ready', 'proxy_listening', 'ca_prepare', 'boot_verified', 'remount',
   'boot_remounted', 'ca_install', 'boot_with_ca', 'clock_check', 'proxy_enabled', 'catalog_launch', 'catalog_visible',
   'catalog_opened', 'product_visible', 'image_2xx', 'proxy_stopped', 'proxy_restart', 'error_visible', 'tls_failure_event',
   'proxy_removed', 'apk_hash', 'verdict'];
@@ -378,6 +465,39 @@ async function playStorePresent(adb) {
   const output = await adb('shell', 'pm', 'list', 'packages', 'com.android.vending');
   return output.trim().split(/\r?\n/).some(line => line === 'package:com.android.vending');
 }
+class PilotCleanupError extends Error {
+  constructor(evidence) {
+    super('PILOT_CLEANUP_CA_' + evidence.operation.toUpperCase() + '_FAILED');
+    this.code = this.message; this.cleanupEvidence = { ...evidence, status: 'failed' };
+  }
+}
+async function removeOwnCa(adb, devicePath, expectedHash) {
+  const evidence = { status: 'blocked', operation: 'validate_target', rootVerified: false, writableState: 'unobserved',
+    identityVerified: false, removeCommandCompleted: false, alreadyAbsent: false, absenceVerified: false };
+  try {
+    assert.match(devicePath || '', /^\/system\/etc\/security\/cacerts\/[a-f0-9]{8}\.0$/);
+    assert.match(expectedHash || '', /^[a-f0-9]{64}$/);
+    evidence.operation = 'root'; await adb('root');
+    evidence.operation = 'wait_device'; await adb('wait-for-device');
+    evidence.operation = 'verify_root'; assert.equal((await adb('shell', 'id', '-u')).trim(), '0'); evidence.rootVerified = true;
+    evidence.operation = 'remount'; await adb('remount');
+    evidence.operation = 'verify_writable';
+    const writable = (await adb('shell', 'if [ -w /system/etc/security/cacerts ]; then echo writable; else echo not_writable; fi')).trim();
+    evidence.writableState = ['writable', 'not_writable'].includes(writable) ? writable : 'invalid';
+    assert.equal(evidence.writableState, 'writable');
+    evidence.operation = 'check_presence';
+    const presence = (await adb('shell', 'if [ -e ' + devicePath + ' ]; then echo present; else echo missing; fi')).trim();
+    assert.ok(['present', 'missing'].includes(presence));
+    if (presence === 'missing') { evidence.alreadyAbsent = true; evidence.absenceVerified = true; }
+    else {
+      evidence.operation = 'verify_identity';
+      assert.equal((await adb('shell', 'sha256sum', devicePath)).trim().split(/\s+/)[0], expectedHash); evidence.identityVerified = true;
+      evidence.operation = 'remove_own_ca'; await adb('shell', 'rm', '-f', devicePath); evidence.removeCommandCompleted = true;
+      evidence.operation = 'verify_absence'; await assertCaAbsent(adb, devicePath); evidence.absenceVerified = true;
+    }
+    evidence.operation = 'complete'; evidence.status = 'passed'; return evidence;
+  } catch { throw new PilotCleanupError(evidence); }
+}
 async function assertCaAbsent(adb, devicePath) {
   assert.match(devicePath, /^\/system\/etc\/security\/cacerts\/[a-f0-9]{8}\.0$/);
   // adb ya invoca el shell remoto; un segundo sh -c perdería las comillas del cuerpo.
@@ -414,7 +534,7 @@ async function readCompiledPolicy(env, apk, meta, controls = {}) {
   controls.minSdk = minSdkEvidence(await command(analyzer, ['manifest', 'min-sdk', apk]));
   const manifest = await command(analyzer, ['manifest', 'print', apk], { diagnostic: 'NSC_MANIFEST' });
   const nsc = await loadCompiledNsc(manifest, apk, { analyzer, aapt2: tools.aapt2 });
-  controls.nscResource = nsc.resource;
+  controls.nscResource = nsc.resource; controls.launcher = compiledLauncher(manifest);
   const policy = compiledPolicy(manifest, nsc.xml, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256), nsc.resource);
   controls.compiledNsc = { compiled: true, systemOnly: true, apiHost, imageHost, pinCount: policy.pins.length };
   return policy;
@@ -440,7 +560,7 @@ async function pilot(env = process.env) {
   const temporary = path.resolve(env.RUNNER_TEMP || os.tmpdir()), scratch = fs.mkdtempSync(path.join(temporary, 'sport-pinning-'));
   const result = { status: 'blocked', controls: {}, tool: TOOL.version };
   const progress = createPilotProgress(result); let lastUi = '';
-  let proxy, proxyLog, caDevice, installedCa = false, proxyChanged = false;
+  let proxy, proxyLog, caDevice, ownCaHash, installedCa = false, proxyChanged = false;
   const adb = (...args) => command('adb', ['-s', serial, ...args]);
   const output = path.resolve('test-results/android-pinning.json');
   const runId = randomUUID(), file = name => path.join(scratch, name);
@@ -473,7 +593,12 @@ async function pilot(env = process.env) {
       type: await getprop('ro.build.type'), abi: await getprop('ro.product.cpu.abi'), root: (await adb('shell', 'id', '-u')).trim(),
       playStore: await playStorePresent(adb) });
     progress.complete();
-    await progress.action('setup', 'apk_install', () => adb('install', '-r', apk));
+    await progress.action('setup', 'apk_install', async () => {
+      const installed = await adb('install', '-r', apk);
+      result.controls.installBeforeCa = installedApkEvidence(installed, await adb('shell', 'pm', 'path', '--user', '0', APP));
+      result.controls.packageBeforeCa = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+      if (!result.controls.packageBeforeCa) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+    });
     progress.enter('setup', 'proxy_start'); writePhase('control');
     fs.writeFileSync(file('config.json'), JSON.stringify({ runId, apiHost, imageHost, pins: policy.pins, phaseFile: file('phase'), events: file('events.jsonl'), caFile: file('ca/mitmproxy-ca-cert.pem') }), { mode: 0o600 });
     proxyLog = fs.openSync(file('proxy.log'), 'wx', 0o600);
@@ -503,22 +628,25 @@ async function pilot(env = process.env) {
     progress.complete(); progress.enter('setup', 'ca_install');
     caDevice = '/system/etc/security/cacerts/' + hash + '.0';
     await assertCaAbsent(adb, caDevice);
+    ownCaHash = await sha256(caFile);
     await adb('push', caFile, caDevice); installedCa = true;
     await adb('shell', 'chmod', '644', caDevice); await adb('shell', 'chown', 'root:root', caDevice); await adb('shell', 'restorecon', caDevice);
-    assert.equal((await adb('shell', 'sha256sum', caDevice)).trim().split(/\s+/)[0], await sha256(caFile), 'CA copiada distinta.');
+    assert.equal((await adb('shell', 'sha256sum', caDevice)).trim().split(/\s+/)[0], ownCaHash, 'CA copiada distinta.');
     result.controls.caCopyVerified = true; progress.complete(); progress.enter('setup', 'boot_with_ca');
     await adb('reboot'); await adb('wait-for-device');
     await progress.wait('setup', 'boot_with_ca', async () => (await getprop('sys.boot_completed')) === '1', 120000);
     result.controls.clockSynchronized = await progress.action('setup', 'clock_check', async () => clockEvidence(await adb('shell', 'date', '+%s'), Date.now()));
+    result.controls.packageAfterCa = await progress.action('setup', 'package_after_ca', async () => packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP)));
+    const reinstall = await progress.action('setup', 'apk_reinstall', () => reinstallSameApk(adb, apk, result.candidate.sha256));
+    result.controls.installAfterCa = { installSuccess: reinstall.installSuccess, packagePathConfirmed: reinstall.packagePathConfirmed };
+    result.controls.packageAfterReinstall = reinstall.packagePresent;
     await progress.action('control', 'proxy_enabled', () => adb('shell', 'settings', 'put', 'global', 'http_proxy', '10.0.2.2:18080')); proxyChanged = true;
     const uiPath = '/data/local/tmp/sport-pinning-' + runId + '.xml';
     const ui = async () => { lastUi = ''; lastUi = await readUiDump(adb, uiPath); return lastUi; };
     async function catalog(phase) {
       lastUi = '';
-      await progress.action(phase, 'catalog_launch', async () => {
-        await adb('shell', 'am', 'force-stop', APP); await adb('shell', 'pm', 'clear', APP);
-        await adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', APP);
-      });
+      result.launchChecks ||= {};
+      result.launchChecks[phase] = await progress.action(phase, 'catalog_launch', () => launchInstalledApp(adb, result.controls.launcher.component));
       let current = '';
       await progress.wait(phase, 'catalog_visible', async () => { current = await ui(); return visible(current, 'Catálogo'); });
       await progress.action(phase, 'catalog_opened', () => adb('shell', 'input', 'tap', ...tapBounds(current, 'Catálogo').map(String)));
@@ -547,7 +675,8 @@ async function pilot(env = process.env) {
     Object.assign(result, verdict(readEvents(), { runId, compiled: policy, caInstalled: true, caSha256: caDigest, baselineUi: true, negativeUi: true, recoveryUi: true }));
     progress.complete(); await adb('shell', 'rm', '-f', uiPath);
   } catch (error) {
-    result.status = 'blocked_or_failed'; result.errorCode = progress.errorCode(error); result.reason = result.errorCode;
+    result.status = 'blocked_or_failed'; result.errorCode = error instanceof PilotLaunchError ? error.code : progress.errorCode(error); result.reason = result.errorCode;
+    if (error instanceof PilotLaunchError) result.launchEvidence = error.launchEvidence;
     if (error instanceof SystemImageError) {
       result.systemImageMismatch = error.diagnostic;
       if (error.packageListing) result.packageListing = error.packageListing;
@@ -559,8 +688,22 @@ async function pilot(env = process.env) {
       });
     } catch { result.failureDiagnostics = { errorCode: 'PILOT_FAILURE_DIAGNOSTIC_FAILED' }; }
   } finally {
-    try { if (proxyChanged) await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); if (installedCa) { await adb('root'); await adb('wait-for-device'); await adb('shell', 'rm', '-f', caDevice); } }
-    catch { result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.'; result.cleanupErrorCode = 'PILOT_CLEANUP_FAILED'; }
+    result.cleanupChecks = { proxy: 'not_required', ca: { status: 'not_required' } }; const cleanupErrors = [];
+    if (proxyChanged) {
+      try { await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); result.cleanupChecks.proxy = 'restore_command_completed'; }
+      catch { result.cleanupChecks.proxy = 'failed'; cleanupErrors.push('PILOT_CLEANUP_PROXY_RESTORE_FAILED'); }
+    }
+    if (installedCa) {
+      try { result.cleanupChecks.ca = await removeOwnCa(adb, caDevice, ownCaHash); }
+      catch (error) {
+        result.cleanupChecks.ca = error instanceof PilotCleanupError ? error.cleanupEvidence : { status: 'failed', operation: 'unknown' };
+        cleanupErrors.push(error instanceof PilotCleanupError ? error.code : 'PILOT_CLEANUP_CA_FAILED');
+      }
+    }
+    if (cleanupErrors.length) {
+      result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.';
+      result.cleanupErrorCode = cleanupErrors[0]; result.cleanupErrors = cleanupErrors;
+    }
     if (proxy && proxy.exitCode === null) { proxy.kill('SIGTERM'); try { await until(async () => proxy.exitCode !== null, 10000); } catch { proxy.kill('SIGKILL'); } }
     if (proxyLog !== undefined) fs.closeSync(proxyLog);
     assert.ok(path.dirname(scratch) === temporary && path.basename(scratch).startsWith('sport-pinning-'));
@@ -569,7 +712,7 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
 if (require.main === module) {
   const isPreflight = process.argv[2] === 'preflight';
   (isPreflight ? preflight() : pilot()).then(result => {
