@@ -152,6 +152,22 @@ function emulatorEvidence(properties) {
   assert.equal(properties.abi, 'x86_64'); assert.equal(properties.root, '0'); assert.equal(properties.playStore, false, 'PLAY_STORE_PRESENT');
   return { api: 30, abi: 'x86_64', type: 'userdebug', ephemeral: true };
 }
+function verifyAospPackage(listing) {
+  const packagePath = 'system-images;android-30;default;x86_64';
+  const location = 'system-images/android-30/default/x86_64';
+  const fail = (property, expected, actual) => { throw new SystemImageError(property, expected, actual); };
+  if (typeof listing !== 'string' || listing.length > 4 * 1024 * 1024) fail('InstalledPackage.Table', 'single installed table', '[invalid]');
+  const lines = listing.split(/\r?\n/).map(line => line.trim());
+  const heading = lines.indexOf('Installed packages:');
+  const headers = lines.map((line, index) => line.split('|').map(cell => cell.trim()).join('|') === 'Path|Version|Description|Location' ? index : -1).filter(index => index >= 0);
+  if (heading < 0 || lines.lastIndexOf('Installed packages:') !== heading || headers.length !== 1 || headers[0] <= heading)
+    fail('InstalledPackage.Table', 'single installed table', '[missing_or_ambiguous]');
+  const rows = lines.slice(headers[0] + 1).map(line => line.split('|').map(cell => cell.trim())).filter(cells => cells[0] === packagePath);
+  if (rows.length !== 1 || rows[0].length !== 4) fail('InstalledPackage.Path', packagePath, rows.length > 1 ? '[duplicate]' : '[missing_or_malformed]');
+  if (rows[0][1] !== '11') fail('InstalledPackage.Revision', '11', /^\d{1,3}$/.test(rows[0][1]) ? rows[0][1] : '[unrecognized]');
+  if (rows[0][3] !== location && rows[0][3] !== location + '/') fail('InstalledPackage.Location', location, '[unrecognized]');
+  return { package: packagePath, packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed' };
+}
 function minSdkEvidence(value) {
   assert.match(value.trim(), /^\d+$/, 'minSdk no disponible.');
   const minimum = Number(value.trim());
@@ -288,7 +304,8 @@ async function pilot(env = process.env) {
     const { apiHost, imageHost } = policy;
     const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
     assert.ok(typeof sdk === 'string' && path.isAbsolute(sdk), 'ANDROID_SDK_REQUIRED');
-    result.controls.systemImage = verifyAospImage(fs.readFileSync(path.join(sdk, 'system-images/android-30/default/x86_64/source.properties'), 'utf8'));
+    const installed = verifyAospPackage(await command(path.join(sdk, 'cmdline-tools/23.0/bin/sdkmanager'), ['--list_installed', '--sdk_root=' + sdk]));
+    result.controls.systemImage = { ...installed, ...verifyAospImage(fs.readFileSync(path.join(sdk, 'system-images/android-30/default/x86_64/source.properties'), 'utf8')) };
     const version = await command(env.MITMDUMP || 'mitmdump', ['--version']); assert.match(version, /^Mitmproxy:\s+12\.3\.1(?: binary)?\s*$/m, 'Versión mitmproxy distinta de la fijada.');
     const priorProxy = (await adb('shell', 'settings', 'get', 'global', 'http_proxy')).trim();
     assert.ok(['null', '', ':0'].includes(priorProxy), 'El AVD ya tenía proxy: no es un control limpio.');
@@ -371,7 +388,7 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
 if (require.main === module) {
   const isPreflight = process.argv[2] === 'preflight';
   (isPreflight ? preflight() : pilot()).then(result => {

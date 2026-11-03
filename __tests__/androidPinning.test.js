@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -66,6 +66,33 @@ test('physical devices, Play builds, a different API, ABI or non-root adbd never
     expect(() => emulatorEvidence({ ...properties, ...change })).toThrow();
   }
 });
+// SDKManager23 ListAction reads LocalPackage metadata; its non-verbose TableFormatter uses these four columns.
+const installedAosp = 'Installed packages:\n  Path | Version | Description | Location\n  ------- | ------- | ------- | -------\n  system-images;android-30;default;x86_64 | 11 | Intel x86_64 Atom System Image | system-images/android-30/default/x86_64/\n';
+test('distingue paquete instalado11 de propiedad legada10 sin leer XML de licencias', () => {
+  expect(verifyAospPackage(installedAosp)).toEqual({ package: 'system-images;android-30;default;x86_64', packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed' });
+});
+test.each([
+  listing => listing.replace(' | 11 | ', ' | 10 | '),
+  listing => listing.replace(' | 11 | ', ' | 12 | '),
+  listing => listing.replace(';default;', ';google_apis;'),
+  listing => listing.replace('system-images/android-30/default/x86_64/', '../another-image/'),
+  listing => listing + listing.split('\n').find(line => line.includes(' | 11 | ')) + '\n',
+  listing => listing.replace('Installed packages:', 'Available Packages:'),
+  listing => listing + 'Installed packages:\n',
+  listing => listing.replace('Path | Version | Description | Location', 'Path | Version | Location'),
+])('paquete instalado ambiguo/otro11/metadatos incoherentes bloquean %#', mutate => {
+  expect(() => verifyAospPackage(mutate(installedAosp))).toThrow('SYSTEM_IMAGE_MISMATCH');
+});
+test('diagnóstico instalado separa revisión y nunca publica filas, rutas locales, URLs o secretos', () => {
+  for (const [value, actual] of [['10', '10'], ['https://private.invalid?token=SECRET', '[unrecognized]']]) {
+    try { verifyAospPackage(installedAosp.replace(' | 11 | ', ' | ' + value + ' | ')); throw Error('Expected rejection'); }
+    catch (error) {
+      expect(error.diagnostic).toEqual({ property: 'InstalledPackage.Revision', expected: '11', actual });
+      expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|Intel x86/);
+    }
+  }
+});
+
 test('AOSP no relaja la exclusión de Vending, userdebug ni adbd root', () => {
   const properties = { serial: 'emulator-5554', sdk: '30', qemu: '1', type: 'userdebug', abi: 'x86_64', root: '0', playStore: false };
   expect(() => emulatorEvidence({ ...properties, playStore: true })).toThrow('PLAY_STORE_PRESENT');

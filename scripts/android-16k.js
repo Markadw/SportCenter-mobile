@@ -107,9 +107,10 @@ function verifyImage(properties) {
   return { package: SOURCE.image, revision: 7 };
 }
 function verifyAospImage(properties) {
-  systemImageEvidence(properties, { 'Pkg.Revision': '11', 'AndroidVersion.ApiLevel': '30',
+  // The official r11 archive retains Pkg.Revision=10 in its payload; installed package metadata is checked separately.
+  systemImageEvidence(properties, { 'Pkg.Revision': '10', 'AndroidVersion.ApiLevel': '30',
     'SystemImage.Abi': 'x86_64', 'SystemImage.TagId': 'default' });
-  return { package: 'system-images;android-30;default;x86_64', revision: 11 };
+  return { package: 'system-images;android-30;default;x86_64', payloadRevision: 10 };
 }
 function verifyRuntime({ pageSize, abi, api }) {
   requireValue(pageSize.trim() === '16384', 'PAGE_SIZE_NOT_16KB');

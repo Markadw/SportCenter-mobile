@@ -135,10 +135,10 @@ test.each(['page_size_16kb', 'google_apis_ps16k', 'google_apis,page_size_16kb,pa
   expect(() => verifyImage(image.replace('google_apis,page_size_16kb', tags))).toThrow('SYSTEM_IMAGE_MISMATCH');
 });
 
-test('acepta sólo AOSP API30 default revisión11 y conserva diagnósticos acotados por propiedad', () => {
-  const aosp = 'Pkg.Revision=11\nAndroidVersion.ApiLevel=30\nSystemImage.Abi=x86_64\nSystemImage.TagId=default\n';
-  expect(verifyAospImage(aosp)).toEqual({ package: 'system-images;android-30;default;x86_64', revision: 11 });
-  for (const [property, expected, value] of [['Pkg.Revision', '11', '12'], ['AndroidVersion.ApiLevel', '30', '34'],
+test('payload oficial AOSP r11 conserva revisión10 y diagnósticos acotados por propiedad', () => {
+  const aosp = 'Pkg.Revision=10\nAndroidVersion.ApiLevel=30\nSystemImage.Abi=x86_64\nSystemImage.TagId=default\n';
+  expect(verifyAospImage(aosp)).toEqual({ package: 'system-images;android-30;default;x86_64', payloadRevision: 10 });
+  for (const [property, expected, value] of [['Pkg.Revision', '10', '11'], ['AndroidVersion.ApiLevel', '30', '34'],
     ['SystemImage.Abi', 'x86_64', 'arm64-v8a'], ['SystemImage.TagId', 'default', 'google_apis']]) {
     try { verifyAospImage(aosp.replace(property + '=' + expected, property + '=' + value)); throw Error('Expected rejection'); }
     catch (error) { expect(error).toBeInstanceOf(SystemImageError); expect(error.diagnostic).toEqual({ property, expected, actual: value }); }
