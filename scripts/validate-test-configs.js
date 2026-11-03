@@ -27,14 +27,14 @@ function validateProfilesWorkflow(workflow) {
   assert.equal(job.env.keep_evidence, 'true');
   assert.equal(job.env.PINNING_EPHEMERAL_AVD, 'true');
   assert.ok(!job.env.EXPO_TOKEN && !job.env.GITHUB_TOKEN && !job.env.GITHUB_SHA && !job.env.GITHUB_REF, 'Tokens sólo en la consulta correspondiente');
-  const ordered = ['prepare', 'view', 'download', 'inspect', 'kvm', 'api34', 'api36'];
+  const ordered = ['prepare', 'view', 'download', 'inspect', 'kvm', 'debug34', 'release34', 'api36'];
   let previous = -1;
   for (const mode of ordered) {
     const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-profiles.js ' + mode
       || step.with?.script === 'node scripts/android-profiles.js ' + mode);
     assert.equal(matches.length, 1, 'Cada fase de perfiles debe ejecutarse exactamente una vez: ' + mode);
     assert.ok(matches[0].index > previous && !matches[0].step['continue-on-error'], 'Fase omitida o fuera de orden: ' + mode);
-    if (mode === 'api36') assert.equal(matches[0].step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'API36 conserva prerrequisitos e independencia del resultado API34');
+    if (mode === 'api36' || mode === 'release34') assert.equal(matches[0].step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'API36 conserva prerrequisitos e independencia del resultado API34');
     else assert.ok(!matches[0].step.if, 'Fase de perfiles no puede omitirse: ' + mode);
     previous = matches[0].index;
   }
@@ -49,14 +49,17 @@ function validateProfilesWorkflow(workflow) {
   validateDecoder23(job, inspect, job.steps.findIndex(step => step.run === 'node scripts/android-profiles.js download'));
   assert.ok(job.steps.find(step => step.id === 'command_line_tools').run.includes('"build-tools;37.0.0"'));
   assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
-  for (const [id, api, target, name] of [['api34', 34, 'google_apis', 'profiles34'], ['pages16k', 36, 'google_apis_ps16k', 'profiles16k']]) {
+  for (const [id, api, target, name] of [['debug34', 34, 'google_apis', 'profiles-debug34'], ['release34', 34, 'google_apis', 'profiles-release34'], ['pages16k', 36, 'google_apis_ps16k', 'profiles16k']]) {
     const step = job.steps.find(item => item.id === id);
     if (id === 'pages16k') validate16kMemory(step);
+    else assert.equal(step.with['ram-size'], undefined, 'API34 no cambia RAM');
     assert.equal(step.uses, 'reactivecircus/android-emulator-runner@v2');
     assert.equal(step.with['api-level'], api); assert.equal(step.with.target, target); assert.equal(step.with.arch, 'x86_64');
     assert.equal(step.with['avd-name'], name); assert.equal(step.with['force-avd-creation'], true); assert.equal(step.with['disable-linux-hw-accel'], false);
     assert.ok(step.with['emulator-options'].includes('-accel on') && step.with['emulator-options'].includes('-no-snapshot'));
   }
+  assert.ok(!job.steps.some(step => step.with?.script === 'node scripts/android-profiles.js api34'), 'No reutilizar modo API34 mixto');
+  assert.equal(new Set(job.steps.filter(step => step.uses === 'reactivecircus/android-emulator-runner@v2').map(step => step.with['avd-name'])).size, 3);
   assert.equal(job.steps.find(step => step.run === 'node scripts/android-profiles.js cleanup')?.if, 'always()');
   assert.equal(job.steps.find(step => step.run === 'node scripts/android-profiles.js summary')?.if, 'always()');
   const artifact = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));

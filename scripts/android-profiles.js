@@ -28,7 +28,7 @@ const FILES = Object.freeze(['.github/workflows/ci.yml', '.github/workflows/andr
   'scripts/validate-test-configs.js', 'tests/manual/android-profiles.md', 'README.md',
   'scripts/android-pinning.js', '__tests__/androidPinning.test.js', 'tests/manual/android-pinning-pilot.md',
   'scripts/inspect-android-artifact.js', '__tests__/androidArtifactInspection.test.js', 'scripts/android-16k.js', 'scripts/android-source-context.js', '__tests__/androidSourceContext.test.js',
-  '.maestro/catalogo-publico.yaml', '.maestro/detalle-producto.yaml']);
+  '.maestro/catalogo-publico.yaml', '.maestro/detalle-producto.yaml', '.github/workflows/api-android.yml', 'tests/manual/android-16k.md', 'scripts/android-pinning-proxy.py']);
 const tagPattern = /^refs\/tags\/validation\/profiles-[A-Za-z0-9_.-]+$/;
 const HEX = /^[a-f0-9]{64}$/;
 const METRO_SERVER = 'http://127.0.0.1:8081';
@@ -335,15 +335,64 @@ async function metroAbsent(fetchApi = fetch) {
   catch (error) { need(error?.cause?.code === 'ECONNREFUSED' || error?.code === 'ECONNREFUSED', 'METRO_ABSENCE_UNPROVEN'); return true; }
   throw new ProfileError('METRO_STILL_LISTENING');
 }
-async function runtime(env, api = 34, { run = command, save = report, wait = waitForService, sleep = pause, source = sourceContext,
+const RUNTIME_PHASES = Object.freeze({
+  debug34: Object.freeze({ api: 34, phase: 'development', avd: 'profiles-debug34' }),
+  release34: Object.freeze({ api: 34, phase: 'production', avd: 'profiles-release34' }),
+  api36: Object.freeze({ api: 36, phase: 'production16k', avd: 'profiles16k' }),
+});
+function api34Aggregate(state) {
+  const phases = ['development', 'production'];
+  const missing = phases.filter(phase => !state[phase]);
+  const failures = phases.filter(phase => state[phase] && (state[phase].status !== 'passed_public_scope' || state[phase].cleanup !== 'passed'))
+    .map(phase => ({ phase, reason: state[phase].reason || (state[phase].cleanup !== 'passed' ? 'PROFILE_CLEANUP_FAILED' : 'PUBLIC_PROFILE_ACCEPTANCE_FAILED') }));
+  return { runtimeApi34Status: failures.length ? 'failed' : missing.length ? 'incomplete' : 'passed',
+    runtimeApi34Failures: failures, runtimeApi34MissingPhases: missing };
+}
+function failureCrashEvidence(raw) {
+  if (typeof raw !== 'string' || raw.length > 512 * 1024 || raw.includes('\0')) return { status: 'unknown', codes: [] };
+  const groups = []; let current, formatUnknown = false;
+  for (const line of raw.split(/\r?\n/)) {
+    const match = /^[VDIWEF]\/([A-Za-z][\w.-]*)\s*\(\s*([1-9][0-9]*)\):\s?(.*)$/.exec(line);
+    if (!match) { if (line.trim() && !/^--------- beginning of (?:crash|main|system)$/.test(line.trim())) formatUnknown = true; current = null; continue; }
+    const [, tag, pid, message] = match;
+    if (!current || current.tag !== tag || current.pid !== pid || message.startsWith('FATAL EXCEPTION:')) {
+      current = { tag, pid, messages: [] }; groups.push(current);
+    }
+    current.messages.push(message);
+  }
+  if (formatUnknown) return { status: 'unknown', codes: [] };
+  const codes = new Set();
+  for (const group of groups) {
+    if (group.tag === 'AndroidRuntime' && group.messages.some(value => value.startsWith('FATAL EXCEPTION:'))
+      && group.messages.includes('Process: ' + SOURCE.appId + ', PID: ' + group.pid)) codes.add('JAVA_FATAL');
+    if (group.tag === 'DEBUG' && group.messages.some(value => value.includes('>>> ' + SOURCE.appId + ' <<<'))
+      && group.messages.some(value => /^signal [1-9][0-9]* \(SIG[A-Z0-9]+\)/.test(value))) codes.add('NATIVE_FATAL');
+  }
+  return { status: 'observed', codes: [...codes].sort(), scope: 'package-identified-crash-buffer-since-phase-start-not-case-attribution' };
+}
+async function observeFailure(adb) {
+  const [pid, crash] = await Promise.allSettled([
+    adb(['shell', 'pidof', SOURCE.appId], { timeout: 5000, maxBuffer: 4096 }),
+    adb(['logcat', '-b', 'crash', '-d', '-v', 'brief'], { timeout: 5000, maxBuffer: 512 * 1024 }),
+  ]);
+  const value = pid.status === 'fulfilled' ? pid.value.trim() : '';
+  const pids = /^[1-9][0-9]*(?: [1-9][0-9]*){0,7}$/.test(value) ? value.split(' ').map(Number) : [];
+  const valid = pids.length > 0 && pids.every(number => Number.isSafeInteger(number) && number <= 2147483647);
+  return { capture: 'after-maestro-suite-before-cleanup', perCaseAttribution: 'not-established',
+    process: valid ? { status: 'observed', appRunning: true, pids } : { status: 'unknown', appRunning: null, pids: [] },
+    crash: crash.status === 'fulfilled' ? failureCrashEvidence(crash.value) : { status: 'unknown', codes: [] } };
+}
+async function runtime(env, mode, { run = command, save = report, wait = waitForService, sleep = pause, source = sourceContext,
   read = fs.readFileSync, fileHash = hash, platform = process.platform, idle = metroAbsent, start = spawn, ready = waitMetro, stop = stopMetro, getMetroContext = queryMetroContext } = {}) {
+  const spec = Object.hasOwn(RUNTIME_PHASES, mode) ? RUNTIME_PHASES[mode] : null; need(spec, 'PROFILE_RUNTIME_MODE_REQUIRED');
+  const { api } = spec;
   const context = await source(env, run), files = locations(env);
   need(platform === 'linux' && env.GITHUB_ACTIONS === 'true' && env.RUNNER_ENVIRONMENT === 'github-hosted'
     && env.PINNING_EPHEMERAL_AVD === 'true', 'EPHEMERAL_HOSTED_AVD_REQUIRED');
   const devices = (await run('adb', ['devices'])).trim().split(/\r?\n/).filter(line => /\tdevice$/.test(line));
   need(devices.length === 1 && /^emulator-\d+\tdevice$/.test(devices[0]), 'ONLY_ONE_EMULATOR_ALLOWED');
   const serial = devices[0].split('\t')[0];
-  const adb = args => run('adb', ['-s', serial, ...args]);
+  const adb = (args, options) => run('adb', ['-s', serial, ...args], options);
   need((await adb(['shell', 'getprop', 'ro.kernel.qemu'])).trim() === '1'
     && (await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === String(api)
     && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'EMULATOR_RUNTIME_MISMATCH');
@@ -353,11 +402,17 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
   need(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0
     && env.PRODUCT_NAME.length <= 160 && !/[\r\n\x00-\x1f]/.test(env.PRODUCT_NAME), 'PRODUCT_NAME_REQUIRED');
   need((await wait({ apiUrl: SOURCE.api, android: true })).ready === true, 'CATALOG_NOT_READY');
-  const phases = api === 34 ? ['development', 'production'] : ['production16k'];
+  need(!Object.hasOwn(state, spec.phase), 'PROFILE_PHASE_ALREADY_RECORDED');
+  if (mode === 'release34') need(state.development?.cleanup === 'passed'
+    && ['passed_public_scope', 'failed'].includes(state.development?.status)
+    && state.development.api === 34 && state.development.profile === 'development'
+    && state.development.artifactSourceCommit === SOURCE.commit
+    && state.development.automationCommit === context.automationCommit, 'DEBUG_CLEANUP_NOT_PASSED');
+  const phases = [spec.phase];
   const failures = [], statusKey = api === 34 ? 'runtimeApi34Status' : 'runtimeApi36Status';
   for (const phase of phases) {
-    const development = phase === 'development', entry = { ...context, api, abi: 'x86_64', status: 'running', profile: development ? 'development' : 'production', selectedDevice: serial };
-    let metro, metroFd, reverse = false, failure;
+    const development = phase === 'development', entry = { ...context, api, abi: 'x86_64', status: 'running', profile: development ? 'development' : 'production', selectedDevice: serial, configuredAvdName: spec.avd };
+    let metro, metroFd, reverse = false, failure, suiteStarted = false;
     try {
       await idle();
       if (!development) {
@@ -402,6 +457,7 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
         entry.independentOfMetro = true;
       }
       const output = 'test-results/profiles-' + phase;
+      suiteStarted = true;
       await run('maestro', ['--device', serial, 'test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
         '--format', 'junit', '--output', output + '.xml', '--test-output-dir', output, flowDirectory], { timeout: 600000, env });
       need(assertAndroidReport(read(output + '.xml', 'utf8')) === 2, 'PUBLIC_FLOWS_INCOMPLETE');
@@ -409,7 +465,12 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
       entry.crashCheck = verifyCrashLog(await adb(['logcat', '-b', 'crash', '-d', '-v', 'brief']));
       if (api === 36) entry.runtimeAfter = verifyRuntime({ pageSize: await adb(['shell', 'getconf', 'PAGE_SIZE']), abi: 'x86_64', api: '36' });
       entry.status = 'passed_public_scope';
-    } catch (error) { failure = error instanceof ProfileError ? error : new ProfileError('PUBLIC_PROFILE_ACCEPTANCE_FAILED'); entry.status = 'failed'; entry.reason = failure.code; if (error.diagnostic) entry.diagnostic = error.diagnostic; }
+    } catch (error) {
+      failure = error instanceof ProfileError ? error : new ProfileError('PUBLIC_PROFILE_ACCEPTANCE_FAILED');
+      entry.status = 'failed'; entry.reason = failure.code; if (error.diagnostic) entry.diagnostic = error.diagnostic;
+      if (suiteStarted) try { entry.failureObservation = await observeFailure(adb); }
+      catch { entry.failureObservation = { capture: 'after-maestro-suite-before-cleanup', status: 'unknown', perCaseAttribution: 'not-established' }; }
+    }
     finally {
       let cleanupFailed = false;
       if (reverse) try { await adb(['reverse', '--remove', 'tcp:8081']); } catch { cleanupFailed = true; }
@@ -421,17 +482,19 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
       entry.cleanup = cleanupFailed ? 'failed' : 'passed';
       if (cleanupFailed) { entry.status = 'failed'; failure ||= new ProfileError('PROFILE_CLEANUP_FAILED'); }
       entry.scope = api === 36 ? 'derived-AAB-x86_64-16KB-simulation-not-native-ARM64' : development ? 'Debug-with-Metro-public-flows' : 'AAB-derived-release-public-flows-without-Metro';
-      save({ [phase]: entry });
+      state[phase] = entry;
+      save({ [phase]: entry, ...(api === 34 ? api34Aggregate(state) : {}) });
     }
     if (failure) {
       failures.push({ phase, reason: failure.code });
-      if (entry.cleanup !== 'passed') { save({ [statusKey]: 'failed', abortedAfterCleanupFailure: true }); throw new ProfileError('PROFILE_CLEANUP_FAILED'); }
+      if (entry.cleanup !== 'passed') { save({ ...(api === 34 ? api34Aggregate(state) : { [statusKey]: 'failed' }), abortedAfterCleanupFailure: true }); throw new ProfileError('PROFILE_CLEANUP_FAILED'); }
     }
   }
-  save({ [statusKey]: failures.length ? 'failed' : 'passed', [api === 34 ? 'runtimeApi34Failures' : 'runtimeApi36Failures']: failures });
+  save(api === 34 ? api34Aggregate(state) : { [statusKey]: failures.length ? 'failed' : 'passed', runtimeApi36Failures: failures });
   if (failures.length) throw new ProfileError('PROFILE_PUBLIC_PHASES_FAILED');
 }
 async function main(mode, env = process.env) {
+  if (mode === 'api34') throw new ProfileError('PROFILE_RUNTIME_MODE_REQUIRED');
   if (mode === 'gate') { for (const value of [env.RESULT_QUALITY, env.RESULT_SECURITY, env.RESULT_PROFILES]) need(value === 'success', 'PROFILE_REQUIRED_JOB_NOT_SUCCESSFUL'); return; }
   if (mode === 'summary') {
     let state = {}; try { state = JSON.parse(fs.readFileSync('test-results/android-profiles.json', 'utf8')); } catch { /* Falta evidencia; no aprobar. */ }
@@ -481,8 +544,7 @@ async function main(mode, env = process.env) {
   }
   if (mode === 'inspect') { try { return await inspectProfiles(env); } catch (error) { report({ offlineStatus: 'failed', offlineFailure: { reason: error instanceof ProfileError ? error.code : 'PROFILE_STATIC_CHECK_FAILED', ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}) } }); throw error; } }
   if (mode === 'kvm') return prepareKvm({ env, save: kvm => report({ kvm }) });
-  if (mode === 'api34') return runtime(env, 34);
-  if (mode === 'api36') return runtime(env, 36);
+  if (Object.hasOwn(RUNTIME_PHASES, mode)) return runtime(env, mode);
   if (mode === 'cleanup') {
     need(path.dirname(files.scratch) === path.resolve(env.RUNNER_TEMP) && path.basename(files.scratch) === 'sport-center-profiles', 'CLEANUP_SCOPE_INVALID');
     fs.rmSync(files.scratch, { recursive: true, force: true }); return;
@@ -490,6 +552,6 @@ async function main(mode, env = process.env) {
   throw new ProfileError('PROFILE_MODE_UNKNOWN');
 }
 module.exports = { SOURCE, BUILDS, BUNDLETOOL, FILES, ProfileError, verifySource, verifyProducer, verifyBuild,
-  download, application, resolvePolicy, policyEvidence, inspectApk, METRO_SERVER, verifyMetroContext, queryMetroContext, debugFlows, waitMetro, stopMetro, metroAbsent, runtime, main };
+  download, application, resolvePolicy, policyEvidence, inspectApk, METRO_SERVER, verifyMetroContext, queryMetroContext, debugFlows, waitMetro, stopMetro, metroAbsent, RUNTIME_PHASES, api34Aggregate, failureCrashEvidence, observeFailure, runtime, main };
 if (require.main === module) main(process.argv[2]).catch(error => { console.error('Validación de perfiles bloqueada: ' + (error instanceof ProfileError ? error.code : 'PROFILE_VALIDATION_FAILED'));
   process.exitCode = 1; });

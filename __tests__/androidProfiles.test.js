@@ -13,7 +13,7 @@ const YAML = require('yaml');
 const { validateWorkflows, validatePublicFlow } = require('../scripts/validate-test-configs');
 const pins = require('../config/security-pins.json');
 const { SOURCE, BUILDS, BUNDLETOOL, FILES, verifySource, verifyProducer, verifyBuild, download,
-  application, resolvePolicy, policyEvidence, METRO_SERVER, ProfileError, verifyMetroContext, queryMetroContext, debugFlows, metroAbsent, stopMetro, runtime, main } = require('../scripts/android-profiles');
+  application, resolvePolicy, policyEvidence, METRO_SERVER, ProfileError, verifyMetroContext, queryMetroContext, debugFlows, metroAbsent, stopMetro, RUNTIME_PHASES, api34Aggregate, failureCrashEvidence, observeFailure, runtime, main } = require('../scripts/android-profiles');
 const sha = 'a'.repeat(40);
 const source = { sha, ref: 'refs/tags/validation/profiles-rc1', repository: SOURCE.repository,
   head: sha + '\n', changed: 'scripts/android-profiles.js\nREADME.md\n', dirty: '' };
@@ -52,9 +52,13 @@ test('congela perfiles, hashes reales y fuente distinta de preview; no contiene 
 });
 test.each([{ ref: 'refs/tags/validation/android-rc1' }, { ref: 'refs/heads/develop' }, { repository: 'other/repo' },
   { sha: SOURCE.commit, head: SOURCE.commit }, { head: 'b'.repeat(40) }, { dirty: ' M app.json' },
-  { changed: 'src/app/index.tsx' }, { changed: 'eas.json' }, { changed: 'package-lock.json' }, { changed: '.maestro/another.yaml' }, { changed: '' }])('bloquea fuente ajena o árbol de aplicación cambiado %#', change => {
+  { changed: 'src/app/index.tsx' }, { changed: 'eas.json' }, { changed: 'package-lock.json' }, { changed: '.maestro/another.yaml' }, { changed: '.github/workflows/another.yml' }, { changed: 'tests/manual/another-16k.md' }, { changed: 'scripts/android-pinning-other.py' }, { changed: 'scripts/android-pinning-proxy.js' }, { changed: '' }])('bloquea fuente ajena o árbol de aplicación cambiado %#', change => {
   expect(() => verifySource({ ...source, ...change })).toThrow();
 });
+test.each(['.github/workflows/api-android.yml', 'tests/manual/android-16k.md', 'scripts/android-pinning-proxy.py'])('compatibilidad PR51 sólo permite la ruta exacta %s', file => {
+  expect(() => verifySource({ ...source, changed: file })).not.toThrow();
+});
+
 test('exige productor final aprobado y rechaza omisiones, paginación y duplicados', () => {
   const data = producer(); expect(verifyProducer(data.run, data.jobs)).toEqual({ producerChecksVerified: true });
   expect(() => verifyProducer({ ...data.run, conclusion: 'failure' }, data.jobs)).toThrow();
@@ -206,71 +210,141 @@ function runtimeFixture(options={}) {
   const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null,pid:123456});
   const state={offlineStatus:'passed',productionDerived:{aabSha256:BUILDS.production.sha256,apkSha256:'d'.repeat(64)},
     developmentInspection:{manifest:{schemes:['exp+sport-center-mobile']}}};
-  let maestroCalls=0, packageChecks=0, idleCalls=0;
+  if(options.development)state.development=options.development;
+  let uninstalled=false;
   const run=jest.fn(async(tool,args)=>{
-    if(tool==='maestro'){maestroCalls++;if((options.failDebug??true)&&maestroCalls===1)throw Error('controlled Debug failure');return '';}
+    if(tool==='maestro'){
+      const development=args.includes('test-results/profiles-development.xml');
+      if((development&&(options.failDebug??true))||(!development&&options.failRelease))throw Error('controlled phase failure');return '';
+    }
     if(args[0]==='devices')return 'List of devices attached\nemulator-5554\tdevice\n';
     if(args.includes('ro.kernel.qemu'))return '1';
     if(args.includes('ro.build.version.sdk'))return '34';
     if(args.includes('ro.product.cpu.abi'))return 'x86_64';
-    if(args.includes('pidof'))return '1234';
+    if(args.includes('pidof')){if(options.failObservation)throw Error('private failure');return '1234';}
+    if(args.includes('logcat')&&args.includes('-d')&&options.failObservation)throw Error('private failure');
     if(args.includes('--remove')&&options.failCleanup)throw Error('controlled cleanup failure');
     if(args.includes('--list')&&options.leftoverReverse)return 'emulator-5554 tcp:8081 tcp:8081';
-    if(args.includes('packages')){packageChecks++;if(options.leftoverPackage&&packageChecks===2)return 'package:'+SOURCE.appId;}
+    if(args.includes('uninstall'))uninstalled=true;
+    if(args.includes('packages')&&options.leftoverPackage&&!uninstalled)return 'package:'+SOURCE.appId;
     return '';
   });
-  const stop=jest.fn(async()=>{child.signalCode='SIGTERM';}),save=jest.fn(),start=jest.fn(()=>child);
-  const config={run,save,stop,platform:'linux',source:async()=>({}),
+  const stop=jest.fn(async()=>{child.signalCode='SIGTERM';}),save=jest.fn(update=>Object.assign(state,update)),start=jest.fn(()=>child);
+  const config={run,save,stop,platform:'linux',source:async()=>({artifactSourceCommit:SOURCE.commit,automationCommit:sha}),
     fileHash:async file=>file.endsWith('development.apk')?BUILDS.development.sha256:'d'.repeat(64),
     read:file=>file.endsWith('.xml')?'<testsuite><testcase name="catalog"/><testcase name="detail"/></testsuite>':JSON.stringify(state),
-    wait:async()=>({ready:true}),idle:async()=>{idleCalls++;if(options.metroStillListening&&idleCalls===2)throw new ProfileError('METRO_STILL_LISTENING');return true;},
+    wait:async()=>({ready:true}),idle:async()=>{if(options.metroStillListening)throw new ProfileError('METRO_STILL_LISTENING');return true;},
     start,ready:async()=>{},getMetroContext:async()=>{const f=metroFixture();return verifyMetroContext(f.open,f.manifest);}};
   const env={RUNNER_TEMP:temporary,GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted',PINNING_EPHEMERAL_AVD:'true',PRODUCT_NAME:'Test product'};
-  return{run,save,start,stop,child,config,env,dispose:()=>fs.rmSync(temporary,{recursive:true,force:true})};
+  return{run,save,state,start,stop,child,config,env,dispose:()=>fs.rmSync(temporary,{recursive:true,force:true})};
 }
-test('Debug falla, limpia y permite release independiente, pero mantiene agregado fallido y dispositivo explícito',async()=>{
+const debugPassed=()=>({status:'passed_public_scope',cleanup:'passed',api:34,profile:'development',artifactSourceCommit:SOURCE.commit,automationCommit:sha});
+
+test('Debug y release requieren invocaciones separadas; un fallo Debug conservado no se sobrescribe al aprobar release',async()=>{
   const f=runtimeFixture();try{
-    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    await expect(runtime(f.env,'debug34',f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    expect(f.state.runtimeApi34Status).toBe('failed');expect(f.state.runtimeApi34MissingPhases).toEqual(['production']);
+    const debug=structuredClone(f.state.development);
+    await expect(runtime(f.env,'release34',f.config)).resolves.toBeUndefined();
+    expect(f.state.development).toEqual(debug);
+    expect(f.state.runtimeApi34Status).toBe('failed');expect(f.state.runtimeApi34MissingPhases).toEqual([]);
+    expect(f.state.runtimeApi34Failures).toEqual([{phase:'development',reason:'PUBLIC_PROFILE_ACCEPTANCE_FAILED'}]);
+    expect(f.state.production).toMatchObject({status:'passed_public_scope',configuredAvdName:'profiles-release34',independentOfMetro:true,
+      cleanReleaseStart:{metroAbsent:true,reverseAbsent:true,packageAbsent:true}});
+    expect(f.start).toHaveBeenCalledTimes(1);
     expect(f.start).toHaveBeenCalledWith(process.execPath,['--dns-result-order=ipv4first',path.resolve('node_modules/expo/bin/cli'),
       'start','--dev-client','--localhost','--port','8081'],expect.objectContaining({detached:true}));
     expect(f.start.mock.calls[0][2].env.NODE_OPTIONS).toBeUndefined();
-    expect(f.stop).toHaveBeenCalledWith(f.child,expect.any(Function));
     const calls=f.run.mock.calls.filter(([tool])=>tool==='maestro');expect(calls).toHaveLength(2);
     for(const [,args,config]of calls){expect(args.slice(0,3)).toEqual(['--device','emulator-5554','test']);expect(config.env.ANDROID_SERIAL).toBeUndefined();}
-    expect(f.save.mock.calls.map(([value])=>value)).toEqual(expect.arrayContaining([
-      {development:expect.objectContaining({status:'failed',cleanup:'passed',launchMethod:'launcher-url-input',deepLinkAcceptance:'not-tested-by-this-run',selectedDevice:'emulator-5554'})},
-      {production:expect.objectContaining({status:'passed_public_scope',independentOfMetro:true,cleanReleaseStart:{metroAbsent:true,reverseAbsent:true,packageAbsent:true}})},
-      {runtimeApi34Status:'failed',runtimeApi34Failures:[{phase:'development',reason:'PUBLIC_PROFILE_ACCEPTANCE_FAILED'}]},
-    ]));
+    expect(debug.failureObservation).toMatchObject({capture:'after-maestro-suite-before-cleanup',perCaseAttribution:'not-established',process:{status:'observed',appRunning:true,pids:[1234]}});
     const firstUninstall=f.run.mock.calls.findIndex(([,args])=>args.includes('uninstall'));
     const installs=f.run.mock.calls.map(([,args],index)=>args.includes('install')?index:-1).filter(index=>index>=0);
     expect(installs[1]).toBeGreaterThan(firstUninstall);
   }finally{f.dispose();}
 });
-test('si falla limpieza Debug se aborta antes de instalar o probar release',async()=>{
+
+test('limpieza Debug fallida bloquea release y no pierde el fallo original',async()=>{
   const f=runtimeFixture({failCleanup:true});try{
-    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_CLEANUP_FAILED');
+    await expect(runtime(f.env,'debug34',f.config)).rejects.toThrow('PROFILE_CLEANUP_FAILED');
+    await expect(runtime(f.env,'release34',f.config)).rejects.toThrow('DEBUG_CLEANUP_NOT_PASSED');
     expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(1);
     expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(1);
-    expect(f.stop).toHaveBeenCalled();
-    expect(f.save).toHaveBeenLastCalledWith({runtimeApi34Status:'failed',abortedAfterCleanupFailure:true});
+    expect(f.state.development).toMatchObject({status:'failed',cleanup:'failed',reason:'PUBLIC_PROFILE_ACCEPTANCE_FAILED'});
+    expect(f.state.runtimeApi34Status).toBe('failed');
   }finally{f.dispose();}
 });
-test.each([{leftoverReverse:true},{leftoverPackage:true},{metroStillListening:true}])('release exige ausencia de Metro/reverse/paquete antes de instalar %#',async options=>{
-  const f=runtimeFixture(options);try{
-    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
-    expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(1);
-    expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(1);
-    expect(f.save.mock.calls.some(([value])=>value.production?.status==='passed_public_scope')).toBe(false);
+
+test.each([undefined,{...debugPassed(),cleanup:undefined},{...debugPassed(),status:'running'},
+  {...debugPassed(),automationCommit:'b'.repeat(40)},{...debugPassed(),artifactSourceCommit:'c'.repeat(40)}])('release bloquea falta de cleanup Debug válido de la automatización actual %#',async development=>{
+  const f=runtimeFixture({development});try{
+    await expect(runtime(f.env,'release34',f.config)).rejects.toThrow('DEBUG_CLEANUP_NOT_PASSED');
+    expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(0);
   }finally{f.dispose();}
 });
-test('ambos recorridos por perfil deben aprobar para el resultado API34 correcto',async()=>{
+
+test.each([{leftoverReverse:true},{leftoverPackage:true},{metroStillListening:true}])('release en AVD separada conserva las comprobaciones Metro/reverse/paquete %#',async options=>{
+  const f=runtimeFixture({...options,development:debugPassed()});try{
+    await expect(runtime(f.env,'release34',f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(0);
+    expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(0);
+    expect(f.state.production.status).toBe('failed');expect(f.state.runtimeApi34Status).toBe('failed');
+  }finally{f.dispose();}
+});
+
+test('API34 queda incompleto tras Debug aprobado y sólo aprueba después de release aprobado, sin sobrescribir fases',async()=>{
   const f=runtimeFixture({failDebug:false});try{
-    await expect(runtime(f.env,34,f.config)).resolves.toBeUndefined();
-    expect(f.save).toHaveBeenLastCalledWith({runtimeApi34Status:'passed',runtimeApi34Failures:[]});
+    await expect(runtime(f.env,'debug34',f.config)).resolves.toBeUndefined();
+    expect(f.state.runtimeApi34Status).toBe('incomplete');expect(f.state.runtimeApi34MissingPhases).toEqual(['production']);
+    await expect(runtime(f.env,'release34',f.config)).resolves.toBeUndefined();
+    expect(f.state.runtimeApi34Status).toBe('passed');expect(f.state.runtimeApi34Failures).toEqual([]);
+    const state=structuredClone(f.state);
+    await expect(runtime(f.env,'release34',f.config)).rejects.toThrow('PROFILE_PHASE_ALREADY_RECORDED');
+    expect(f.state).toEqual(state);
     expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(2);
+    expect(f.state.development.failureObservation).toBeUndefined();expect(f.state.production.failureObservation).toBeUndefined();
   }finally{f.dispose();}
 });
+
+test('retira modo mixto y mantiene perfiles API34/API36 explícitos con AVDs distintos',async()=>{
+  expect(Object.keys(RUNTIME_PHASES)).toEqual(['debug34','release34','api36']);
+  expect(new Set(Object.values(RUNTIME_PHASES).map(value=>value.avd)).size).toBe(3);
+  await expect(main('api34',{})).rejects.toThrow('PROFILE_RUNTIME_MODE_REQUIRED');
+  const f=runtimeFixture();try{for(const mode of [34,'api34','other','toString'])await expect(runtime(f.env,mode,f.config)).rejects.toThrow('PROFILE_RUNTIME_MODE_REQUIRED');}
+  finally{f.dispose();}
+});
+
+test('agregado API34 exige ambos resultados y cleanup, sin aprobación por omisión',()=>{
+  expect(api34Aggregate({})).toMatchObject({runtimeApi34Status:'incomplete',runtimeApi34MissingPhases:['development','production']});
+  expect(api34Aggregate({development:debugPassed()})).toMatchObject({runtimeApi34Status:'incomplete'});
+  expect(api34Aggregate({development:debugPassed(),production:{status:'passed_public_scope',cleanup:'passed'}})).toMatchObject({runtimeApi34Status:'passed'});
+  expect(api34Aggregate({development:debugPassed(),production:{status:'passed_public_scope'}})).toMatchObject({runtimeApi34Status:'failed'});
+});
+
+test('fallo del diagnóstico nunca oculta fallo Maestro ni limpieza',async()=>{
+  const f=runtimeFixture({failObservation:true});try{
+    await expect(runtime(f.env,'debug34',f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    expect(f.state.development).toMatchObject({reason:'PUBLIC_PROFILE_ACCEPTANCE_FAILED',cleanup:'passed',failureObservation:{process:{status:'unknown',appRunning:null},crash:{status:'unknown'}}});
+  }finally{f.dispose();}
+});
+
+test('diagnóstico de crash retiene sólo códigos de eventos identificados por paquete, sin texto privado',async()=>{
+  const raw='E/AndroidRuntime(1234): FATAL EXCEPTION: main\nE/AndroidRuntime(1234): Process: '+SOURCE.appId+', PID: 1234\nE/AndroidRuntime(1234): private@example.invalid SECRET\n'
+    +'F/DEBUG   (555): pid: 1234, tid: 1234 >>> '+SOURCE.appId+' <<<\nF/DEBUG   (555): signal 6 (SIGABRT), private SECRET\n';
+  expect(failureCrashEvidence(raw).codes).toEqual(['JAVA_FATAL','NATIVE_FATAL']);
+  expect(failureCrashEvidence(raw.replaceAll(SOURCE.appId,'other.app')).codes).toEqual([]);
+  expect(failureCrashEvidence('E/AndroidRuntime(1): FATAL EXCEPTION: main\nI/other(2): Process: '+SOURCE.appId+', PID: 1\n').codes).toEqual([]);
+  expect(failureCrashEvidence('x'.repeat(512*1024+1)).status).toBe('unknown');
+  expect(failureCrashEvidence('logcat: Permission denied').status).toBe('unknown');
+  const adb=jest.fn(async args=>args.includes('pidof')?'1234':raw);
+  const evidence=await observeFailure(adb);
+  expect(adb).toHaveBeenCalledWith(['shell','pidof',SOURCE.appId],{timeout:5000,maxBuffer:4096});
+  expect(adb).toHaveBeenCalledWith(['logcat','-b','crash','-d','-v','brief'],{timeout:5000,maxBuffer:512*1024});
+  expect(JSON.stringify(evidence)).not.toMatch(/SECRET|example|Process:|signal 6/);
+  const malformed=await observeFailure(jest.fn(async args=>args.includes('pidof')?'1234 SECRET':''));
+  expect(malformed.process).toEqual({status:'unknown',appRunning:null,pids:[]});
+});
+
 test.each(['failure', 'skipped', 'cancelled', undefined])('agregado de perfiles bloquea resultado %s', async result => {
   await expect(main('gate', { RESULT_QUALITY: 'success', RESULT_SECURITY: 'success', RESULT_PROFILES: result })).rejects.toThrow('PROFILE_REQUIRED_JOB_NOT_SUCCESSFUL');
 });
@@ -300,7 +374,7 @@ test.each(['native', 'profiles'])('API36 16KB de %s fija RAM guest sin override 
   const config = workflows();
   const job = config.get('android-validation.yml').jobs[jobName];
   expect(job.steps.find(step => step.id === 'pages16k').with['ram-size']).toBe('4096M');
-  expect(job.steps.find(step => step.id === 'api34').with['ram-size']).toBeUndefined();
+  for (const step of job.steps.filter(step => step.with?.['api-level'] === 34)) expect(step.with['ram-size']).toBeUndefined();
   expect(() => validateWorkflows(config)).not.toThrow();
   for (const mutate of [
     step => { delete step.with['ram-size']; },
@@ -314,4 +388,16 @@ test.each(['native', 'profiles'])('API36 16KB de %s fija RAM guest sin override 
     const changed = workflows(); mutate(changed.get('android-validation.yml').jobs[jobName].steps.find(step => step.id === 'pages16k'));
     expect(() => validateWorkflows(changed)).toThrow();
   }
+});
+
+
+test.each([
+  job => { job.steps.find(step => step.id === 'release34').if = 'success()'; },
+  job => { job.steps.find(step => step.id === 'release34').with['avd-name'] = 'profiles-debug34'; },
+  job => { job.steps.find(step => step.id === 'debug34').with['force-avd-creation'] = false; },
+  job => { job.steps.find(step => step.id === 'release34').with.script = 'node scripts/android-profiles.js api34'; },
+  job => { job.steps.find(step => step.id === 'release34')['continue-on-error'] = true; },
+  job => { job.steps.find(step => step.id === 'debug34').with['ram-size'] = '4096M'; },
+])('no permite mezclar AVD/perfil, omitir fase tras fallo o cambiar RAM API34 %#', mutate => {
+  const config=workflows();mutate(config.get('android-validation.yml').jobs.profiles);expect(()=>validateWorkflows(config)).toThrow();
 });

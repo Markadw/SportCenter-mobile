@@ -257,8 +257,8 @@ jobs:
         id: kvm
         timeout-minutes: 2
         run: node scripts/android-profiles.js kvm
-      - name: API34 Debug con Metro y derivado AAB sin Metro
-        id: api34
+      - name: Debug API34 con Metro en AVD nueva
+        id: debug34
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -266,10 +266,24 @@ jobs:
           target: google_apis
           disable-linux-hw-accel: false
           force-avd-creation: true
-          avd-name: profiles34
+          avd-name: profiles-debug34
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: node scripts/android-profiles.js api34
+          script: node scripts/android-profiles.js debug34
+      - name: Release API34 sin Metro en otra AVD nueva
+        id: release34
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles-release34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node scripts/android-profiles.js release34
       - name: API36 16KB simulados del APK derivado AAB
         id: pages16k
         if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
