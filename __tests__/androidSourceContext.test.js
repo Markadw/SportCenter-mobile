@@ -59,3 +59,10 @@ test('admite sólo los dos flujos públicos de sincronización manteniendo el AP
     buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256 });
   expect(() => verifySourceProof(proof, env, publicFlows + '\n.maestro/another.yaml', env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
 });
+
+test('admite sólo la ruta auditada exacta del addon y rechaza vecinos/runtime', () => {
+  const check = changed => verifyAutomation({ commit: env.GITHUB_SHA, ref: env.GITHUB_REF, repository: env.GITHUB_REPOSITORY, changed });
+  expect(check('scripts/android-pinning-proxy.py')).toMatchObject({ changedAutomationFiles: 1 });
+  for (const route of ['scripts/android-pinning-proxy.py.bak', 'scripts/android-pinning-proxy.py/../app.json', 'scripts/android-pinning-install.sh', 'scripts/private-proxy.py', 'src/app/index.tsx', 'app.json'])
+    expect(() => check(route)).toThrow('APP_TREE_CHANGED');
+});

@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
 const { createHash, randomUUID } = require('node:crypto');
+const { inflateSync } = require('node:zlib');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const execute = promisify(execFile);
@@ -217,6 +218,93 @@ function verifyAospPackage(listing) {
   evidence.installedVersion = version;
   return { package: packagePath, packageRevision: 11, packageMetadata: 'sdkmanager23-list-installed', packageListing: evidence };
 }
+class PilotLaunchError extends Error {
+  constructor(code, evidence = {}) { super(code); this.code = code; this.launchEvidence = evidence; }
+}
+function componentName(value) {
+  if (typeof value !== 'string' || value.length > 300 || !/^[A-Za-z][A-Za-z0-9_.]*\/[.A-Za-z_$][A-Za-z0-9_.$]*$/.test(value)) return null;
+  const [pkg, activity] = value.split('/'), full = activity.startsWith('.') ? pkg + activity : activity;
+  return pkg === APP && full.startsWith(APP + '.') && /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/.test(full) ? pkg + '/' + full : null;
+}
+function compiledLauncher(manifest) {
+  const root = xmlTree(manifest), application = manifestApplication(manifest);
+  const candidates = application.children.filter(node => ['activity', 'activity-alias'].includes(node.name)
+    && node.children.some(filter => filter.name === 'intent-filter'
+      && filter.children.some(child => child.name === 'action' && child.attrs['android:name'] === 'android.intent.action.MAIN')
+      && filter.children.some(child => child.name === 'category' && child.attrs['android:name'] === 'android.intent.category.LAUNCHER')));
+  if (root.attrs.package !== APP || candidates.length !== 1 || candidates[0].name !== 'activity'
+    || candidates[0].attrs['android:exported'] !== 'true') throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  const name = candidates[0].attrs['android:name'];
+  if (typeof name !== 'string' || !name) throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  const qualified = name?.startsWith('.') ? APP + name : name?.includes('.') ? name : APP + '.' + name;
+  const component = componentName(APP + '/' + qualified);
+  if (!component) throw new PilotLaunchError('PILOT_COMPILED_LAUNCHER_INVALID');
+  return { component, launcherCount: 1, exported: true };
+}
+function packagePresence(output) {
+  if (typeof output !== 'string' || output.length > 65536) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  const lines = output.trim() ? output.trim().split(/\r?\n/).map(line => line.trim()) : [];
+  if (!lines.every(line => /^package:[A-Za-z][A-Za-z0-9_.]*$/.test(line))) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  const matches = lines.filter(line => line === 'package:' + APP).length;
+  if (matches > 1) throw new PilotLaunchError('PILOT_PACKAGE_PRESENCE_INVALID');
+  return matches === 1;
+}
+function installedApkEvidence(output, packagePath) {
+  const lines = typeof output === 'string' ? output.trim().split(/\r?\n/) : [];
+  if (lines.at(-1) !== 'Success' || lines.filter(line => line === 'Success').length !== 1 || lines.some(line => /^(?:Failure|Error)\b/.test(line)))
+    throw new PilotLaunchError('PILOT_INSTALL_NOT_SUCCESS');
+  if (typeof packagePath !== 'string' || !/^package:\/data\/app\/[A-Za-z0-9_~./=+-]+\/base\.apk\s*$/.test(packagePath)
+    || packagePath.trim().split(/\r?\n/).length !== 1 || packagePath.includes('/../')) throw new PilotLaunchError('PILOT_PACKAGE_PATH_INVALID');
+  return { installSuccess: true, packagePathConfirmed: true };
+}
+async function reinstallSameApk(adb, apk, expectedHash, fileHash = sha256) {
+  if (await fileHash(apk) !== expectedHash) throw new PilotLaunchError('PILOT_APK_HASH_MISMATCH');
+  const installed = await adb('install', '-r', apk);
+  const evidence = installedApkEvidence(installed, await adb('shell', 'pm', 'path', '--user', '0', APP));
+  const packagePresent = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+  if (!packagePresent) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+  return { ...evidence, packagePresent };
+}
+async function launchInstalledApp(adb, expected) {
+  const evidence = { packagePresent: null, clearSucceeded: null, launcherUnique: null, resolverMatches: null,
+    startStatus: 'unobserved', activityMatches: null, processRunning: null, foregroundConfirmed: null };
+  try {
+    evidence.packagePresent = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+    if (!evidence.packagePresent) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+    await adb('shell', 'am', 'force-stop', '--user', '0', APP);
+    evidence.clearSucceeded = (await adb('shell', 'pm', 'clear', '--user', '0', APP)).trim() === 'Success';
+    if (!evidence.clearSucceeded) throw new PilotLaunchError('PILOT_CLEAR_NOT_SUCCESS');
+    const intent = ['--components', '--user', '0', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', APP];
+    const query = (await adb('shell', 'cmd', 'package', 'query-activities', ...intent)).trim().split(/\r?\n/).filter(Boolean);
+    const resolved = (await adb('shell', 'cmd', 'package', 'resolve-activity', ...intent)).trim().split(/\r?\n/).filter(Boolean);
+    const component = componentName(expected);
+    evidence.launcherUnique = query.length === 1 && !!component && componentName(query[0]) === component;
+    evidence.resolverMatches = resolved.length === 1 && !!component && componentName(resolved[0]) === component;
+    if (!evidence.launcherUnique || !evidence.resolverMatches) throw new PilotLaunchError('PILOT_RUNTIME_LAUNCHER_INVALID');
+    const output = await adb('shell', 'am', 'start', '--user', '0', '-W', '-n', component, '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER');
+    const lines = output.split(/\r?\n/).map(line => line.trim()), statuses = lines.filter(line => line.startsWith('Status:')),
+      activities = lines.filter(line => line.startsWith('Activity:'));
+    if (lines.some(line => /^Error(?:\s+type\s+\d+)?:/.test(line))) { evidence.startStatus = 'error'; throw new PilotLaunchError('PILOT_START_REPORTED_ERROR'); }
+    evidence.startStatus = statuses.length === 1 && statuses[0] === 'Status: ok' ? 'ok'
+      : statuses.length === 1 && statuses[0] === 'Status: timeout' ? 'timeout' : 'invalid';
+    if (evidence.startStatus !== 'ok') throw new PilotLaunchError('PILOT_START_STATUS_INVALID');
+    evidence.activityMatches = activities.length === 1 && componentName(activities[0].slice('Activity:'.length).trim()) === component;
+    if (!evidence.activityMatches) throw new PilotLaunchError('PILOT_START_ACTIVITY_INVALID');
+    const pid = (await adb('shell', 'pidof ' + APP + ' || true')).trim();
+    evidence.processRunning = /^[1-9]\d*(?:\s+[1-9]\d*)*$/.test(pid);
+    if (!evidence.processRunning) throw new PilotLaunchError('PILOT_PROCESS_MISSING');
+    const foreground = await adb('shell', 'dumpsys', 'activity', 'activities');
+    if (foreground.length > 256 * 1024) throw new PilotLaunchError('PILOT_FOREGROUND_INVALID');
+    const resumed = foreground.split(/\r?\n/).filter(line => /\b(?:mResumedActivity:|topResumedActivity=|ResumedActivity:)/.test(line))
+      .flatMap(line => line.match(/[A-Za-z][A-Za-z0-9_.]*\/[.A-Za-z_$][A-Za-z0-9_.$]*/g) || []);
+    evidence.foregroundConfirmed = resumed.length > 0 && resumed.every(value => componentName(value) === component);
+    if (!evidence.foregroundConfirmed) throw new PilotLaunchError('PILOT_FOREGROUND_MISMATCH');
+    return evidence;
+  } catch (error) {
+    if (error instanceof PilotLaunchError) { error.launchEvidence = evidence; throw error; }
+    throw new PilotLaunchError('PILOT_LAUNCH_ADB_FAILED', evidence);
+  }
+}
 function minSdkEvidence(value) {
   assert.match(value.trim(), /^\d+$/, 'minSdk no disponible.');
   const minimum = Number(value.trim());
@@ -270,11 +358,199 @@ async function command(binary, args, options = {}) {
   }
 }
 const sleep = ms => new Promise(resolve => globalThis.setTimeout(resolve, ms));
-async function until(action, timeout = 90000) { const end = Date.now() + timeout; do { if (await action()) return; await sleep(1000); } while (Date.now() < end); throw new Error('El control no se completó dentro del plazo.'); }
+async function until(action, timeout = 90000) { const end = Date.now() + timeout; do { if (await action()) return; await sleep(1000); } while (Date.now() < end); throw new PilotWaitTimeout(); }
+class PilotWaitTimeout extends Error { constructor() { super('PILOT_WAIT_TIMEOUT'); } }
+const PILOT_PHASES = ['setup', 'control', 'attack', 'recovery'];
+const PILOT_OPERATIONS = ['initialization', 'candidate', 'compiled_policy', 'system_image', 'tool_version', 'proxy_state',
+  'emulator', 'apk_install', 'package_after_ca', 'apk_reinstall', 'proxy_start', 'proxy_ca_ready', 'proxy_listening', 'ca_prepare', 'boot_verified', 'remount',
+  'boot_remounted', 'ca_install', 'boot_with_ca', 'clock_check', 'proxy_enabled', 'catalog_launch', 'catalog_visible',
+  'catalog_opened', 'product_visible', 'image_2xx', 'proxy_stopped', 'proxy_restart', 'error_visible', 'tls_failure_event',
+  'proxy_removed', 'apk_hash', 'verdict'];
+function createPilotProgress(result, wait = until) {
+  result.progress = { phase: 'setup', operation: 'initialization', lastSuccessfulControl: null };
+  const enter = (phase, operation) => {
+    assert.ok(PILOT_PHASES.includes(phase) && PILOT_OPERATIONS.includes(operation), 'PILOT_DIAGNOSTIC_STEP_INVALID');
+    result.progress.phase = phase; result.progress.operation = operation;
+  };
+  const complete = () => { result.progress.lastSuccessfulControl = { phase: result.progress.phase, operation: result.progress.operation }; };
+  const action = async (phase, operation, task) => { enter(phase, operation); const value = await task(); complete(); return value; };
+  return { enter, complete, action, wait: (phase, operation, task, timeout) => action(phase, operation, () => wait(task, timeout)),
+    errorCode: error => 'PILOT_' + result.progress.phase.toUpperCase() + '_' + result.progress.operation.toUpperCase()
+      + (error instanceof PilotWaitTimeout ? '_TIMEOUT' : '_FAILED') };
+}
+function validFailurePng(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 57 || bytes.length > 2 * 1024 * 1024
+    || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return false;
+  try {
+    let offset = 8, width, height, channels, ended = false, dataEnded = false; const compressed = [];
+    while (offset < bytes.length) {
+      if (offset + 12 > bytes.length) return false;
+      const size = bytes.readUInt32BE(offset), end = offset + size + 12;
+      if (end > bytes.length) return false;
+      const kind = bytes.toString('ascii', offset + 4, offset + 8);
+      if (!/^[A-Za-z]{2}[A-Z][A-Za-z]$/.test(kind)) return false;
+      let crc = 0xffffffff;
+      for (let index = offset + 4; index < end - 4; index++) {
+        crc ^= bytes[index]; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+      }
+      if (((crc ^ 0xffffffff) >>> 0) !== bytes.readUInt32BE(end - 4)) return false;
+      if (offset === 8 && kind !== 'IHDR') return false;
+      if (kind === 'IHDR') {
+        if (width !== undefined || size !== 13) return false;
+        width = bytes.readUInt32BE(offset + 8); height = bytes.readUInt32BE(offset + 12);
+        channels = bytes[offset + 17] === 6 ? 4 : bytes[offset + 17] === 2 ? 3 : 0;
+        if (!width || !height || width > 4096 || height > 4096 || width * height > 4194304 || !channels
+          || bytes[offset + 16] !== 8 || bytes[offset + 18] || bytes[offset + 19] || bytes[offset + 20]) return false;
+      } else if (kind === 'IDAT') {
+        if (dataEnded) return false; compressed.push(bytes.subarray(offset + 8, end - 4));
+      } else {
+        if (compressed.length) dataEnded = true;
+        if (kind === 'IEND') { if (size || end !== bytes.length) return false; ended = true; }
+        else if (kind[0] === kind[0].toUpperCase()) return false;
+      }
+      offset = end;
+    }
+    if (!ended || !compressed.length) return false;
+    const decoded = inflateSync(Buffer.concat(compressed), { maxOutputLength: 20 * 1024 * 1024 });
+    const row = width * channels + 1;
+    if (decoded.length !== row * height) return false;
+    for (let index = 0; index < decoded.length; index += row) if (decoded[index] > 4) return false;
+    return true;
+  } catch { return false; }
+}
+const DIAGNOSTIC_EVENTS = ['invalid_configuration', 'addon_error', 'intercept', 'passthrough', 'client_cert_ready',
+  'client_tls_ok', 'client_tls_failed', 'server_tls_ok', 'server_tls_failed', 'api_http_received', 'forbidden_request', 'image_response'];
+async function failureDiagnostics({ runAdb, xml = '', productName, readEvents, runId, allowScreenshot = false,
+  savePng = bytes => {
+    fs.mkdirSync('test-results/maestro', { recursive: true });
+    fs.writeFileSync('test-results/maestro/pinning-failure.png', bytes, { flag: 'wx', mode: 0o600 });
+  } }) {
+  const uiAvailable = typeof xml === 'string' && xml.length <= 2 * 1024 * 1024 && /<hierarchy(?:\s|>)/.test(xml);
+  const report = { uiAvailable, ui: { catalog: uiAvailable && visible(xml, 'Catálogo'),
+    product: uiAvailable && typeof productName === 'string' && !!productName && visible(xml, productName),
+    errorState: uiAvailable && visible(xml, 'No se pudo cargar el catálogo') && visible(xml, 'Reintentar') },
+  eventsAvailable: false, eventCounts: { control: {}, attack: {}, recovery: {} }, ignoredEvents: 0,
+  health: { adbAccessible: false, processRunning: null, ownFatalCrashDetected: null }, screenshot: { attempted: false, saved: false } };
+  try {
+    const events = readEvents(); report.eventsAvailable = Array.isArray(events); report.eventsTruncated = Array.isArray(events) && events.length > 5000;
+    for (const event of Array.isArray(events) ? events.slice(0, 5000) : []) {
+      if (!event || event.runId !== runId || !Object.hasOwn(report.eventCounts, event.phase) || !DIAGNOSTIC_EVENTS.includes(event.event)) { report.ignoredEvents++; continue; }
+      const counts = report.eventCounts[event.phase]; counts[event.event] = (counts[event.event] || 0) + 1;
+    }
+  } catch { /* Unreadable events never expose partial JSON or proxy output. */ }
+  const bounded = (args, options = {}) => runAdb(args, { timeout: 1500, killSignal: 'SIGKILL', maxBuffer: 65536, ...options });
+  try { report.health.adbAccessible = (await bounded(['get-state'])).trim() === 'device'; } catch { /* Unknown is not healthy. */ }
+  if (!report.health.adbAccessible) return report;
+  const tasks = [
+    (async () => { try { const output = (await bounded(['shell', 'pidof ' + APP + ' || true'])).trim();
+      if (output === '' || /^[1-9]\d*(?:\s+[1-9]\d*)*$/.test(output)) report.health.processRunning = output !== ''; } catch { /* Unknown remains null. */ } })(),
+    (async () => { try { const output = await bounded(['logcat', '-b', 'crash', '-d', '-v', 'brief', '-t', '200']);
+      if (typeof output === 'string' && output.length <= 65536) report.health.ownFatalCrashDetected =
+        (output.includes('Process: ' + APP + ',') || output.includes('>>> ' + APP + ' <<<')) && /FATAL EXCEPTION|Fatal signal|Abort message|signal \d+ \(SIG/.test(output);
+    } catch { /* No raw logcat is persisted. */ } })(),
+  ];
+  if (allowScreenshot) tasks.push((async () => {
+    report.screenshot.attempted = true;
+    try {
+      const bytes = await bounded(['exec-out', 'screencap', '-p'], { timeout: 2500, maxBuffer: 2 * 1024 * 1024, encoding: null });
+      if (!validFailurePng(bytes)) { report.screenshot.errorCode = 'PILOT_FAILURE_PNG_INVALID'; return; }
+      try { savePng(bytes); report.screenshot.saved = true; report.screenshot.path = 'test-results/maestro/pinning-failure.png'; }
+      catch { report.screenshot.errorCode = 'PILOT_FAILURE_PNG_SAVE_FAILED'; }
+    } catch { report.screenshot.errorCode = 'PILOT_FAILURE_PNG_CAPTURE_FAILED'; }
+  })());
+  await Promise.allSettled(tasks); return report;
+}
+const PROXY_SETTING_KEYS = ['http_proxy', 'global_http_proxy_host', 'global_http_proxy_port',
+  'global_http_proxy_exclusion_list', 'global_proxy_pac_url'];
+class PilotProxyError extends Error {
+  constructor(code, evidence) { super(code); this.code = code; this.proxyEvidence = { ...evidence, status: 'failed' }; }
+}
+async function resetOwnProxy(runAdb, mode) {
+  assert.ok(mode === 'recovery' || mode === 'cleanup', 'PILOT_PROXY_MODE_INVALID');
+  const evidence = { status: 'checking', mode, operation: 'read_before', ackMethod: 'aosp11-settings-handler-order',
+    directServiceQuery: false, handlerAckObserved: false, readAttempts: 0 };
+  const fail = code => { throw new PilotProxyError(code, evidence); };
+  const deadline = Date.now() + 3000;
+  const request = async args => {
+    const remaining = deadline - Date.now(); if (remaining <= 0) fail('PILOT_PROXY_ACK_TIMEOUT');
+    return runAdb(args, { timeout: Math.min(1000, remaining), killSignal: 'SIGKILL', maxBuffer: 1024 });
+  };
+  const snapshot = async () => {
+    const values = await Promise.all(PROXY_SETTING_KEYS.map(key => request(['shell', 'settings', 'get', 'global', key])));
+    if (values.some(value => typeof value !== 'string' || value.length > 512 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value))) fail('PILOT_PROXY_STATE_INVALID');
+    const [deprecated, host, port, exclusions, pac] = values.map(value => value.trim()), empty = value => value === '' || value === 'null';
+    return { deprecated: deprecated === '10.0.2.2:18080' ? 'own' : deprecated === ':0' ? 'disabled' : empty(deprecated) ? 'absent' : 'other',
+      host: host === '10.0.2.2' ? 'own' : empty(host) ? 'none' : 'other',
+      port: port === '18080' ? 'own' : port === '0' ? 'zero' : empty(port) ? 'absent' : 'other',
+      exclusionsEmpty: empty(exclusions), pacEmpty: empty(pac) };
+  };
+  try {
+    const before = evidence.before = await snapshot(); evidence.operation = 'verify_ownership';
+    const safe = before.deprecated !== 'other' && before.host !== 'other' && before.port !== 'other' && before.exclusionsEmpty && before.pacEmpty;
+    evidence.ownProxyBefore = before.deprecated === 'own' && before.host === 'own' && before.port === 'own' && safe;
+    evidence.alreadyNoneBefore = ['disabled', 'absent'].includes(before.deprecated) && before.host === 'none'
+      && ['zero', 'absent'].includes(before.port) && safe;
+    if (!safe || mode === 'recovery' && !evidence.ownProxyBefore) fail('PILOT_PROXY_OWNERSHIP_UNVERIFIED');
+    evidence.operation = 'write_disabled'; await request(['shell', 'settings', 'put', 'global', 'http_proxy', ':0']);
+    evidence.operation = 'read_ack';
+    for (let attempt = 0; attempt < 30; attempt++) {
+      evidence.readAttempts = attempt + 1; const after = evidence.after = await snapshot();
+      if (after.deprecated === 'disabled' && after.host === 'none' && after.port === 'zero' && after.exclusionsEmpty && after.pacEmpty) {
+        // AOSP11 clears mGlobalProxy before writing these modern keys. We never write those keys ourselves.
+        evidence.handlerAckObserved = before.host === 'own' && before.port === 'own';
+        evidence.consistentNoProxySettingsObserved = true; evidence.operation = 'complete'; evidence.status = 'passed'; return evidence;
+      }
+      if (after.deprecated === 'other' || after.host === 'other' || after.port === 'other' || !after.exclusionsEmpty || !after.pacEmpty) fail('PILOT_PROXY_STATE_CHANGED');
+      if (attempt < 29 && Date.now() < deadline) await sleep(Math.min(100, deadline - Date.now()));
+    }
+    fail('PILOT_PROXY_ACK_TIMEOUT');
+  } catch (error) {
+    if (error instanceof PilotProxyError) throw error;
+    throw new PilotProxyError('PILOT_PROXY_ADB_FAILED', evidence);
+  }
+}
+async function prepareRecoveryProxy(adb, runAdb, writePhase) {
+  await adb('shell', 'am', 'force-stop', '--user', '0', APP);
+  writePhase('recovery');
+  return resetOwnProxy(runAdb, 'recovery');
+}
 async function playStorePresent(adb) {
   // pm path devuelve 1 cuando el paquete no existe: list packages representa esa ausencia con éxito.
   const output = await adb('shell', 'pm', 'list', 'packages', 'com.android.vending');
   return output.trim().split(/\r?\n/).some(line => line === 'package:com.android.vending');
+}
+class PilotCleanupError extends Error {
+  constructor(evidence) {
+    super('PILOT_CLEANUP_CA_' + evidence.operation.toUpperCase() + '_FAILED');
+    this.code = this.message; this.cleanupEvidence = { ...evidence, status: 'failed' };
+  }
+}
+async function removeOwnCa(adb, devicePath, expectedHash) {
+  const evidence = { status: 'blocked', operation: 'validate_target', rootVerified: false, writableState: 'unobserved',
+    identityVerified: false, removeCommandCompleted: false, alreadyAbsent: false, absenceVerified: false };
+  try {
+    assert.match(devicePath || '', /^\/system\/etc\/security\/cacerts\/[a-f0-9]{8}\.0$/);
+    assert.match(expectedHash || '', /^[a-f0-9]{64}$/);
+    evidence.operation = 'root'; await adb('root');
+    evidence.operation = 'wait_device'; await adb('wait-for-device');
+    evidence.operation = 'verify_root'; assert.equal((await adb('shell', 'id', '-u')).trim(), '0'); evidence.rootVerified = true;
+    evidence.operation = 'remount'; await adb('remount');
+    evidence.operation = 'verify_writable';
+    const writable = (await adb('shell', 'if [ -w /system/etc/security/cacerts ]; then echo writable; else echo not_writable; fi')).trim();
+    evidence.writableState = ['writable', 'not_writable'].includes(writable) ? writable : 'invalid';
+    assert.equal(evidence.writableState, 'writable');
+    evidence.operation = 'check_presence';
+    const presence = (await adb('shell', 'if [ -e ' + devicePath + ' ]; then echo present; else echo missing; fi')).trim();
+    assert.ok(['present', 'missing'].includes(presence));
+    if (presence === 'missing') { evidence.alreadyAbsent = true; evidence.absenceVerified = true; }
+    else {
+      evidence.operation = 'verify_identity';
+      assert.equal((await adb('shell', 'sha256sum', devicePath)).trim().split(/\s+/)[0], expectedHash); evidence.identityVerified = true;
+      evidence.operation = 'remove_own_ca'; await adb('shell', 'rm', '-f', devicePath); evidence.removeCommandCompleted = true;
+      evidence.operation = 'verify_absence'; await assertCaAbsent(adb, devicePath); evidence.absenceVerified = true;
+    }
+    evidence.operation = 'complete'; evidence.status = 'passed'; return evidence;
+  } catch { throw new PilotCleanupError(evidence); }
 }
 async function assertCaAbsent(adb, devicePath) {
   assert.match(devicePath, /^\/system\/etc\/security\/cacerts\/[a-f0-9]{8}\.0$/);
@@ -296,11 +572,109 @@ function texts(xml) {
   return [...xml.matchAll(/<node\b([^>]+)>/g)].map(m => Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(a => [a[1], decode(a[2])]))).filter(n => n.package === APP);
 }
 function visible(xml, expected) { return texts(xml).some(n => n.text === expected || n['content-desc'] === expected); }
-function tapBounds(xml, expected) {
-  const matches = texts(xml).filter(n => n.text === expected || n['content-desc'] === expected);
-  assert.equal(matches.length, 1, 'Control de navegación ausente o ambiguo.');
-  const b = matches[0].bounds?.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/); assert.ok(b);
-  assert.ok(+b[3] > +b[1] && +b[4] > +b[2]); return [Math.floor((+b[1] + +b[3]) / 2), Math.floor((+b[2] + +b[4]) / 2)];
+// UI Automator has a separate, bounded grammar: never relax the compiled-NSC parser for UI entities.
+function tapHierarchy(xml) {
+  assert.ok(typeof xml === 'string' && xml.length <= 2 * 1024 * 1024
+    && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(xml) && !xml.includes('<!'));
+  const declaration = xml.match(/^<\?xml version=(?:"1\.0"|'1\.0')(?: encoding=(?:"UTF-8"|'UTF-8'))?(?: standalone=(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>/);
+  const source = declaration ? xml.slice(declaration[0].length) : xml;
+  assert.ok(!source.includes('<?'));
+  const decode = value => {
+    const entities = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>' }; let output = '', offset = 0;
+    for (const match of value.matchAll(/&([^;&]{1,16});/g)) {
+      const prefix = value.slice(offset, match.index); assert.ok(!prefix.includes('&')); output += prefix;
+      if (Object.hasOwn(entities, match[1])) output += entities[match[1]];
+      else {
+        assert.match(match[1], /^(?:#x[0-9a-fA-F]{1,6}|#[0-9]{1,7})$/);
+        const code = Number.parseInt(match[1].slice(match[1][1] === 'x' ? 2 : 1), match[1][1] === 'x' ? 16 : 10);
+        assert.ok(code === 9 || code === 10 || code === 13 || code >= 32 && code <= 0xd7ff
+          || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff);
+        output += String.fromCodePoint(code);
+      }
+      offset = match.index + match[0].length;
+    }
+    const tail = value.slice(offset); assert.ok(!tail.includes('&')); return output + tail;
+  };
+  const root = { name: '#root' }, stack = [root], nodes = []; let offset = 0, hierarchy;
+  for (const match of source.matchAll(/<(?:[^<>"']|"[^"<]*"|'[^'<]*')*>|[^<]+/g)) {
+    assert.equal(match.index, offset); offset += match[0].length;
+    const token = match[0], parent = stack[stack.length - 1];
+    if (!token.startsWith('<')) { assert.equal(token.trim(), ''); continue; }
+    if (token.startsWith('</')) { assert.ok(stack.length > 1); assert.equal(token, '</' + parent.name + '>'); stack.pop(); continue; }
+    const opening = token.match(/^<(hierarchy|node)([\s\S]*?)(\/?)>$/); assert.ok(opening);
+    assert.ok(opening[1] === 'hierarchy' ? parent === root && !hierarchy : parent !== root);
+    const attrs = Object.create(null); let tail = opening[2];
+    while (tail.trim()) {
+      const attr = tail.match(/^\s+([\w:-]+)="([^"<]*)"/); assert.ok(attr && !Object.hasOwn(attrs, attr[1]));
+      attrs[attr[1]] = decode(attr[2]); tail = tail.slice(attr[0].length);
+    }
+    const node = { name: opening[1], attrs, parent };
+    if (node.name === 'hierarchy') hierarchy = node; else { nodes.push(node); assert.ok(nodes.length <= 10000); }
+    if (!opening[3]) { stack.push(node); assert.ok(stack.length <= 128); }
+  }
+  assert.ok(hierarchy); assert.equal(offset, source.length); assert.equal(stack.length, 1); return nodes;
+}
+const TAP_CLASSES = ['android.view.View', 'android.view.ViewGroup', 'android.widget.TextView', 'android.widget.Button',
+  'android.widget.ImageButton', 'android.widget.ImageView', 'android.widget.FrameLayout', 'android.widget.LinearLayout'];
+function tapNodeEvidence(node) {
+  const match = node.attrs.bounds?.match(/^\[(\d{1,5}),(\d{1,5})\]\[(\d{1,5}),(\d{1,5})\]$/);
+  const values = match?.slice(1).map(Number), valid = !!values && values.every(n => n <= 16384) && values[2] > values[0] && values[3] > values[1];
+  const state = key => node.attrs[key] === 'true' ? true : node.attrs[key] === 'false' ? false : null;
+  return { ownPackage: node.attrs.package === APP, class: TAP_CLASSES.includes(node.attrs.class) ? node.attrs.class : 'other',
+    enabled: state('enabled'), clickable: state('clickable'), visibleToUser: state('visible-to-user'),
+    bounds: valid ? values : null, boundsState: valid ? 'valid' : node.attrs.bounds === undefined ? 'missing' : 'invalid' };
+}
+class PilotTapError extends Error { constructor(code) { super(code); this.code = code; } }
+function tapBounds(xml, expected, evidence = {}) {
+  Object.assign(evidence, { label: expected === 'Catálogo' ? 'Catálogo' : 'unsupported', status: 'selecting',
+    matchCount: 0, targetCount: 0, candidates: [], candidatesTruncated: false, selected: null, errorCode: null, errorClass: null });
+  const fail = code => { Object.assign(evidence, { status: 'blocked', errorCode: code, errorClass: 'PilotTapError' }); throw new PilotTapError(code); };
+  if (expected !== 'Catálogo') fail('PILOT_TAP_LABEL_NOT_ALLOWED');
+  let nodes; try { nodes = tapHierarchy(xml); } catch { fail('PILOT_TAP_XML_INVALID'); }
+  const hasLabel = node => node.attrs.text === expected || node.attrs['content-desc'] === expected;
+  const matches = nodes.filter(hasLabel), targets = new Set(), invalidTargets = new Set(); let unknownState = false; evidence.matchCount = matches.length;
+  for (const label of matches) {
+    const detail = { labelNode: tapNodeEvidence(label), relation: 'none', rejection: null }; let target = label;
+    while (target?.name === 'node') {
+      const state = tapNodeEvidence(target); detail.lastExamined = state;
+      if (!state.ownPackage) { detail.rejection = 'foreign_package'; break; }
+      if (state.enabled !== true || state.visibleToUser === false) {
+        if (state.enabled === null) unknownState = true; detail.rejection = 'not_enabled_or_visible'; break;
+      }
+      // An accessible parent may repeat the label or inherit it from its child, never name another control.
+      if (target !== label && (target.attrs.text || target.attrs['content-desc']) && !hasLabel(target)) { detail.rejection = 'conflicting_ancestor_label'; break; }
+      if (state.clickable === true) {
+        detail.target = state; detail.relation = target === label ? 'self' : 'ancestor'; targets.add(target);
+        const a = detail.labelNode.bounds, b = state.bounds;
+        if (!a || !b) detail.rejection = 'invalid_bounds';
+        else if (a[0] < b[0] || a[1] < b[1] || a[2] > b[2] || a[3] > b[3]) detail.rejection = 'label_outside_target';
+        if (detail.rejection) invalidTargets.add(target);
+        break;
+      }
+      if (state.clickable === null) { unknownState = true; detail.rejection = 'unknown_clickable_state'; break; }
+      target = target.parent;
+    }
+    if (!detail.target && !detail.rejection) detail.rejection = 'no_clickable_ancestor';
+    if (evidence.candidates.length < 16) evidence.candidates.push(detail); else evidence.candidatesTruncated = true;
+  }
+  evidence.targetCount = targets.size;
+  if (unknownState) fail('PILOT_TAP_STATE_UNKNOWN');
+  if (targets.size !== 1) fail(targets.size ? 'PILOT_TAP_TARGET_AMBIGUOUS' : 'PILOT_TAP_TARGET_MISSING');
+  const [selected] = targets;
+  if (invalidTargets.has(selected)) fail('PILOT_TAP_BOUNDS_INVALID');
+  evidence.selected = tapNodeEvidence(selected); evidence.status = 'selected';
+  const b = evidence.selected.bounds; return [Math.floor((b[0] + b[2]) / 2), Math.floor((b[1] + b[3]) / 2)];
+}
+async function tapCatalog(adb, xml, phase, result) {
+  assert.ok(['control', 'attack', 'recovery'].includes(phase), 'PILOT_TAP_PHASE_INVALID');
+  result.navigationChecks ||= {}; const evidence = result.navigationChecks[phase] = {};
+  const coordinates = tapBounds(xml, 'Catálogo', evidence);
+  try { await adb('shell', 'input', 'tap', ...coordinates.map(String)); evidence.status = 'tap_sent'; }
+  catch (error) {
+    Object.assign(evidence, { status: 'failed', errorCode: 'PILOT_TAP_INPUT_FAILED',
+      errorClass: error instanceof TypeError ? 'TypeError' : error instanceof Error ? 'Error' : 'unknown' });
+    throw error; // The report keeps no message/stdout; preserve the original failure and finally cleanup.
+  }
 }
 async function readCompiledPolicy(env, apk, meta, controls = {}) {
   const pinsConfig = JSON.parse(fs.readFileSync('config/security-pins.json', 'utf8'));
@@ -312,7 +686,7 @@ async function readCompiledPolicy(env, apk, meta, controls = {}) {
   controls.minSdk = minSdkEvidence(await command(analyzer, ['manifest', 'min-sdk', apk]));
   const manifest = await command(analyzer, ['manifest', 'print', apk], { diagnostic: 'NSC_MANIFEST' });
   const nsc = await loadCompiledNsc(manifest, apk, { analyzer, aapt2: tools.aapt2 });
-  controls.nscResource = nsc.resource;
+  controls.nscResource = nsc.resource; controls.launcher = compiledLauncher(manifest);
   const policy = compiledPolicy(manifest, nsc.xml, apiHost, imageHost, pinsConfig.pins.map(p => p.sha256), nsc.resource);
   controls.compiledNsc = { compiled: true, systemOnly: true, apiHost, imageHost, pinCount: policy.pins.length };
   return policy;
@@ -336,8 +710,11 @@ async function pilot(env = process.env) {
   assert.equal(env.PINNING_EPHEMERAL_AVD, 'true'); assert.equal(env.PINNING_SYSTEM_IMAGE, 'system-images;android-30;default;x86_64');
   const serial = env.ANDROID_SERIAL || 'emulator-5554'; assert.match(serial, /^emulator-\d+$/);
   const temporary = path.resolve(env.RUNNER_TEMP || os.tmpdir()), scratch = fs.mkdtempSync(path.join(temporary, 'sport-pinning-'));
-  const result = { status: 'blocked', controls: {}, tool: TOOL.version }; let proxy, proxyLog, caDevice, installedCa = false, proxyChanged = false;
+  const result = { status: 'blocked', controls: {}, tool: TOOL.version };
+  const progress = createPilotProgress(result); let lastUi = '';
+  let proxy, proxyLog, caDevice, ownCaHash, installedCa = false, proxyChanged = false;
   const adb = (...args) => command('adb', ['-s', serial, ...args]);
+  const proxyAdb = (args, options) => command('adb', ['-s', serial, ...args], options);
   const output = path.resolve('test-results/android-pinning.json');
   const runId = randomUUID(), file = name => path.join(scratch, name);
   const writePhase = phase => fs.writeFileSync(file('phase'), phase, { mode: 0o600 });
@@ -347,91 +724,145 @@ async function pilot(env = process.env) {
     const meta = JSON.parse(fs.readFileSync(env.PINNING_BUILD_META || 'test-results/android-build.json', 'utf8'));
     const context = resolveSourceContext(env);
     if (context.revalidation) verifyApi34Evidence(JSON.parse(fs.readFileSync('test-results/android34.json', 'utf8')), context);
-    result.candidate = candidate(meta, await sha256(apk), env, context);
+    progress.enter('setup', 'candidate');
+    result.candidate = candidate(meta, await sha256(apk), env, context); progress.complete();
     assert.ok(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0 && env.PRODUCT_NAME.length < 200 && !/[\r\n]/.test(env.PRODUCT_NAME), 'Falta producto público visible para control UI.');
-    const policy = await readCompiledPolicy(env, apk, meta, result.controls);
+    const policy = await progress.action('setup', 'compiled_policy', () => readCompiledPolicy(env, apk, meta, result.controls));
     const { apiHost, imageHost } = policy;
+    progress.enter('setup', 'system_image');
     const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
     assert.ok(typeof sdk === 'string' && path.isAbsolute(sdk), 'ANDROID_SDK_REQUIRED');
     const installed = verifyAospPackage(await command(path.join(sdk, 'cmdline-tools/23.0/bin/sdkmanager'), ['--list_installed', '--sdk_root=' + sdk]));
     result.controls.systemImage = { ...installed, ...verifyAospImage(fs.readFileSync(path.join(sdk, 'system-images/android-30/default/x86_64/source.properties'), 'utf8')) };
+    progress.complete(); progress.enter('setup', 'tool_version');
     const version = await command(env.MITMDUMP || 'mitmdump', ['--version']); assert.match(version, /^Mitmproxy:\s+12\.3\.1(?: binary)?\s*$/m, 'Versión mitmproxy distinta de la fijada.');
+    progress.complete(); progress.enter('setup', 'proxy_state');
     const priorProxy = (await adb('shell', 'settings', 'get', 'global', 'http_proxy')).trim();
     assert.ok(['null', '', ':0'].includes(priorProxy), 'El AVD ya tenía proxy: no es un control limpio.');
+    progress.complete(); progress.enter('setup', 'emulator');
     await adb('root'); await adb('wait-for-device');
     const getprop = async key => (await adb('shell', 'getprop', key)).trim();
     result.emulator = emulatorEvidence({ serial, sdk: await getprop('ro.build.version.sdk'), qemu: await getprop('ro.kernel.qemu'),
       type: await getprop('ro.build.type'), abi: await getprop('ro.product.cpu.abi'), root: (await adb('shell', 'id', '-u')).trim(),
       playStore: await playStorePresent(adb) });
-    await adb('install', '-r', apk);
-    writePhase('control');
+    progress.complete();
+    await progress.action('setup', 'apk_install', async () => {
+      const installed = await adb('install', '-r', apk);
+      result.controls.installBeforeCa = installedApkEvidence(installed, await adb('shell', 'pm', 'path', '--user', '0', APP));
+      result.controls.packageBeforeCa = packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP));
+      if (!result.controls.packageBeforeCa) throw new PilotLaunchError('PILOT_PACKAGE_MISSING');
+    });
+    progress.enter('setup', 'proxy_start'); writePhase('control');
     fs.writeFileSync(file('config.json'), JSON.stringify({ runId, apiHost, imageHost, pins: policy.pins, phaseFile: file('phase'), events: file('events.jsonl'), caFile: file('ca/mitmproxy-ca-cert.pem') }), { mode: 0o600 });
     proxyLog = fs.openSync(file('proxy.log'), 'wx', 0o600);
     proxy = spawn(env.MITMDUMP || 'mitmdump', ['--listen-host', '127.0.0.1', '--listen-port', '18080', '--set', 'confdir=' + file('ca'),
       '--set', 'ssl_insecure=false', '--set', 'add_upstream_certs_to_client_chain=false', '-s', path.join(__dirname, 'android-pinning-proxy.py')],
     { env: { ...cleanEnv(env), PINNING_CONFIG: file('config.json') }, stdio: ['ignore', proxyLog, proxyLog] });
     let spawnFailed = false; proxy.on('error', () => { spawnFailed = true; });
-    await until(async () => { assert.ok(!spawnFailed && proxy.exitCode === null, 'El proxy no pudo iniciarse.'); return fs.existsSync(file('ca/mitmproxy-ca-cert.pem')); }, 30000);
-    await until(() => new Promise(resolve => { const socket = net.connect(18080, '127.0.0.1'); socket.once('connect', () => { socket.destroy(); resolve(true); }); socket.once('error', () => resolve(false)); }), 15000);
+    progress.complete();
+    await progress.wait('setup', 'proxy_ca_ready', async () => { assert.ok(!spawnFailed && proxy.exitCode === null, 'El proxy no pudo iniciarse.'); return fs.existsSync(file('ca/mitmproxy-ca-cert.pem')); }, 30000);
+    await progress.wait('setup', 'proxy_listening', () => new Promise(resolve => { const socket = net.connect(18080, '127.0.0.1'); socket.once('connect', () => { socket.destroy(); resolve(true); }); socket.once('error', () => resolve(false)); }), 15000);
+    progress.enter('setup', 'ca_prepare');
     const caFile = file('ca/mitmproxy-ca-cert.pem');
     const hash = (await command('openssl', ['x509', '-in', caFile, '-subject_hash_old', '-noout'])).trim(); assert.match(hash, /^[a-f0-9]{8}$/);
     const caDigest = (await command('openssl', ['x509', '-in', caFile, '-fingerprint', '-sha256', '-noout'])).trim().split('=').pop().replace(/:/g, '').toLowerCase(); assert.match(caDigest, /^[a-f0-9]{64}$/);
     // API29/30 procedure documented by mitmproxy; failure never falls back to a user CA.
     await adb('shell', 'avbctl', 'disable-verification'); await adb('reboot'); await adb('wait-for-device');
-    await until(async () => (await getprop('sys.boot_completed')) === '1', 120000);
+    progress.complete();
+    await progress.wait('setup', 'boot_verified', async () => (await getprop('sys.boot_completed')) === '1', 120000);
+    progress.enter('setup', 'remount');
     await adb('root'); await adb('wait-for-device');
     const remount = await adb('remount');
     if (/reboot/i.test(remount)) {
       await adb('reboot'); await adb('wait-for-device');
-      await until(async () => (await getprop('sys.boot_completed')) === '1', 120000);
+      await progress.wait('setup', 'boot_remounted', async () => (await getprop('sys.boot_completed')) === '1', 120000);
       await adb('root'); await adb('wait-for-device'); await adb('remount');
     }
+    progress.complete(); progress.enter('setup', 'ca_install');
     caDevice = '/system/etc/security/cacerts/' + hash + '.0';
     await assertCaAbsent(adb, caDevice);
+    ownCaHash = await sha256(caFile);
     await adb('push', caFile, caDevice); installedCa = true;
     await adb('shell', 'chmod', '644', caDevice); await adb('shell', 'chown', 'root:root', caDevice); await adb('shell', 'restorecon', caDevice);
-    assert.equal((await adb('shell', 'sha256sum', caDevice)).trim().split(/\s+/)[0], await sha256(caFile), 'CA copiada distinta.');
+    assert.equal((await adb('shell', 'sha256sum', caDevice)).trim().split(/\s+/)[0], ownCaHash, 'CA copiada distinta.');
+    result.controls.caCopyVerified = true; progress.complete(); progress.enter('setup', 'boot_with_ca');
     await adb('reboot'); await adb('wait-for-device');
-    await until(async () => (await getprop('sys.boot_completed')) === '1', 120000);
-    result.controls.clockSynchronized = clockEvidence(await adb('shell', 'date', '+%s'), Date.now());
-    await adb('shell', 'settings', 'put', 'global', 'http_proxy', '10.0.2.2:18080'); proxyChanged = true;
+    await progress.wait('setup', 'boot_with_ca', async () => (await getprop('sys.boot_completed')) === '1', 120000);
+    result.controls.clockSynchronized = await progress.action('setup', 'clock_check', async () => clockEvidence(await adb('shell', 'date', '+%s'), Date.now()));
+    result.controls.packageAfterCa = await progress.action('setup', 'package_after_ca', async () => packagePresence(await adb('shell', 'cmd', 'package', 'list', 'packages', '--user', '0', APP)));
+    const reinstall = await progress.action('setup', 'apk_reinstall', () => reinstallSameApk(adb, apk, result.candidate.sha256));
+    result.controls.installAfterCa = { installSuccess: reinstall.installSuccess, packagePathConfirmed: reinstall.packagePathConfirmed };
+    result.controls.packageAfterReinstall = reinstall.packagePresent;
+    proxyChanged = true; // A command may mutate the setting before reporting an error. Cleanup must still attempt its own reset.
+    await progress.action('control', 'proxy_enabled', () => adb('shell', 'settings', 'put', 'global', 'http_proxy', '10.0.2.2:18080'));
     const uiPath = '/data/local/tmp/sport-pinning-' + runId + '.xml';
-    const ui = () => readUiDump(adb, uiPath);
-    async function catalog() {
-      await adb('shell', 'am', 'force-stop', APP); await adb('shell', 'pm', 'clear', APP);
-      await adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', APP);
-      let current = ''; await until(async () => { current = await ui(); return visible(current, 'Catálogo'); });
-      await adb('shell', 'input', 'tap', ...tapBounds(current, 'Catálogo').map(String));
+    const ui = async () => { lastUi = ''; lastUi = await readUiDump(adb, uiPath); return lastUi; };
+    async function catalog(phase) {
+      lastUi = '';
+      result.launchChecks ||= {};
+      result.launchChecks[phase] = await progress.action(phase, 'catalog_launch', () => launchInstalledApp(adb, result.controls.launcher.component));
+      let current = '';
+      await progress.wait(phase, 'catalog_visible', async () => { current = await ui(); return visible(current, 'Catálogo'); });
+      await progress.action(phase, 'catalog_opened', () => tapCatalog(adb, current, phase, result));
     }
-    await catalog(); await until(async () => visible(await ui(), env.PRODUCT_NAME));
-    await until(async () => readEvents().some(e => e.phase === 'control' && e.event === 'image_response' && e.status >= 200 && e.status < 300));
-    result.controls.baselineUi = true;
+    await catalog('control');
+    await progress.wait('control', 'product_visible', async () => visible(await ui(), env.PRODUCT_NAME));
+    await progress.wait('control', 'image_2xx', async () => readEvents().some(e => e.phase === 'control' && e.event === 'image_response' && e.status >= 200 && e.status < 300));
+    result.controls.baselineUi = true; progress.enter('control', 'proxy_stopped');
     await adb('shell', 'am', 'force-stop', APP); proxy.kill('SIGTERM');
-    await until(async () => proxy.exitCode !== null, 15000);
+    await progress.wait('control', 'proxy_stopped', async () => proxy.exitCode !== null, 15000);
     // A new proxy process keeps the same CA, but removes all tunnels/TLS sessions from the control.
-    clockEvidence(await adb('shell', 'date', '+%s'), Date.now());
+    await progress.action('attack', 'clock_check', async () => clockEvidence(await adb('shell', 'date', '+%s'), Date.now()));
+    progress.enter('attack', 'proxy_restart');
     writePhase('attack'); proxy = spawn(env.MITMDUMP || 'mitmdump', ['--listen-host', '127.0.0.1', '--listen-port', '18080', '--set', 'confdir=' + file('ca'),
       '--set', 'ssl_insecure=false', '--set', 'add_upstream_certs_to_client_chain=false', '-s', path.join(__dirname, 'android-pinning-proxy.py')],
     { env: { ...cleanEnv(env), PINNING_CONFIG: file('config.json') }, stdio: ['ignore', proxyLog, proxyLog] });
     proxy.on('error', () => { spawnFailed = true; }); await sleep(1500); assert.ok(!spawnFailed && proxy.exitCode === null, 'No se reinició el proxy.');
-    await catalog();
-    await until(async () => { const xml = await ui(); return visible(xml, 'No se pudo cargar el catálogo') && visible(xml, 'Reintentar') && !visible(xml, env.PRODUCT_NAME); });
+    progress.complete(); await catalog('attack');
+    await progress.wait('attack', 'error_visible', async () => { const xml = await ui(); return visible(xml, 'No se pudo cargar el catálogo') && visible(xml, 'Reintentar') && !visible(xml, env.PRODUCT_NAME); });
     result.controls.negativeUi = true;
-    await until(async () => readEvents().some(e => e.phase === 'attack' && e.event === 'client_tls_failed'));
-    await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); proxyChanged = false;
-    await catalog(); await until(async () => visible(await ui(), env.PRODUCT_NAME)); result.controls.recoveryUi = true;
-    assert.equal(await sha256(apk), result.candidate.sha256, 'El APK cambió durante el piloto.');
+    await progress.wait('attack', 'tls_failure_event', async () => readEvents().some(e => e.phase === 'attack' && e.event === 'client_tls_failed'));
+    result.controls.proxyRecovery = await progress.action('recovery', 'proxy_removed', () => prepareRecoveryProxy(adb, proxyAdb, writePhase));
+    proxyChanged = false; // Only the handler acknowledgement permits the recovery launch to proceed.
+    await catalog('recovery'); await progress.wait('recovery', 'product_visible', async () => visible(await ui(), env.PRODUCT_NAME)); result.controls.recoveryUi = true;
+    progress.enter('recovery', 'apk_hash'); assert.equal(await sha256(apk), result.candidate.sha256, 'El APK cambió durante el piloto.'); progress.complete();
+    progress.enter('recovery', 'verdict');
     Object.assign(result, verdict(readEvents(), { runId, compiled: policy, caInstalled: true, caSha256: caDigest, baselineUi: true, negativeUi: true, recoveryUi: true }));
-    await adb('shell', 'rm', '-f', uiPath);
+    progress.complete(); await adb('shell', 'rm', '-f', uiPath);
   } catch (error) {
-    result.status = 'blocked_or_failed'; result.reason = error instanceof Error ? error.message.slice(0, 240) : 'Piloto incompleto.';
+    result.status = 'blocked_or_failed'; result.errorCode = error instanceof PilotLaunchError ? error.code : progress.errorCode(error); result.reason = result.errorCode;
+    if (error instanceof PilotLaunchError) result.launchEvidence = error.launchEvidence;
+    if (error instanceof PilotProxyError) { result.proxyErrorCode = error.code; result.proxyEvidence = error.proxyEvidence; }
     if (error instanceof SystemImageError) {
       result.systemImageMismatch = error.diagnostic;
       if (error.packageListing) result.packageListing = error.packageListing;
     }
+    try {
+      result.failureDiagnostics = await failureDiagnostics({
+        runAdb: (args, options) => command('adb', ['-s', serial, ...args], options),
+        xml: lastUi, productName: env.PRODUCT_NAME, readEvents, runId, allowScreenshot: result.emulator?.ephemeral === true,
+      });
+    } catch { result.failureDiagnostics = { errorCode: 'PILOT_FAILURE_DIAGNOSTIC_FAILED' }; }
   } finally {
-    try { if (proxyChanged) await adb('shell', 'settings', 'delete', 'global', 'http_proxy'); if (installedCa) { await adb('root'); await adb('wait-for-device'); await adb('shell', 'rm', '-f', caDevice); } }
-    catch { result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.'; }
+    result.cleanupChecks = { proxy: 'not_required', ca: { status: 'not_required' } }; const cleanupErrors = [];
+    if (proxyChanged) {
+      try { result.cleanupChecks.proxy = await resetOwnProxy(proxyAdb, 'cleanup'); proxyChanged = false; }
+      catch (error) {
+        result.cleanupChecks.proxy = error instanceof PilotProxyError ? error.proxyEvidence : { status: 'failed', operation: 'unknown' };
+        cleanupErrors.push(error instanceof PilotProxyError ? error.code : 'PILOT_CLEANUP_PROXY_RESTORE_FAILED');
+      }
+    }
+    if (installedCa) {
+      try { result.cleanupChecks.ca = await removeOwnCa(adb, caDevice, ownCaHash); }
+      catch (error) {
+        result.cleanupChecks.ca = error instanceof PilotCleanupError ? error.cleanupEvidence : { status: 'failed', operation: 'unknown' };
+        cleanupErrors.push(error instanceof PilotCleanupError ? error.code : 'PILOT_CLEANUP_CA_FAILED');
+      }
+    }
+    if (cleanupErrors.length) {
+      result.status = 'blocked_or_failed'; result.cleanup = 'No se pudo comprobar limpieza; destruir AVD efímero.';
+      result.cleanupErrorCode = cleanupErrors[0]; result.cleanupErrors = cleanupErrors;
+    }
     if (proxy && proxy.exitCode === null) { proxy.kill('SIGTERM'); try { await until(async () => proxy.exitCode !== null, 10000); } catch { proxy.kill('SIGKILL'); } }
     if (proxyLog !== undefined) fs.closeSync(proxyLog);
     assert.ok(path.dirname(scratch) === temporary && path.basename(scratch).startsWith('sport-pinning-'));
@@ -440,7 +871,7 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, PilotProxyError, resetOwnProxy, prepareRecoveryProxy, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv, preflight, pilot };
 if (require.main === module) {
   const isPreflight = process.argv[2] === 'preflight';
   (isPreflight ? preflight() : pilot()).then(result => {

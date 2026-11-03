@@ -228,7 +228,10 @@ async function probe({ run = command, env = process.env, wait = waitForService, 
   const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
   requireValue(typeof sdk === 'string' && path.isAbsolute(sdk), 'ANDROID_SDK_REQUIRED');
   const image = verifyImage(read(path.join(sdk, 'system-images/android-36/google_apis_ps16k/x86_64/source.properties'), 'utf8'));
-  const adb = args => run('adb', args);
+  const serial = env.ANDROID_SERIAL || 'emulator-5554';
+  requireValue(/^emulator-\d+$/.test(serial), 'ANDROID_SERIAL_INVALID');
+  const adb = args => run('adb', ['-s', serial, ...args]);
+  requireValue((await adb(['get-state'])).trim() === 'device', 'ANDROID_DEVICE_NOT_READY');
   const runtime = async () => verifyRuntime({ pageSize: await adb(['shell', 'getconf', 'PAGE_SIZE']),
     abi: await adb(['shell', 'getprop', 'ro.product.cpu.abi']), api: await adb(['shell', 'getprop', 'ro.build.version.sdk']) });
   const before = await runtime();
@@ -237,7 +240,7 @@ async function probe({ run = command, env = process.env, wait = waitForService, 
   await adb(['shell', 'setprop', 'pm.16kb.app_compat.disabled', 'true']);
   requireValue((await adb(['shell', 'getprop', 'bionic.linker.16kb.app_compat.enabled'])).trim() === 'false'
     && (await adb(['shell', 'getprop', 'pm.16kb.app_compat.disabled'])).trim() === 'true', 'BACKCOMPAT_NOT_DISABLED');
-  save({ image, runtimeBefore: before, backcompatDisabled: true, outcome: 'running', scope: 'official-x86_64-16kb-simulation-not-native-arm' });
+  save({ image, deviceSerial: serial, runtimeBefore: before, backcompatDisabled: true, outcome: 'running', scope: 'official-x86_64-16kb-simulation-not-native-arm' });
   let failure;
   try {
     await adb(['install', '-r', files.apk]);
@@ -255,7 +258,7 @@ async function probe({ run = command, env = process.env, wait = waitForService, 
     const readiness = await wait({ apiUrl: SOURCE.api, android: true });
     requireValue(readiness.ready === true, 'PUBLIC_CATALOG_NOT_READY');
     save({ processBefore: true, publicCatalogReady: true });
-    await run('maestro', ['test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
+    await run('maestro', ['--device', serial, 'test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
       '--format', 'junit', '--output', 'test-results/android16k-maestro.xml',
       '--test-output-dir', 'test-results/android16k-maestro', '.maestro'], { timeout: 600000 });
     requireValue(assertAndroidReport(read('test-results/android16k-maestro.xml', 'utf8')) === 2, 'PUBLIC_FLOWS_INCOMPLETE');
@@ -275,16 +278,19 @@ async function acceptApi34({ run = command, env = process.env, wait = waitForSer
   requireValue(await fileHash(files.apk) === SOURCE.apkSha256, 'APK_HASH_MISMATCH');
   requireValue(typeof env.PRODUCT_NAME === 'string' && env.PRODUCT_NAME.trim().length > 0
     && env.PRODUCT_NAME.length <= 160 && !/[\r\n\x00-\x1f]/.test(env.PRODUCT_NAME), 'PUBLIC_PRODUCT_NAME_REQUIRED');
-  const adb = args => run('adb', args);
+  const serial = env.ANDROID_SERIAL || 'emulator-5554';
+  requireValue(/^emulator-\d+$/.test(serial), 'ANDROID_SERIAL_INVALID');
+  const adb = args => run('adb', ['-s', serial, ...args]);
+  requireValue((await adb(['get-state'])).trim() === 'device', 'ANDROID_DEVICE_NOT_READY');
   requireValue((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34'
     && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'API34_RUNTIME_MISMATCH');
   await adb(['install', '-r', files.apk]);
   const ready = await wait({ apiUrl: SOURCE.api, android: true });
   requireValue(ready.ready === true, 'PUBLIC_CATALOG_NOT_READY');
-  await run('maestro', ['test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
+  await run('maestro', ['--device', serial, 'test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
     '--format', 'junit', '--output', 'test-results/maestro.xml', '--test-output-dir', 'test-results/maestro', '.maestro'], { timeout: 600000 });
   requireValue(assertAndroidReport(read('test-results/maestro.xml', 'utf8')) === 2, 'PUBLIC_FLOWS_INCOMPLETE');
-  const report = { status: 'passed', api: 34, abi: 'x86_64', publicFlows: 2,
+  const report = { status: 'passed', deviceSerial: serial, api: 34, abi: 'x86_64', publicFlows: 2,
     processAfter: verifyPid(await adb(['shell', 'pidof', SOURCE.appId])), buildId: SOURCE.buildId,
     apkSha256: SOURCE.apkSha256, artifactSourceCommit: context.artifactSourceCommit, automationCommit: context.automationCommit };
   if (save) save(report);

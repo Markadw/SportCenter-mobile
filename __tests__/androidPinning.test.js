@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, PilotProxyError, resetOwnProxy, prepareRecoveryProxy, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -151,6 +151,69 @@ test('diagnóstico nuevo identifica formato/conteos seguros y nunca publica desc
   }
 });
 
+const activityComponent = 'com.markadw.sportcenter/com.markadw.sportcenter.MainActivity';
+const launcherManifest = '<manifest package="com.markadw.sportcenter"><application android:debuggable="false"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>';
+test('launcher único se obtiene del manifiesto compilado, no se adivina del nombre del paquete', () => {
+  expect(compiledLauncher(launcherManifest)).toEqual({ component: activityComponent, launcherCount: 1, exported: true });
+  for (const xml of [launcherManifest.replace('android:name=".MainActivity"', ''), launcherManifest.replace('exported="true"', 'exported="false"'),
+    launcherManifest.replace('</application>', launcherManifest.match(/<activity[\s\S]*<\/activity>/)[0] + '</application>'),
+    launcherManifest.replace('android.intent.category.LAUNCHER', 'android.intent.category.DEFAULT')]) expect(() => compiledLauncher(xml)).toThrow('PILOT_COMPILED_LAUNCHER_INVALID');
+});
+test('presencia, Success y pm path se verifican sin exponer rutas ni aceptar un APK diferente por texto ambiguo', () => {
+  expect(packagePresence('package:com.markadw.sportcenter\n')).toBe(true); expect(packagePresence('')).toBe(false);
+  expect(packagePresence('package:com.markadw.sportcenter.other\n')).toBe(false);
+  expect(installedApkEvidence('Performing Streamed Install\nSuccess\n', 'package:/data/app/~~abc==/com.markadw.sportcenter-123/base.apk\n'))
+    .toEqual({ installSuccess: true, packagePathConfirmed: true });
+  for (const [install, paths] of [['Failure [SECRET]', 'package:/data/app/a/base.apk'], ['Success\nSuccess', 'package:/data/app/a/base.apk'],
+    ['Success', 'package:/data/app/a/base.apk\npackage:/data/app/b/base.apk'], ['Success', 'package:/data/app/../base.apk'], ['Success', 'SECRET https://private.invalid']])
+    expect(() => installedApkEvidence(install, paths)).toThrow();
+});
+test('reinstalar tras CA usa sólo el APK con hash exacto y confirma Success/path/presencia', async () => {
+  const adb = jest.fn(async (...args) => args[0] === 'install' ? 'Performing Streamed Install\nSuccess\n'
+    : args.includes('path') ? 'package:/data/app/abc/base.apk\n' : 'package:com.markadw.sportcenter\n');
+  const hash = jest.fn(async () => digest);
+  expect(await reinstallSameApk(adb, '/private/same.apk', digest, hash)).toEqual({ installSuccess: true, packagePathConfirmed: true, packagePresent: true });
+  expect(adb.mock.calls[0]).toEqual(['install', '-r', '/private/same.apk']); expect(hash).toHaveBeenCalledWith('/private/same.apk');
+  const forbidden = jest.fn(); await expect(reinstallSameApk(forbidden, '/private/changed.apk', digest, async () => '0'.repeat(64))).rejects.toThrow('PILOT_APK_HASH_MISMATCH');
+  expect(forbidden).not.toHaveBeenCalled();
+});
+function launchAdb(change = {}) {
+  return jest.fn(async (...args) => {
+    const key = args.join(' ');
+    if (key.startsWith('shell cmd package list packages')) return change.absent ? '' : 'package:com.markadw.sportcenter\n';
+    if (key.startsWith('shell am force-stop')) return '';
+    if (key.startsWith('shell pm clear')) return change.clear || 'Success\n';
+    if (key.includes('query-activities')) return change.query || 'com.markadw.sportcenter/.MainActivity\n';
+    if (key.includes('resolve-activity')) return change.resolve || 'com.markadw.sportcenter/.MainActivity\n';
+    if (key.startsWith('shell am start')) return change.start || 'Starting: Intent\nStatus: ok\nActivity: com.markadw.sportcenter/.MainActivity\nComplete\n';
+    if (key.startsWith('shell pidof')) return change.pid ?? '123\n';
+    if (key === 'shell dumpsys activity activities') return change.foreground || 'mResumedActivity: ActivityRecord{123 u0 com.markadw.sportcenter/.MainActivity t1}\n';
+    throw Error('SECRET unexpected adb output');
+  });
+}
+test('arranque explícito requiere componente real, Status+Activity, PID y resumed; exit0 solo no basta', async () => {
+  const adb = launchAdb(); const result = await launchInstalledApp(adb, activityComponent);
+  expect(result).toEqual({ packagePresent: true, clearSucceeded: true, launcherUnique: true, resolverMatches: true,
+    startStatus: 'ok', activityMatches: true, processRunning: true, foregroundConfirmed: true });
+  expect(adb.mock.calls.find(args => args.includes('start'))).toContain(activityComponent);
+  expect(adb.mock.calls.find(args => args.includes('start'))).not.toContain('-p');
+  expect(adb.mock.calls.find(args => args.includes('query-activities'))).toContain('--components');
+});
+test.each([
+  [{ absent: true }, 'PILOT_PACKAGE_MISSING'], [{ clear: 'Failed' }, 'PILOT_CLEAR_NOT_SUCCESS'],
+  [{ query: 'com.markadw.sportcenter/.MainActivity\ncom.markadw.sportcenter/.MainActivity\n' }, 'PILOT_RUNTIME_LAUNCHER_INVALID'],
+  [{ resolve: 'No activity found\n' }, 'PILOT_RUNTIME_LAUNCHER_INVALID'],
+  [{ start: 'Error: Activity not started, unable to resolve SECRET\n' }, 'PILOT_START_REPORTED_ERROR'],
+  [{ start: 'Starting: Intent\n' }, 'PILOT_START_STATUS_INVALID'],
+  [{ start: 'Status: timeout\nActivity: com.markadw.sportcenter/.MainActivity\n' }, 'PILOT_START_STATUS_INVALID'],
+  [{ start: 'Status: ok\nActivity: another.package/.MainActivity\n' }, 'PILOT_START_ACTIVITY_INVALID'],
+  [{ pid: '' }, 'PILOT_PROCESS_MISSING'],
+  [{ foreground: 'mResumedActivity: ActivityRecord{a u0 com.android.launcher3/.Launcher t1}' }, 'PILOT_FOREGROUND_MISMATCH'],
+])('evidencia parcial o error am con exit0 falla cerrado %#', async (change, code) => {
+  try { await launchInstalledApp(launchAdb(change), activityComponent); throw Error('Expected failure'); }
+  catch (error) { expect(error).toBeInstanceOf(PilotLaunchError); expect(error.code).toBe(code); expect(JSON.stringify(error)).not.toMatch(/SECRET|ActivityRecord|Starting: Intent/); }
+});
+
 test('AOSP no relaja la exclusión de Vending, userdebug ni adbd root', () => {
   const properties = { serial: 'emulator-5554', sdk: '30', qemu: '1', type: 'userdebug', abi: 'x86_64', root: '0', playStore: false };
   expect(() => emulatorEvidence({ ...properties, playStore: true })).toThrow('PLAY_STORE_PRESENT');
@@ -186,12 +249,296 @@ test('a reused connection, unrelated run or forbidden request cannot pass', () =
   expect(() => verdict([...proof(), { runId: 'other' }], context())).toThrow();
   expect(() => verdict([...proof(), event('control', 'forbidden_request', image, 'image')], context())).toThrow();
 });
-test('UI proof requires the app package and an unambiguous visible target', () => {
-  const xml = '<node package="com.markadw.sportcenter" text="Catálogo" bounds="[0,10][100,50]"></node>';
-  expect(visible(xml, 'Catálogo')).toBe(true); expect(tapBounds(xml, 'Catálogo')).toEqual([50, 30]);
-  expect(visible(xml.replace('com.markadw.sportcenter', 'browser'), 'Catálogo')).toBe(false);
-  expect(() => tapBounds(xml + xml, 'Catálogo')).toThrow();
+function proxyHarness(change = {}) {
+  const values = { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '10.0.2.2', global_http_proxy_port: '18080',
+    global_http_proxy_exclusion_list: '', global_proxy_pac_url: '', ...change.values };
+  let disabled = false, polls = 0, failAfterWrite = change.failAfterWrite;
+  const runAdb = jest.fn(async (args, options) => {
+    expect(options.timeout).toBeGreaterThan(0); expect(options.timeout).toBeLessThanOrEqual(1000);
+    expect(options.killSignal).toBe('SIGKILL'); expect(options.maxBuffer).toBe(1024);
+    if (change.fail === args.join(' ')) throw Error('SECRET https://private.invalid');
+    const key = args[4];
+    if (args[2] === 'get') {
+      if (disabled && key === 'http_proxy') {
+        polls++;
+        if (!change.noAck && polls >= (change.ackAt || 1)) {
+          Object.assign(values, { global_http_proxy_host: '', global_http_proxy_port: '0', global_http_proxy_exclusion_list: '', global_proxy_pac_url: '' }, change.after);
+        }
+      }
+      return (Object.hasOwn(values, key) ? values[key] : 'null') + '\n';
+    }
+    expect(args).toEqual(['shell', 'settings', 'put', 'global', 'http_proxy', ':0']);
+    values.http_proxy = ':0'; disabled = true;
+    if (failAfterWrite) { failAfterWrite = false; throw Error('SECRET write completed before transport failed'); }
+    return '';
+  });
+  return { values, runAdb, get polls() { return polls; } };
+}
+
+test('reset requires its own active proxy then observes the AOSP handler clearing modern keys, never writes those keys itself', async () => {
+  const h = proxyHarness(), report = await resetOwnProxy(h.runAdb, 'recovery');
+  expect(report).toMatchObject({ status: 'passed', ackMethod: 'aosp11-settings-handler-order', directServiceQuery: false,
+    ownProxyBefore: true, handlerAckObserved: true, consistentNoProxySettingsObserved: true, readAttempts: 1,
+    before: { deprecated: 'own', host: 'own', port: 'own' }, after: { deprecated: 'disabled', host: 'none', port: 'zero' } });
+  expect(h.runAdb.mock.calls.filter(([args]) => args[2] !== 'get').map(([args]) => args))
+    .toEqual([['shell', 'settings', 'put', 'global', 'http_proxy', ':0']]);
 });
+
+test('delete-only scenario with a retained global proxy is not accepted as recovery; cleanup still resets it', async () => {
+  const h = proxyHarness({ values: { http_proxy: 'null' } });
+  await expect(resetOwnProxy(h.runAdb, 'recovery')).rejects.toMatchObject({ code: 'PILOT_PROXY_OWNERSHIP_UNVERIFIED',
+    proxyEvidence: { before: { deprecated: 'absent', host: 'own', port: 'own' }, handlerAckObserved: false } });
+  expect(h.runAdb.mock.calls.every(([args]) => args[2] === 'get')).toBe(true);
+  expect(await resetOwnProxy(h.runAdb, 'cleanup')).toMatchObject({ status: 'passed', handlerAckObserved: true });
+});
+
+test.each([
+  { http_proxy: ':0', global_http_proxy_host: '', global_http_proxy_port: '0' },
+  { http_proxy: 'null', global_http_proxy_host: 'null', global_http_proxy_port: 'null' },
+  { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '', global_http_proxy_port: 'null' },
+  { http_proxy: '10.0.2.2:18080', global_http_proxy_host: '10.0.2.2', global_http_proxy_port: '0' },
+])('cleanup accepts already-none or own pending setup, without fabricating an active prestate: %j', async values => {
+  const h = proxyHarness({ values }), report = await resetOwnProxy(h.runAdb, 'cleanup');
+  expect(report).toMatchObject({ status: 'passed', ownProxyBefore: false, consistentNoProxySettingsObserved: true });
+  expect(report.handlerAckObserved).toBe(false);
+});
+
+test.each([
+  { http_proxy: 'SECRET https://private.invalid' }, { global_http_proxy_host: 'SECRET' },
+  { global_http_proxy_port: '9999' }, { global_proxy_pac_url: 'SECRET' }, { global_http_proxy_exclusion_list: 'SECRET' },
+])('foreign or ambiguous proxy configuration fails before mutation and never exposes raw values: %j', async values => {
+  const h = proxyHarness({ values }); let error;
+  try { await resetOwnProxy(h.runAdb, 'cleanup'); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(PilotProxyError); expect(error.code).toBe('PILOT_PROXY_OWNERSHIP_UNVERIFIED');
+  expect(h.runAdb.mock.calls.every(([args]) => args[2] === 'get')).toBe(true);
+  expect(JSON.stringify(error.proxyEvidence)).not.toMatch(/SECRET|private.invalid|9999/);
+});
+
+test('legacy :0 alone cannot acknowledge a still-cached proxy; reads stop at the explicit bound', async () => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const h = proxyHarness({ noAck: true }), pending = resetOwnProxy(h.runAdb, 'recovery').catch(error => error);
+    await jest.advanceTimersByTimeAsync(3000); const error = await pending;
+    expect(error).toMatchObject({ code: 'PILOT_PROXY_ACK_TIMEOUT', proxyEvidence: { operation: 'read_ack', handlerAckObserved: false, readAttempts: 30,
+      after: { deprecated: 'disabled', host: 'own', port: 'own' } } });
+    expect(h.polls).toBe(30); expect(Date.now()).toBe(3000);
+  } finally { jest.useRealTimers(); }
+});
+
+test('a delayed local observer acknowledgement is bounded without an HTTP or app retry', async () => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const h = proxyHarness({ ackAt: 3 }), pending = resetOwnProxy(h.runAdb, 'recovery');
+    await jest.advanceTimersByTimeAsync(200); expect(await pending).toMatchObject({ status: 'passed', readAttempts: 3 });
+    expect(h.runAdb.mock.calls.every(([args]) => args[0] === 'shell' && args[1] === 'settings')).toBe(true);
+  } finally { jest.useRealTimers(); }
+});
+
+test.each(['shell settings get global global_http_proxy_host', 'shell settings put global http_proxy :0'])('transport failure keeps operation and no raw message: %s', async fail => {
+  const h = proxyHarness({ fail }), error = await resetOwnProxy(h.runAdb, 'cleanup').catch(error => error);
+  expect(error).toMatchObject({ code: 'PILOT_PROXY_ADB_FAILED', proxyEvidence: { status: 'failed', handlerAckObserved: false } });
+  expect(JSON.stringify(error.proxyEvidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test.each([{ global_http_proxy_host: 'private.invalid' }, { global_proxy_pac_url: 'SECRET' }])('unexpected post-write changes block acknowledgement: %j', after => {
+  const h = proxyHarness({ after });
+  return expect(resetOwnProxy(h.runAdb, 'cleanup')).rejects.toMatchObject({ code: 'PILOT_PROXY_STATE_CHANGED' });
+});
+
+test.each(['SECRET\u0001', 'x'.repeat(513)])('malformed/unbounded settings are not normalized into a clean proxy', value => {
+  const h = proxyHarness({ values: { global_http_proxy_host: value } });
+  return expect(resetOwnProxy(h.runAdb, 'cleanup')).rejects.toMatchObject({ code: 'PILOT_PROXY_STATE_INVALID' });
+});
+
+test('recovery stops the old app and marks the phase before reset; it cannot launch until acknowledgement', async () => {
+  const h = proxyHarness(), order = [], adb = jest.fn(async (...args) => { expect(args).toEqual(['shell', 'am', 'force-stop', '--user', '0', 'com.markadw.sportcenter']); order.push('stop'); });
+  const request = async (args, options) => { order.push(args[2]); return h.runAdb(args, options); };
+  const result = await prepareRecoveryProxy(adb, request, phase => order.push(phase)); order.push('launch permitted');
+  expect(order.slice(0, 2)).toEqual(['stop', 'recovery']); expect(order.indexOf('put')).toBeGreaterThan(1);
+  expect(order.at(-1)).toBe('launch permitted'); expect(result.handlerAckObserved).toBe(true);
+});
+
+test('write may mutate then fail; recovery cannot launch and cleanup must still verify the own reset', async () => {
+  const h = proxyHarness({ failAfterWrite: true }), launch = jest.fn();
+  await expect((async () => { await prepareRecoveryProxy(async () => {}, h.runAdb, () => {}); launch(); })()).rejects.toMatchObject({ code: 'PILOT_PROXY_ADB_FAILED' });
+  expect(h.values.http_proxy).toBe(':0'); expect(launch).not.toHaveBeenCalled();
+  expect(await resetOwnProxy(h.runAdb, 'cleanup')).toMatchObject({ status: 'passed', consistentNoProxySettingsObserved: true });
+});
+
+test('failure to stop the old process does not mutate proxy or phase', async () => {
+  const request = jest.fn(), phase = jest.fn();
+  await expect(prepareRecoveryProxy(async () => { throw Error('stop failed'); }, request, phase)).rejects.toThrow('stop failed');
+  expect(request).not.toHaveBeenCalled(); expect(phase).not.toHaveBeenCalled();
+});
+
+test('new recovery traffic through the proxy is rejected by the existing verdict invalid-configuration guard', () => {
+  expect(() => verdict([...proof(), event('recovery', 'invalid_configuration', api, 'unexpected-recovery')], context()))
+    .toThrow('El proxy detectó configuración o tráfico no admitido.');
+});
+
+const navNode = (attrs = {}, children = '') => '<node ' + Object.entries({ package: 'com.markadw.sportcenter',
+  class: 'android.view.View', enabled: 'true', clickable: 'true', text: 'Catálogo', bounds: '[100,580][220,630]', ...attrs })
+  .map(([key, value]) => key + '="' + value + '"').join(' ') + '>' + children + '</node>';
+const navTree = children => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hierarchy rotation="0">' + children + '</hierarchy>';
+
+test('UI proof selects one enabled clickable app control with valid screen bounds', () => {
+  const xml = navTree(navNode({ 'content-desc': 'Catálogo' })), evidence = {};
+  expect(visible(xml, 'Catálogo')).toBe(true); expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ label: 'Catálogo', status: 'selected', matchCount: 1, targetCount: 1,
+    selected: { class: 'android.view.View', enabled: true, clickable: true, bounds: [100, 580, 220, 630] } });
+  expect(visible(xml.replace('com.markadw.sportcenter', 'browser'), 'Catálogo')).toBe(false);
+});
+
+test('repeated parent/child accessibility labels resolve to the same actual clickable ancestor', () => {
+  const child = navNode({ class: 'android.widget.TextView', clickable: 'false', bounds: '[130,600][190,620]' });
+  const evidence = {}, xml = navTree(navNode({ bounds: '[100,580][220,630]' }, child + child));
+  expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ matchCount: 3, targetCount: 1 });
+  expect(evidence.candidates.map(c => c.relation)).toEqual(['self', 'ancestor', 'ancestor']);
+});
+
+test('a label may inherit an unnamed enabled own-package clickable parent, not arbitrary coordinates', () => {
+  const evidence = {}, child = navNode({ clickable: 'false', bounds: '[130,600][190,620]' });
+  expect(tapBounds(navTree(navNode({ text: '' }, child)), 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence.candidates[0]).toMatchObject({ relation: 'ancestor', rejection: null });
+});
+
+test.each(['siblings', 'nested'])('two independently clickable targets remain ambiguous even at identical bounds: %s', kind => {
+  const xml = navTree(kind === 'siblings' ? navNode() + navNode() : navNode({}, navNode())), evidence = {};
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(evidence).toMatchObject({ status: 'blocked', targetCount: 2, errorClass: 'PilotTapError' });
+});
+
+test('disabled and foreign labels do not compete with a unique enabled app target', () => {
+  const xml = navTree(navNode({ enabled: 'false' }) + navNode({ package: 'browser' }) + navNode()), evidence = {};
+  expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ matchCount: 3, targetCount: 1 });
+  expect(evidence.candidates.map(c => c.rejection)).toEqual(['not_enabled_or_visible', 'foreign_package', null]);
+});
+
+test.each([
+  [{ enabled: 'false' }, 'not_enabled_or_visible'], [{ 'visible-to-user': 'false' }, 'not_enabled_or_visible'],
+  [{ clickable: 'false' }, 'no_clickable_ancestor'], [{ text: 'Catálogo de ofertas' }, undefined],
+])('unusable or non-exact public label blocks without a fallback: %j', (attrs, rejection) => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode(attrs)), 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_MISSING');
+  if (rejection) expect(evidence.candidates[0].rejection).toBe(rejection);
+});
+
+test.each([{ enabled: '' }, { clickable: '' }])('unknown accessibility state never becomes the only selected target: %j', attrs => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode() + navNode(attrs)), 'Catálogo', evidence)).toThrow('PILOT_TAP_STATE_UNKNOWN');
+  expect(evidence.status).toBe('blocked');
+});
+
+test.each([
+  [{ text: 'Cuenta' }, 'conflicting_ancestor_label'], [{ package: 'browser', text: '' }, 'foreign_package'],
+  [{ text: '', enabled: 'false' }, 'not_enabled_or_visible'],
+])('non-clickable label cannot promote an unrelated/foreign/disabled ancestor: %j', (parent, rejection) => {
+  const evidence = {}, xml = navTree(navNode(parent, navNode({ clickable: 'false' })));
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_MISSING');
+  expect(evidence.candidates.at(-1).rejection).toBe(rejection);
+});
+
+test.each(['', '[0,0][0,20]', '[100,0][20,20]', '[-1,0][20,20]', '[0,0][999999999,20]',
+  '[0,0][16385,20]', 'SECRET https://private.invalid'])('unsafe bounds fail closed and never enter the report: %s', bounds => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode({ bounds })), 'Catálogo', evidence)).toThrow('PILOT_TAP_BOUNDS_INVALID');
+  expect(evidence.candidates[0].target).toMatchObject({ bounds: null, boundsState: 'invalid' });
+  expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('invalid or out-of-parent label bounds cannot borrow a parent coordinate', () => {
+  const evidence = {}, child = navNode({ clickable: 'false', bounds: '[80,580][230,630]' });
+  expect(() => tapBounds(navTree(navNode({ text: '' }, child)), 'Catálogo', evidence)).toThrow('PILOT_TAP_BOUNDS_INVALID');
+  expect(evidence.candidates[0].rejection).toBe('label_outside_target');
+});
+
+test('a second actionable target with invalid bounds is still ambiguous, not silently ignored', () => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode() + navNode({ bounds: 'bad' })), 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(evidence.targetCount).toBe(2);
+});
+
+test('candidate diagnostics are bounded and contain only known classes, booleans, numeric bounds and public labels', () => {
+  const evidence = {}, xml = navTree(navNode({ class: 'SECRET https://private.invalid', 'resource-id': 'private-token',
+    'content-desc': 'SECRET' }).repeat(20));
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow(PilotTapError);
+  expect(evidence).toMatchObject({ label: 'Catálogo', matchCount: 20, targetCount: 20, candidatesTruncated: true });
+  expect(evidence.candidates).toHaveLength(16);
+  expect(evidence.candidates[0].labelNode.class).toBe('other');
+  expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid|private-token|resource-id|content-desc/);
+});
+
+test.each([
+  '<!DOCTYPE hierarchy [<!ENTITY test "Catálogo">]><hierarchy/>', '<!-- <node text="Catálogo"/> -->',
+  '<hierarchy><![CDATA[Catálogo]]></hierarchy>', '<hierarchy><?unexpected data?></hierarchy>',
+  '<hierarchy><node text="Catálogo" text="Cuenta"/></hierarchy>', '<hierarchy><node></hierarchy></node>',
+  '<hierarchy/>' + navNode(), '<hierarchy/><hierarchy/>', '<hierarchy>arbitrary text</hierarchy>',
+  navTree(navNode({ text: '&unknown;' })), navTree(navNode({ text: '&amp' })),
+  navTree(navNode({ text: '&#x110000;' })), navTree(navNode({ text: '&#xD800;' })),
+  navTree(navNode({ text: '&#0;' })), navTree(navNode({ text: 'bad\u0001' })),
+])('unsupported/malformed UI XML is rejected rather than sanitized: case %#', xml => {
+  const evidence = {};
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_XML_INVALID');
+  expect(evidence).toMatchObject({ status: 'blocked', candidates: [], errorClass: 'PilotTapError' });
+});
+
+test('XML declaration quotes must match; unknown instructions are never stripped', () => {
+  const bad = '<?xml version="1.0\'?>' + '<hierarchy/>';
+  expect(() => tapBounds(bad, 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+  expect(() => tapBounds('<?XML version="1.0"?><hierarchy/>', 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+});
+
+test('standard XML entities decode exactly once, including the public label accent', () => {
+  const xml = navTree(navNode({ text: 'Cat&#225;logo', 'content-desc': '&amp;unknown; &quot; &apos; &lt; &gt; &#10; &#x1F600;' }));
+  expect(tapBounds(xml, 'Catálogo')).toEqual([160, 605]);
+});
+
+test.each([
+  () => ' '.repeat(2 * 1024 * 1024 + 1),
+  () => navTree(navNode().repeat(10001)),
+  () => navTree('<node>'.repeat(128) + '</node>'.repeat(128)),
+])('UI parser bounds size, node count and depth without returning a target: case %#', makeXml => {
+  expect(() => tapBounds(makeXml(), 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+});
+
+test('arbitrary expected labels never leak into the public-label diagnostic', () => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode()), 'SECRET https://private.invalid', evidence)).toThrow('PILOT_TAP_LABEL_NOT_ALLOWED');
+  expect(evidence.label).toBe('unsupported'); expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('each phase records selection and sends one tap at the unique target, with no retry', async () => {
+  const adb = jest.fn(async () => ''), result = {};
+  for (const phase of ['control', 'attack', 'recovery']) await tapCatalog(adb, navTree(navNode()), phase, result);
+  expect(adb.mock.calls).toEqual(Array(3).fill(['shell', 'input', 'tap', '160', '605']));
+  for (const phase of ['control', 'attack', 'recovery']) expect(result.navigationChecks[phase]).toMatchObject({
+    label: 'Catálogo', status: 'tap_sent', targetCount: 1, errorClass: null, errorCode: null });
+});
+
+test('selection failure is retained per phase and never sends input', async () => {
+  const adb = jest.fn(), result = {};
+  await expect(tapCatalog(adb, navTree(navNode() + navNode()), 'attack', result)).rejects.toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(adb).not.toHaveBeenCalled();
+  expect(result.navigationChecks.attack).toMatchObject({ status: 'blocked', errorCode: 'PILOT_TAP_TARGET_AMBIGUOUS', errorClass: 'PilotTapError' });
+});
+
+test.each([new Error('SECRET https://private.invalid'), new TypeError('SECRET'), 'SECRET'])('input failure records only a safe class and leaves the original error/cleanup intact: case %#', async original => {
+  const adb = jest.fn(async () => { throw original; }), result = {}, cleanup = jest.fn(); let caught;
+  try { await tapCatalog(adb, navTree(navNode()), 'recovery', result); } catch (error) { caught = error; } finally { cleanup(); }
+  expect(caught).toBe(original); expect(cleanup).toHaveBeenCalledTimes(1); expect(adb).toHaveBeenCalledTimes(1);
+  expect(result.navigationChecks.recovery).toMatchObject({ status: 'failed', errorCode: 'PILOT_TAP_INPUT_FAILED',
+    errorClass: original instanceof TypeError ? 'TypeError' : original instanceof Error ? 'Error' : 'unknown' });
+  expect(JSON.stringify(result)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('phase names cannot create arbitrary diagnostic keys or send a tap', async () => {
+  const adb = jest.fn(), result = {};
+  await expect(tapCatalog(adb, navTree(navNode()), 'SECRET', result)).rejects.toThrow('PILOT_TAP_PHASE_INVALID');
+  expect(adb).not.toHaveBeenCalled(); expect(result).toEqual({});
+});
+
 test('tool download is immutable and child tools receive no credentials', () => {
   const installer = fs.readFileSync(path.join(__dirname, '../scripts/android-pinning-install.sh'), 'utf8');
   expect(installer).toContain(TOOL.url); expect(installer).toContain(TOOL.sha256);
@@ -220,6 +567,116 @@ test('a certificate failure must follow upstream TLS and capture of that exact l
 test.each([undefined, 'other_or_ambiguous', 'protocol_error'])('generic TLS failure %s cannot masquerade as certificate rejection', failureCategory => {
   expect(() => verdict(proof().map(e => e.event === 'client_tls_failed' ? { ...e, failureCategory } : e), context())).toThrow();
 });
+test.each([
+  ['control', 'catalog_visible'], ['control', 'product_visible'], ['control', 'image_2xx'],
+  ['attack', 'catalog_visible'], ['attack', 'error_visible'], ['attack', 'tls_failure_event'],
+  ['recovery', 'catalog_visible'], ['recovery', 'product_visible'],
+])('timeout conserva fase/operación %s.%s y último control exitoso', async (phase, operation) => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const result = {}, progress = createPilotProgress(result);
+    await progress.action('setup', 'clock_check', async () => true);
+    const pending = progress.wait(phase, operation, async () => false, 1).catch(error => error);
+    await jest.advanceTimersByTimeAsync(1000);
+    const error = await pending;
+    expect(error).toBeInstanceOf(PilotWaitTimeout);
+    expect(progress.errorCode(error)).toBe('PILOT_' + phase.toUpperCase() + '_' + operation.toUpperCase() + '_TIMEOUT');
+    expect(result.progress).toEqual({ phase, operation, lastSuccessfulControl: { phase: 'setup', operation: 'clock_check' } });
+  } finally { jest.useRealTimers(); }
+});
+test('acciones fallidas conservan última operación y no serializan mensajes arbitrarios', async () => {
+  const result = {}, progress = createPilotProgress(result), error = new Error('SECRET https://private.invalid');
+  await progress.action('control', 'catalog_visible', async () => true);
+  await expect(progress.action('control', 'catalog_opened', async () => { throw error; })).rejects.toBe(error);
+  expect(progress.errorCode(error)).toBe('PILOT_CONTROL_CATALOG_OPENED_FAILED');
+  expect(JSON.stringify(result)).not.toMatch(/SECRET|private.invalid/);
+  expect(() => progress.enter('SECRET', 'url')).toThrow('PILOT_DIAGNOSTIC_STEP_INVALID');
+});
+test('instrumentación conserva los plazos existentes sin reintentos ni esperas adicionales', async () => {
+  const result = {}, wait = jest.fn(async task => task()), progress = createPilotProgress(result, wait), task = jest.fn(async () => true);
+  await progress.wait('setup', 'proxy_ca_ready', task, 30000);
+  await progress.wait('setup', 'boot_with_ca', task, 120000);
+  await progress.wait('control', 'product_visible', task);
+  expect(wait.mock.calls.map(([, timeout]) => timeout)).toEqual([30000, 120000, undefined]);
+  expect(task).toHaveBeenCalledTimes(3);
+});
+// Standards-compliant 1x1 RGBA PNG; fixture CRCs were generated with Node's independent zlib.crc32.
+const failurePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+test('captura PNG exige firma, CRC, stream decodificable, tamaño y fin exacto', () => {
+  expect(validFailurePng(failurePng)).toBe(true);
+  const corrupt = Buffer.from(failurePng); corrupt[corrupt.length - 1] ^= 1;
+  for (const bytes of [Buffer.from('JPEG SECRET'), failurePng.subarray(0, 33), corrupt, Buffer.concat([failurePng, Buffer.from('SECRET')]), Buffer.alloc(2 * 1024 * 1024 + 1)])
+    expect(validFailurePng(bytes)).toBe(false);
+});
+function diagnosticOptions(change = {}) {
+  const runAdb = jest.fn(async (args, options) => {
+    expect(options.timeout).toBeLessThanOrEqual(2500); expect(options.killSignal).toBe('SIGKILL');
+    if (args[0] === 'get-state') return 'device\n';
+    if (args[0] === 'shell') return '123\n';
+    if (args[0] === 'logcat') return 'FATAL EXCEPTION\nProcess: another.package, PID: 1';
+    if (args[0] === 'exec-out') { expect(args).toEqual(['exec-out', 'screencap', '-p']); expect(options.encoding).toBeNull(); return failurePng; }
+    throw Error('Unexpected diagnostic command');
+  });
+  return { runAdb, xml: '<hierarchy><node package="com.markadw.sportcenter" text="Catálogo"/><node package="com.markadw.sportcenter" text="Public product"/><node package="com.markadw.sportcenter" text="SECRET https://private.invalid"/></hierarchy>',
+    productName: 'Public product', runId: 'own-run', readEvents: () => [
+      { runId: 'own-run', phase: 'control', event: 'image_response', host: 'SECRET https://private.invalid', cert: { private: 'CA' } },
+      { runId: 'own-run', phase: 'attack', event: 'client_tls_failed', message: 'SECRET' },
+      { runId: 'other-run', phase: 'control', event: 'passthrough' },
+      { runId: 'own-run', phase: '__proto__', event: 'image_response' },
+      { runId: 'own-run', phase: 'attack', event: 'SECRET' } ], allowScreenshot: true, savePng: jest.fn(), ...change };
+}
+test('diagnóstico conserva sólo UI permitida, conteos allowlist y salud acotada', async () => {
+  const options = diagnosticOptions(), report = await failureDiagnostics(options);
+  expect(report.ui).toEqual({ catalog: true, product: true, errorState: false });
+  expect(report.eventCounts).toEqual({ control: { image_response: 1 }, attack: { client_tls_failed: 1 }, recovery: {} });
+  expect(report.ignoredEvents).toBe(3);
+  expect(report.health).toEqual({ adbAccessible: true, processRunning: true, ownFatalCrashDetected: false });
+  expect(report.screenshot).toEqual({ attempted: true, saved: true, path: 'test-results/maestro/pinning-failure.png' });
+  expect(options.savePng).toHaveBeenCalledTimes(1); expect(options.savePng).toHaveBeenCalledWith(failurePng);
+  expect(JSON.stringify(report)).not.toMatch(/SECRET|private.invalid|Public product|another.package/);
+});
+test('UI de error se informa como booleano sin conservar XML; eventos excesivos se acotan', async () => {
+  const report = await failureDiagnostics(diagnosticOptions({ allowScreenshot: false,
+    xml: '<hierarchy><node package="com.markadw.sportcenter" text="No se pudo cargar el catálogo"/><node package="com.markadw.sportcenter" text="Reintentar"/></hierarchy>',
+    readEvents: () => Array.from({ length: 5001 }, () => ({ runId: 'own-run', phase: 'attack', event: 'intercept' })) }));
+  expect(report.ui).toEqual({ catalog: false, product: false, errorState: true });
+  expect(report.eventCounts.attack.intercept).toBe(5000); expect(report.eventsTruncated).toBe(true);
+});
+test('ADB inaccesible no intenta PNG/proceso/logcat y no publica el error de transporte', async () => {
+  const options = diagnosticOptions({ runAdb: jest.fn(async () => { throw Error('SECRET https://private.invalid'); }) });
+  const report = await failureDiagnostics(options);
+  expect(options.runAdb).toHaveBeenCalledTimes(1);
+  expect(report.health).toEqual({ adbAccessible: false, processRunning: null, ownFatalCrashDetected: null });
+  expect(report.screenshot).toEqual({ attempted: false, saved: false }); expect(JSON.stringify(report)).not.toMatch(/SECRET|private.invalid/);
+});
+test('crash propio sólo produce booleano y no guarda buffer, PID ni texto', async () => {
+  const options = diagnosticOptions({ allowScreenshot: false }); const base = options.runAdb;
+  options.runAdb = async (args, execution) => args[0] === 'logcat' ? 'FATAL EXCEPTION\nProcess: com.markadw.sportcenter, PID: 999\nSECRET' : base(args, execution);
+  const report = await failureDiagnostics(options);
+  expect(report.health.ownFatalCrashDetected).toBe(true); expect(JSON.stringify(report)).not.toMatch(/SECRET|999|FATAL EXCEPTION/);
+});
+test.each(['capture', 'invalid-png', 'save'])('fallo auxiliar %s no cambia error original ni impide finally/cleanup', async kind => {
+  const result = { status: 'blocked_or_failed' }, progress = createPilotProgress(result), original = new PilotWaitTimeout();
+  progress.enter('control', 'image_2xx'); result.errorCode = progress.errorCode(original);
+  const options = diagnosticOptions(), runAdb = options.runAdb, cleanup = jest.fn();
+  if (kind === 'save') options.savePng = () => { throw Error('SECRET'); };
+  else options.runAdb = async (args, execution) => {
+    if (args[0] !== 'exec-out') return runAdb(args, execution);
+    if (kind === 'capture') throw Error('SECRET'); return Buffer.from('SECRET');
+  };
+  try { result.failureDiagnostics = await failureDiagnostics(options); } finally { cleanup(); }
+  expect(result.status).toBe('blocked_or_failed'); expect(result.errorCode).toBe('PILOT_CONTROL_IMAGE_2XX_TIMEOUT');
+  expect(result.failureDiagnostics.screenshot.saved).toBe(false); expect(cleanup).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(result)).not.toContain('SECRET');
+});
+test('guest no verificado y eventos ilegibles no habilitan captura ni inventan evidencias', async () => {
+  const options = diagnosticOptions({ allowScreenshot: false, readEvents: () => { throw Error('SECRET JSON'); } });
+  const report = await failureDiagnostics(options);
+  expect(report.eventsAvailable).toBe(false); expect(report.screenshot.attempted).toBe(false);
+  expect(options.runAdb.mock.calls.some(([args]) => args[0] === 'exec-out')).toBe(false);
+  expect(JSON.stringify(report)).not.toContain('SECRET');
+});
+
 test('Play Store absence uses list packages, not the pm path exit1 failure', async () => {
   const adb = jest.fn(async (...args) => {
     expect(args).toEqual(['shell', 'pm', 'list', 'packages', 'com.android.vending']);
@@ -244,6 +701,59 @@ test('the CA probe is valid remote-shell syntax and never opens a second unquote
   await expect(assertCaAbsent(async () => 'exists\n', '/system/etc/security/cacerts/1234abcd.0')).rejects.toThrow('Colisión');
   const unsafe = jest.fn(); await expect(assertCaAbsent(unsafe, '/tmp/cert;echo invalid')).rejects.toThrow();
   expect(unsafe).not.toHaveBeenCalled();
+});
+function cleanupAdb(change = {}) {
+  let removed = false;
+  return jest.fn(async (...args) => {
+    const key = args.join(' ');
+    if (change.fail && key === change.fail) throw Error('SECRET https://private.invalid');
+    if (key === 'root' || key === 'wait-for-device') return '';
+    if (key === 'shell id -u') return change.uid || '0\n';
+    if (key === 'remount') return 'remount succeeded\n';
+    if (key.includes('if [ -w ')) return change.writable || 'writable\n';
+    if (key.includes('then echo present')) return change.absent ? 'missing\n' : 'present\n';
+    if (key.startsWith('shell sha256sum')) return (change.hash || digest) + '  /system/etc/security/cacerts/1234abcd.0\n';
+    if (key.startsWith('shell rm -f')) { removed = true; return ''; }
+    if (key.includes('then echo exists')) return removed && !change.remains ? 'missing\n' : 'exists\n';
+    throw Error('Unexpected cleanup command');
+  });
+}
+const ownCaPath = '/system/etc/security/cacerts/1234abcd.0';
+test('cleanup reobtiene root/remount/RW, verifica identidad de CA propia y acredita ausencia tras rm único', async () => {
+  const adb = cleanupAdb(); const result = await removeOwnCa(adb, ownCaPath, digest);
+  expect(result).toMatchObject({ status: 'passed', operation: 'complete', rootVerified: true, writableState: 'writable', identityVerified: true,
+    removeCommandCompleted: true, absenceVerified: true, alreadyAbsent: false });
+  expect(adb.mock.calls.slice(0, 4)).toEqual([['root'], ['wait-for-device'], ['shell', 'id', '-u'], ['remount']]);
+  const sequence = adb.mock.calls.map(args => args.join(' '));
+  expect(sequence.findIndex(command => command.startsWith('shell sha256sum'))).toBeLessThan(sequence.findIndex(command => command.startsWith('shell rm -f')));
+  expect(adb.mock.calls.filter(args => args[1] === 'rm')).toEqual([['shell', 'rm', '-f', ownCaPath]]);
+  expect(sequence.at(-1)).toContain('then echo exists');
+});
+test.each([
+  [{ fail: 'root' }, 'root'], [{ fail: 'wait-for-device' }, 'wait_device'], [{ uid: '2000' }, 'verify_root'],
+  [{ fail: 'remount' }, 'remount'], [{ writable: 'not_writable' }, 'verify_writable'], [{ hash: '0'.repeat(64) }, 'verify_identity'],
+  [{ fail: 'shell rm -f ' + ownCaPath }, 'remove_own_ca'], [{ remains: true }, 'verify_absence'],
+])('cleanup no aprueba un paso sin acreditar y no expone stderr %#', async (change, operation) => {
+  const adb = cleanupAdb(change);
+  try { await removeOwnCa(adb, ownCaPath, digest); throw Error('Expected failure'); }
+  catch (error) {
+    expect(error).toBeInstanceOf(PilotCleanupError); expect(error.cleanupEvidence).toMatchObject({ status: 'failed', operation });
+    expect(error.code).toBe('PILOT_CLEANUP_CA_' + operation.toUpperCase() + '_FAILED');
+    expect(JSON.stringify(error)).not.toMatch(/SECRET|private.invalid|1234abcd|[a-f0-9]{64}/);
+  }
+  if (['root', 'wait_device', 'verify_root', 'remount', 'verify_writable', 'verify_identity'].includes(operation))
+    expect(adb.mock.calls.some(args => args[1] === 'rm')).toBe(false);
+});
+test('CA ya ausente se registra como tal; nunca se borra otro archivo ni se inventa eliminación', async () => {
+  const adb = cleanupAdb({ absent: true }); const result = await removeOwnCa(adb, ownCaPath, digest);
+  expect(result).toMatchObject({ status: 'passed', alreadyAbsent: true, absenceVerified: true, identityVerified: false, removeCommandCompleted: false });
+  expect(adb.mock.calls.some(args => args[1] === 'rm' || args[1] === 'sha256sum')).toBe(false);
+});
+test('ruta/huella inválida bloquea cleanup antes de cualquier ADB o borrado', async () => {
+  const adb = jest.fn();
+  await expect(removeOwnCa(adb, '/system/etc/security/cacerts/*', digest)).rejects.toThrow('PILOT_CLEANUP_CA_VALIDATE_TARGET_FAILED');
+  await expect(removeOwnCa(adb, ownCaPath, 'SECRET')).rejects.toThrow('PILOT_CLEANUP_CA_VALIDATE_TARGET_FAILED');
+  expect(adb).not.toHaveBeenCalled();
 });
 const uiDevice = '/data/local/tmp/sport-pinning-aabbccdd.xml';
 const uiXml = '<hierarchy rotation="0"><node package="com.markadw.sportcenter" text="Catálogo" bounds="[0,10][100,50]"/></hierarchy>';
@@ -288,6 +798,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from OpenSSL import SSL
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -388,6 +899,13 @@ class Checks:
             check("matching_ca_pin_detected", pilot.certificate(data, client.sni)["pinMatches"])
             pilot.client_disconnected(client)
             check("disconnect_discards_cached_certificate", client.id not in pilot.client_certificates)
+            pilot.connections["existing-attack"] = {"phase": "attack", "host": client.sni, "connId": "existing-attack"}
+            Path(pilot.config["phaseFile"]).write_text("recovery", encoding="utf-8")
+            hello = SimpleNamespace(context=SimpleNamespace(client=SimpleNamespace(id="recovery-connection"), server=SimpleNamespace(address=(client.sni, 443))),
+                                    client_hello=SimpleNamespace(sni=client.sni), ignore_connection=False, establish_server_tls_first=False)
+            pilot.tls_clienthello(hello)
+            check("recovery_proxy_connection_invalidates_configuration", emitted[-1]["event"] == "invalid_configuration" and emitted[-1]["phase"] == "recovery" and hello.ignore_connection and not hello.establish_server_tls_first)
+            check("existing_attack_connection_not_relabelled", pilot.connections["recovery-connection"]["phase"] == "recovery" and pilot.connections["existing-attack"]["phase"] == "attack")
             result = {"passed": True, "checks": checks}
         except Exception:
             result = {"passed": False, "checks": checks, "failure": "offline crypto/API check failed"}
@@ -406,7 +924,7 @@ addons = [pilot, Checks()]
     expect(fs.existsSync(path.join(directory, 'result.json'))).toBe(true);
     const checks = JSON.parse(fs.readFileSync(path.join(directory, 'result.json'), 'utf8'));
     expect(checks.passed).toBe(true);
-    expect(checks.checks).toHaveLength(19);
+    expect(checks.checks).toHaveLength(21);
   } finally {
     if (path.dirname(path.resolve(directory)) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('sport-pinning-crypto-')) throw Error('Ruta temporal inesperada');
     fs.rmSync(directory, { recursive: true, force: true });

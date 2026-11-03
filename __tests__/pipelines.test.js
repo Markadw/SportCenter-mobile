@@ -130,7 +130,7 @@ describe('Dependencias reales de los YAML', () => {
   test('rechaza omitir las capturas del artefacto de diagnóstico Android', () => {
     const config = workflows();
     const evidence = config.get('api-android.yml').jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
-    evidence.with.path = evidence.with.path.replace('test-results/maestro/', '');
+    evidence.with.path = evidence.with.path.replace('test-results/maestro/**/*.png', '');
     expect(() => validateWorkflows(config)).toThrow('incluir las capturas');
   });
   test('detecta artefactos añadidos a una simple inspección', () => {
@@ -376,6 +376,61 @@ describe('NSC estático antes de arrancar el primer AVD', () => {
   ])('bloquea NSC omitido, tardío, tolerado o sin evidencia %#', mutate => {
     const config = workflows(); mutate(config.get('android-validation.yml'));
     expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('Artefactos Android sólo con PNG e informes explícitos', () => {
+  const jobs = [['android-validation.yml', 'native'], ['api-android.yml', 'android']];
+  function upload(config, file, job) {
+    return config.get(file).jobs[job].steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  }
+  test('conserva capturas PNG e informes JUnit/JSON en ambas allowlists', () => {
+    const config = workflows();
+    for (const [file, job] of jobs) {
+      const paths = upload(config, file, job).with.path.trim().split('\n');
+      expect(paths).toContain('test-results/maestro/**/*.png');
+      expect(paths).toContain('test-results/maestro.xml');
+      expect(paths).toContain('test-results/android-inspection.json');
+      expect(paths.some(value => value.endsWith('/'))).toBe(false);
+    }
+    expect(() => validateWorkflows(config)).not.toThrow();
+  });
+  test.each(['test-results/maestro/**/*.png', 'test-results/android16k-maestro/**/*.png'])('rechaza omitir capturas del auxiliar: %s', png => {
+    const config = workflows(), step = upload(config, 'android-validation.yml', 'native');
+    step.with.path = step.with.path.replace(png, '');
+    expect(() => validateWorkflows(config)).toThrow('incluir las capturas PNG');
+  });
+  test.each(jobs.flatMap(([file, job]) => [
+    'test-results/maestro/', 'test-results/android16k-maestro/', 'test-results/maestro/**',
+    'test-results/maestro/logs/device-logcat.txt', 'test-results/maestro/commands.json', 'test-results/**',
+  ].map(added => [file, job, added])))('rechaza evidencia adicional %s/%s: %s', (file, job, added) => {
+    const config = workflows(), step = upload(config, file, job);
+    step.with.path += added + '\n';
+    expect(() => validateWorkflows(config)).toThrow('allowlist exacta de evidencia Android');
+  });
+  test.each(jobs)('rechaza una segunda subida que evada la allowlist en %s/%s', (file, job) => {
+    const config = workflows();
+    config.get(file).jobs[job].steps.push({ uses: 'actions/upload-artifact@v4', with: { path: 'test-results/**' } });
+    expect(() => validateWorkflows(config)).toThrow('una sola allowlist exacta');
+  });
+});
+
+describe('RAM fija del entorno API36 16KB', () => {
+  test('reserva 4096M sólo para pages16k y conserva validación del pipeline', () => {
+    const config = workflows(), steps = config.get('android-validation.yml').jobs.native.steps;
+    expect(steps.find(step => step.id === 'pages16k').with['ram-size']).toBe('4096M');
+    for (const id of ['api34', 'pinning']) expect(steps.find(step => step.id === id).with['ram-size']).toBeUndefined();
+    expect(() => validateWorkflows(config)).not.toThrow();
+  });
+  test.each([undefined, '', '2560M', '4G', 4096])('rechaza RAM ausente o distinta del contrato 4096M: %p', ram => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.with['ram-size'] = ram;
+    expect(() => validateWorkflows(config)).toThrow('API36 16KB requiere RAM guest fija de 4096M');
+  });
+  test.each(['-memory 1536', '-memory=1536', '-m 1536', '-m1536'])('rechaza override de RAM por CLI: %s', override => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.with['emulator-options'] += ' ' + override;
+    expect(() => validateWorkflows(config)).toThrow('No sobrescribir RAM guest mediante opciones CLI');
   });
 });
 

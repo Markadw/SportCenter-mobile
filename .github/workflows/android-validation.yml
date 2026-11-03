@@ -141,11 +141,11 @@ jobs:
           api-level: 36
           arch: x86_64
           target: google_apis_ps16k
+          ram-size: '4096M'
           channel: stable
           disable-linux-hw-accel: false
           force-avd-creation: true
           avd-name: sportcenter16k
-          ram-size: '4096M'
           emulator-boot-timeout: 600
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
@@ -167,13 +167,13 @@ jobs:
             test-results/android-inspection.txt
             test-results/android34.json
             test-results/maestro.xml
-            test-results/maestro/
+            test-results/maestro/**/*.png
             test-results/android-pinning-preflight.json
             test-results/android-pinning.json
             test-results/android16k.json
             test-results/android16k-summary.md
             test-results/android16k-maestro.xml
-            test-results/android16k-maestro/
+            test-results/android16k-maestro/**/*.png
           if-no-files-found: error
           retention-days: 14
   result:
