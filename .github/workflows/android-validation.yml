@@ -1,8 +1,11 @@
-# Revalidación del APK c816 ya compilado: ninguna operación de compilación EAS.
+# Validación explícita de artefactos congelados: ninguna operación de compilación EAS.
 name: Validación nativa del mismo APK
 on:
   push:
-    tags: ['validation/android-*', 'validation/profiles-*']
+    tags:
+      - validation/android-*
+      - validation/profiles-*
+      - validation/release-*
 permissions:
   contents: read
   actions: read
@@ -28,7 +31,7 @@ jobs:
   native:
     if: ${{ startsWith(github.ref, 'refs/tags/validation/android-') }}
     name: Inspección y pruebas nativas del mismo APK
-    needs: [quality, security]
+    needs: [ quality, security ]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -135,7 +138,8 @@ jobs:
           script: node scripts/android-pinning.js
       - name: Ejecución 16KB x86_64 API36 en AVD nuevo
         id: pages16k
-        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' &&
+          steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
@@ -148,7 +152,8 @@ jobs:
           avd-name: sportcenter16k
           emulator-boot-timeout: 600
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+            -camera-front none
           script: node scripts/android-16k.js probe
       - name: Mostrar alcance y conservar el fallo histórico del padre
         if: always()
@@ -178,7 +183,7 @@ jobs:
           retention-days: 14
   result:
     name: Resultado de validación nativa
-    needs: [quality, security, native]
+    needs: [ quality, security, native ]
     if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/android-') }}
     runs-on: ubuntu-24.04
     steps:
@@ -197,7 +202,7 @@ jobs:
   profiles:
     name: Debug y AAB existentes con ejecución pública
     if: ${{ startsWith(github.ref, 'refs/tags/validation/profiles-') }}
-    needs: [quality, security]
+    needs: [ quality, security ]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -299,7 +304,8 @@ jobs:
           ram-size: '4096M'
           emulator-boot-timeout: 600
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+            -camera-front none
           script: node scripts/android-profiles.js api36
       - name: Resumir alcance de los perfiles
         if: always()
@@ -327,7 +333,7 @@ jobs:
           retention-days: 14
   profiles_result:
     name: Resultado de Debug y AAB
-    needs: [quality, security, profiles]
+    needs: [ quality, security, profiles ]
     if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/profiles-') }}
     runs-on: ubuntu-24.04
     steps:
@@ -343,3 +349,159 @@ jobs:
           RESULT_QUALITY: ${{ needs.quality.result }}
           RESULT_SECURITY: ${{ needs.security.result }}
           RESULT_PROFILES: ${{ needs.profiles.result }}
+  release:
+    name: "AAB nuevo: Release API34 y API36"
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/release-') }}
+    needs:
+      - quality
+      - security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      keep_evidence: "true"
+      PRODUCT_NAME: ${{ vars.ANDROID_TEST_PRODUCT_NAME }}
+      PINNING_EPHEMERAL_AVD: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Exigir fuente congelada y comprobaciones de develop
+        id: source
+        run: node scripts/android-release.js prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar el lockfile para resolver Expo sin modificarlo
+        run: npm ci --no-audit --no-fund
+      - name: Consultar sólo el AAB congelado
+        run: node scripts/android-release.js view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar el AAB y exigir su SHA256
+        run: node scripts/android-release.js download
+      - name: Instalar y verificar decoder23 y Build Tools37
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0" "build-tools;37.0.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
+      - name: Validar AAB y APK derivado con firma temporal
+        id: inspection
+        timeout-minutes: 12
+        run: node scripts/android-release.js inspect
+      - name: Instalar Maestro verificado
+        shell: bash
+        run: >
+          set -euo pipefail
+
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro-profiles.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-profiles.zip" |
+          sha256sum --check --strict
+
+          unzip -q "$RUNNER_TEMP/maestro-profiles.zip" -d "$RUNNER_TEMP/maestro-profiles"
+
+          echo "$RUNNER_TEMP/maestro-profiles/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar KVM del runner efímero
+        id: kvm
+        timeout-minutes: 2
+        run: node scripts/android-release.js kvm
+      - name: Release API34 sin Metro en otra AVD nueva
+        id: release34
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles-release34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node scripts/android-release.js release34
+      - name: API36 16KB simulados del APK derivado AAB
+        id: pages16k
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis_ps16k
+          channel: stable
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles16k
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+            -camera-front none
+          script: node scripts/android-release.js api36
+      - name: Exigir los dos runtime Release y entradas públicas
+        id: finish
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        run: node scripts/android-release.js finish
+      - name: Resumir alcance de los perfiles
+        if: always()
+        run: node scripts/android-release.js summary
+      - name: Limpiar sólo temporales de esta validación
+        if: always()
+        run: node scripts/android-release.js cleanup
+      - name: Conservar sólo informes y capturas públicas de perfiles
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-evidence
+          path: |
+            test-results/android-release-source.json
+            test-results/android-release.json
+            test-results/android-release-summary.md
+            test-results/android-command-line-tools.json
+            test-results/release-production.xml
+            test-results/release-production16k.xml
+            test-results/release-production/**/*.png
+            test-results/release-production16k/**/*.png
+            test-results/release-incoming34-L01.xml
+            test-results/release-incoming34-L01/**/*.png
+            test-results/release-incoming34-L02.xml
+            test-results/release-incoming34-L02/**/*.png
+            test-results/release-incoming36-L01.xml
+            test-results/release-incoming36-L01/**/*.png
+            test-results/release-incoming36-L02.xml
+            test-results/release-incoming36-L02/**/*.png
+          if-no-files-found: error
+          retention-days: 14
+  release_result:
+    name: Resultado de Release AAB
+    needs:
+      - quality
+      - security
+      - release
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/release-') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - name: Exigir calidad, seguridad y Release AAB propias
+        run: node scripts/android-release.js gate
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_RELEASE: ${{ needs.release.result }}
