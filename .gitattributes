@@ -1,0 +1,2 @@
+# Los parches y sus huellas deben conservar bytes LF en Windows y en CI.
+patches/*.patch text eol=lf
