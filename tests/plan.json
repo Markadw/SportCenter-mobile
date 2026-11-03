@@ -177,7 +177,10 @@
         "tests/manual/compra-cliente.md",
         "tests/manual/android-profiles.md",
         "tests/manual/android-release.md",
-        "scripts/android-release.js"
+        "scripts/android-release.js",
+        "tests/manual/android-account.md",
+        "scripts/android-account.cjs",
+        "scripts/account-sandbox.cjs"
       ],
       "status": "partial",
       "scope": "Catálogo/detalle F2 aprobados en los binarios identificados; aceptación privada y física separada, pendiente.",
@@ -212,7 +215,18 @@
         "debug": "historical-source-5dc-only-not-F2",
         "privateAndroid": {
           "status": "not_run",
-          "execution": "automation_preparation_awaiting_verified_reserved_account"
+          "execution": "pending_explicit_account_pipeline",
+          "guide": "tests/manual/android-account.md",
+          "cases": [
+            "AC01",
+            "AC02",
+            "AC03",
+            "AC04",
+            "AC05",
+            "AC06",
+            "AC07"
+          ],
+          "scope": "Emulador API34: inicio, lectura de perfil/carrito/resumen, restauración, cierre y guardia de invitado; sin pedido/pago/edición ni teléfono físico."
         },
         "physical": {
           "status": "not_run",

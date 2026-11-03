@@ -196,6 +196,12 @@ flowchart LR
 ```
 
 
+### Aceptación de cuenta en el APK final
+
+El auxiliar `validation/account-*` reutiliza el Preview F2 identificado arriba. Comprueba inicio, perfil de lectura, carrito, resumen sin confirmar compra, restauración al cerrar/abrir, cierre y protección como invitado. Requiere una cuenta de cliente verificada y reservada, con producto disponible en el carrito y los secretos `ANDROID_TEST_EMAIL` y `ANDROID_TEST_PASSWORD`. No modifica perfil, direcciones o carrito ni crea pedidos o pagos. Un carrito vacío bloquea el caso sin agregar productos.
+
+La [guía de cuenta Android](tests/manual/android-account.md) describe los siete controles, la procedencia exigida y los límites. Maestro se ejecuta con un UID efímero y tráfico IP restringido a loopback; el emulador conserva su conexión HTTPS. Los dos informes públicos sólo contienen IDs, huellas, estados y códigos permitidos. Capturas, XML, registros y credenciales quedan fuera de los artifacts. La ejecución real se registra separadamente de las pruebas del ejecutor; esta preparación no acredita una cuenta real ni teléfono físico.
+
 ### Evidencia Android histórica
 
 Los resultados siguientes conservan sus commits y artefactos originales. La aceptación pública de F2 se registra por separado en los runs rc4 y Release AAB enlazados arriba; los recorridos privados y físicos mantienen su estado pendiente.
