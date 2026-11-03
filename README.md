@@ -73,10 +73,10 @@ Usar Node 22.20.0 o superior compatible con SDK 57 y npm. Desde la carpeta del p
 
 ```powershell
 npm ci
-npm start
+npm run start:go
 ```
 
-Escanear con Expo Go el QR que muestre esa terminal. Mantener el teléfono y la PC en la misma red y la terminal abierta. La dirección de Metro corresponde a la conexión de esa ejecución. Para limpiar su caché: `npm start -- --clear`.
+Escanear con Expo Go compatible con SDK 57 el QR que muestre esa terminal. Mantener el teléfono y la PC en la misma red y la terminal abierta. La dirección de Metro corresponde a la conexión de esa ejecución. Para limpiar su caché: `npm run start:go -- --clear`. Si se utiliza un development build instalado, ejecutar `npm run start:dev-client` y usar una conexión Metro permitida por ese perfil; la configuración nativa se comprueba con su propio binario.
 
 La API predeterminada es https://back-sport-ghxk.onrender.com. Para cambiarla, copiar `.env.example` a `.env.local` y definir `EXPO_PUBLIC_API_URL`. Recargar completamente la aplicación después del cambio. Los valores EXPO_PUBLIC_ son públicos en el bundle; no guardar secretos allí.
 
@@ -110,6 +110,14 @@ npx expo-doctor
 
 La validación del cliente usa transporte HTTP simulado. No consulta la API desplegada ni ejecuta aceptación Android o carga. El empaquetado de JavaScript tampoco equivale a generar un APK firmado.
 
+La fuente final F2 es `e15671b17615621b29f4bc4bb9c0ccfdf167e657`. Su [CI previa en develop](https://github.com/Markadw/SportCenter-mobile/actions/runs/41707259944) aprobó calidad, seguridad, contratos HTTP, seis comprobaciones dinámicas de lectura en la copia aislada e inspección de guiones k6. Android y TLS se omitieron por la matriz de esa rama. El corte local de esa fuente aprobó 1702 pruebas del cliente y su infraestructura; la preparación posterior de automatización aprobó 1763 pruebas en 67 suites, sin omisiones. Son comprobaciones locales de alcances distintos, no una aceptación nativa del binario final.
+
+El AAB de F2 `2e902741-6bfd-4171-a336-2a784ae41f58` terminó en EAS y se descargó: **68 959 549 bytes**, SHA256 `7ffe6560cf3eddb41f5a595c2073cc1e5a3e07e27ffc695e18d3eb6a0635a253`. El [recibo de procedencia](config/android-release-validation.json) contiene esos datos reales; se verificaron su esquema, los metadatos EAS y la CI previa. La [validación nativa del AAB](https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066) aprobó inspección y ocho ejecuciones: catálogo, detalle y dos URI en cada emulador API34/API36. API36 confirmó páginas de 16 KB y compatibilidad de 4 KB desactivada. El APK derivado usa una firma temporal; estas pruebas no acreditan la firma de Google Play ni un teléfono físico.
+
+El APK preview de la misma fuente es `b409ac48-41b0-4292-8e9c-df8153006f71`, también FINISHED. El primer intento de la [candidata rc4](https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367) agotó la espera de EAS mientras ese build seguía en cola. El segundo intento reutilizó ese mismo build y aprobó inspección, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30. No creó otro APK. Los recorridos privados finales continúan `not_run`: su automatización requiere una cuenta de pruebas verificada y reservada. La comprobación física sigue aplazada por el usuario.
+
+La revisión de dependencias conserva **tres alertas altas y cero críticas** en npm audit. El backport del decoder mantiene su versión CommonJS y aplica las correcciones revisadas; los avisos por rango de versión permanecen visibles. Véanse [el parche y sus límites](docs/decoder-seguro.md) y [la auditoría de la candidata](docs/seguridad-candidata.md).
+
 ### Pruebas
 
 | Comando | Alcance |
@@ -120,6 +128,7 @@ La validación del cliente usa transporte HTTP simulado. No consulta la API desp
 | `npm run test:ci` | Jest con cobertura y reporte JSON en test-results/ |
 | `npm run test:config` | Coherencia de workflows, flujos Maestro, perfil EAS y plan de pruebas |
 | `npm run test:api` | Contratos HTTP reales de lectura; requiere API_BASE_URL explícita |
+| `node scripts/dast-local.js` | Seis casos HTTP de seguridad en la copia local preparada; exige aislamiento y procedencia, sin escrituras ni escaneo de Render |
 | `npm run env:start` / `npm run env:stop` | Preparar o detener backend y datos sintéticos locales |
 | `npm run test:performance -- all` | Referencia, carga y esfuerzo en la copia local |
 
@@ -132,26 +141,29 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, contratos HTTP e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar Android se utilizan etiquetas explícitas e inmutables `candidate/android-*` (candidata nueva) o `validation/android-*` (el mismo APK ya compilado). GitHub sólo ofrece `workflow_dispatch` cuando el workflow existe en la rama predeterminada; como `main` aún no lo contiene, la selección manual de `develop` con `run_android` quedará disponible cuando se cumpla esa condición. El push posterior a un merge tampoco repite Android. Un fallo de calidad o HTTP bloquea la integración.
+Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, seguridad, contratos HTTP con las comprobaciones dinámicas locales e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar Android se utilizan etiquetas explícitas e inmutables: `candidate/android-*` genera una candidata, `validation/android-*` revalida el APK histórico identificado y `validation/release-*` comprueba el AAB final identificado. GitHub sólo ofrece `workflow_dispatch` cuando el workflow existe en la rama predeterminada; como `main` aún no lo contiene, la selección manual de `develop` con `run_android` quedará disponible cuando se cumpla esa condición. El push posterior a un merge tampoco repite Android. Un fallo de calidad, seguridad o HTTP bloquea la integración.
 
-Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. La etiqueta de candidata exige la compilación EAS y Maestro; la etiqueta de validación reutiliza el build identificado y exige su procedencia y ejecución real. El modo `validation/profiles-*` verifica los builds Debug y AAB existentes, según [su guía](tests/manual/android-profiles.md), sin reconstruirlos. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
+Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. La etiqueta de candidata exige la compilación EAS y Maestro; la etiqueta de validación reutiliza el build identificado y exige su procedencia y ejecución real. El modo histórico `validation/profiles-*` conserva los builds Debug y AAB de la fuente `5dcacd46a24ae54da5300cd394a91c590a9a5825`, según [su guía](tests/manual/android-profiles.md); esos resultados no acreditan F2. El modo nuevo [production-release-only](tests/manual/android-release.md), mediante `validation/release-*`, exige el recibo del AAB F2, lo inspecciona y deriva un APK con firma temporal para AVDs separadas API34 y API36/16 KB. Comprueba los dos recorridos públicos y dos URI nativas por AVD: Unicode/`+` y entrada malformada con retorno al catálogo. Estas URI prueban el enrutamiento y la defensa de entrada; la malformada se rechaza antes del decoder y no acredita su algoritmo de recuperación en Hermes. El Debug previo mantiene exclusivamente su evidencia histórica. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
 ### Matriz de automatización
 
+Se mantienen tres pipelines principales: cliente (`ci.yml`), integración y aceptación (`api-android.yml`) y rendimiento (`performance.yml`). `security.yml` es reutilizable y `android-validation.yml` es auxiliar del segundo pipeline; sus modos históricos y Release final no añaden otro pipeline principal.
+
 | Evento | Rama o destino | Comprobaciones |
 | --- | --- | --- |
 | Push de trabajo | feature/*, fix/*, chore/*, test/*, release/*, hotfix/* | Calidad si no hay PR para ese commit; con PR se evita repetirla |
-| PR en borrador | develop o main | Calidad, contratos HTTP e inspección k6; sin compilar APK |
-| PR listo | develop | Calidad, contratos HTTP e inspección k6; sin APK ni Android automáticos |
-| PR listo | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
-| Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
-| Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
+| PR en borrador | develop o main | Calidad, seguridad, HTTP con seguridad dinámica local e inspección k6; sin compilar APK |
+| PR listo | develop | Calidad, seguridad, HTTP con seguridad dinámica local e inspección k6; sin APK ni Android automáticos |
+| PR listo | main | Calidad, seguridad, HTTP con seguridad dinámica local, inspección k6 y compilación/aceptación Android |
+| Push integrado, incluido merge | develop | Calidad, seguridad, HTTP con seguridad dinámica local e inspección k6 |
+| Push integrado, incluido merge | main | Calidad, seguridad, HTTP con seguridad dinámica local, inspección k6 y compilación/aceptación Android; conserva evidencia |
 | Manual, cuando workflow_dispatch esté disponible | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
 | Tag de candidata | candidate/android-* | Calidad, HTTP, seguridad, APK, aceptación API34 y rechazo controlado API30; conserva evidencia |
 | Tag de validación | validation/android-* | Auxiliar del segundo pipeline: calidad, seguridad, procedencia e inspección del mismo APK, API34, API30 y ejecución de 16 KB simulados en API36 x86_64; sin nueva compilación EAS |
 | Tag de perfiles | validation/profiles-* | Auxiliar del segundo pipeline: procedencia congelada de Debug/AAB, políticas y firmas, Debug con Metro en API34, APK derivado del AAB sin Metro y simulación 16 KB API36; no compila ni publica |
+| Tag de Release AAB | validation/release-* | Auxiliar del segundo pipeline: calidad y seguridad previas, recibo y SHA del AAB final, inspección y APK derivado en API34 y API36/16 KB con URI públicas; no reconstruye Debug ni publica |
 | Medición manual | develop o ramas de trabajo | Referencia, carga y esfuerzo con backend y datos aislados en el runner |
 
 El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama. En una rama con PR abierto pueden aparecer dos eventos de GitHub: el push sólo consulta si el PR se hace cargo y omite el trabajo duplicado. No hay ejecuciones programadas ni reintentos automáticos de Android.
@@ -162,18 +174,21 @@ Las ejecuciones ordinarias publican resultados en el resumen y los logs, sin sub
 
 Los reportes de GitHub Actions son evidencias de esas ejecuciones; los archivos históricos de evidence/ conservan su fecha y commit originales.
 
-Una candidata con evidencia y aceptación Android aprobada se registra en el entorno `qa-interna` de GitHub después de `Resultado de integración`. La entrega reutiliza el enlace EAS y el SHA256 del mismo APK comprobado; no vuelve a compilarlo. Si una comprobación obligatoria falla o se omite, no se entrega la candidata. Este registro permite una instalación interna; no publica Google Play ni modifica ramas.
+La entrega interna desde una rama exige evidencia y aceptación Android aprobada antes de registrar `qa-interna` en GitHub, después de `Resultado de integración`. Reutiliza el enlace EAS y el SHA256 del mismo APK comprobado; no vuelve a compilarlo. Las etiquetas de candidata y validación no registran automáticamente esa entrega. Si una comprobación obligatoria falla o se omite, se bloquea. El registro permite instalación interna; no publica Google Play ni modifica ramas.
 
 ```mermaid
 flowchart LR
   A[Push de trabajo] --> B[Calidad y pruebas del cliente]
-  C[PR a develop o main] --> D[Calidad]
-  D --> E[Contratos HTTP compartidos y locales]
+  C[PR o push integrado] --> D[Calidad]
+  C --> S[Dependencias y SAST]
+  D --> E[HTTP y seguridad dinámica local]
   D --> F[Inspección k6]
   E --> G[Entrega o Android manual solicitado: EAS y Maestro]
   F --> G
+  S --> G
   E --> H[Resultado de integración]
   F --> H
+  S --> H
   G --> H
   H --> I[Candidata con evidencia y Android aprobado: entrega interna]
   J[Medición manual] --> K[Backend y datos aislados]
@@ -181,7 +196,9 @@ flowchart LR
 ```
 
 
-### Android comprobado en CI
+### Evidencia Android histórica
+
+Los resultados siguientes conservan sus commits y artefactos originales. La aceptación pública de F2 se registra por separado en los runs rc4 y Release AAB enlazados arriba; los recorridos privados y físicos mantienen su estado pendiente.
 
 La [candidata del PR #35](https://github.com/Markadw/SportCenter-mobile/actions/runs/40506781998), sobre `ee736e8`, aprobó 140 pruebas, cuatro contratos por entorno y dos recorridos públicos Android. El APK preview terminó en EAS con el identificador `812e78fa-1511-40c7-89d9-de796a8fba01`. Esta aceptación comprueba catálogo y detalle.
 
@@ -241,7 +258,7 @@ La [arquitectura y los patrones aplicados](docs/arquitectura.md) describen la co
 
 ## Alcance de las historias
 
-Los criterios de HU-03 (#9) y HU-04 (#10) del tablero actual cubren catálogo y detalle públicos con datos reales y manejo de estados. Las acciones de compra se desarrollan en las historias correspondientes y se validan contra sus contratos reales de API.
+Los criterios de HU-03 (#9) y HU-04 (#10) del tablero cubren catálogo y detalle públicos con datos reales y manejo de estados. Registro, sesión segura, perfil, carrito, direcciones/resumen de compra y pedidos están implementados, al igual que las ampliaciones autorizadas de recuperación y reseñas. Las pruebas del cliente comprueban sus contratos, lógica y estados mediante transportes controlados. La aceptación privada y física final continúa aplazada; implementación y cobertura controlada no se presentan como una comprobación completa en el teléfono.
 
 La matriz `tests/plan.json` conserva las nueve historias iniciales y añade HU-10 (#47, recuperación) y HU-11 (#48, reseñas), autorizadas sin alterar los 52 SP de la línea base. Los estados del tablero requieren conciliación con las entregas: una issue cerrada o una fecha vencida no sustituye la evidencia de implementación.
 

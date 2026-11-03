@@ -62,8 +62,8 @@
       "id": 2,
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
-      "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR a develop: lint, TypeScript, pruebas del cliente, HTTP, npm audit, Semgrep y CodeQL obligatorios; sin APK automático. La candidata explícita por tag exige un APK de procedencia verificada, inspección, aceptación API34 y rechazo nativo controlado API30 usando ese mismo APK. No hay builds programados ni reintentos que creen sustitutos silenciosamente. La etiqueta validation/android-* activa android-validation.yml como auxiliar de este segundo pipeline: ejecuta calidad, seguridad, inspección, aceptación API34, rechazo controlado API30 y ejecución de 16 KB simulados en API36 x86_64 sobre el APK existente, verificando fuente y SHA256 sin crear otra compilación EAS."
+      "scope": "Calidad y seguridad previas, contratos HTTP y seguridad dinámica local, APK candidato y aceptación Android; auxiliares de artefactos identificados y gate que conserva fallos/omisiones obligatorias.",
+      "execution": "PR/push a develop: lint, TypeScript, pruebas del cliente, HTTP, seis casos de seguridad HTTP en copia aislada, npm audit, Semgrep, CodeQL e inspección k6; sin APK automático. candidate/android-* exige APK identificado, inspección, aceptación pública API34 y rechazo nativo controlado API30 del mismo APK. validation/android-* conserva el APK histórico y su procedencia para API34/API30/API36. validation/profiles-* conserva Debug/AAB históricos de 5dc y no los atribuye a F2. validation/release-* activa android-validation.yml como auxiliar del segundo pipeline: recibo del AAB final, inspección, APK derivado con firma temporal y AVDs distintas API34/API36 de 16 KB, con dos recorridos públicos y dos URI por AVD. Las URI comprueban el guard de entrada nativa, no la recuperación del decoder en Hermes. Calidad y seguridad obligatorias; sin nuevo Debug ni publicación. Se mantienen tres pipelines principales."
     },
     {
       "id": 3,
@@ -106,9 +106,19 @@
         "__tests__/CartStock.test.tsx",
         "__tests__/PurchaseRouting.test.tsx",
         "__tests__/loginReturnTo.test.ts",
-        "__tests__/payment.test.ts"
+        "__tests__/payment.test.ts",
+        "__tests__/profileApi.test.ts",
+        "__tests__/reviewsApi.test.ts",
+        "__tests__/sessionStorage.test.ts",
+        "__tests__/SessionController.test.ts",
+        "__tests__/sessionInterceptors.test.ts",
+        "__tests__/accountViewModels.test.tsx",
+        "__tests__/decodeUriComponentSecurity.test.js",
+        "__tests__/expoDependencyCompatibility.test.js",
+        "__tests__/dastLocal.test.js",
+        "__tests__/androidRelease.test.js"
       ],
-      "scope": "Lógica y mapeos implementados; dependencias simuladas"
+      "scope": "Lógica y mapeos implementados, sesión segura, recuperación, perfil, compra y reseñas con transportes controlados; regresiones del backport y guardias de automatización, sin aceptación nativa."
     },
     {
       "type": "analisis_estatico",
@@ -120,7 +130,8 @@
         "npm run lint",
         "npm run typecheck"
       ],
-      "scope": "Código actual; no acredita comportamiento"
+      "scope": "ESLint y TypeScript del código actual; Semgrep, CodeQL y auditoría de dependencias en security.yml con informes y códigos de salida. HTTP dinámico se registra por separado.",
+      "securityWorkflow": ".github/workflows/security.yml"
     },
     {
       "type": "integracion",
@@ -135,13 +146,19 @@
         "tests/integration/Login.test.tsx",
         "tests/integration/AuthenticationFlow.test.tsx"
       ],
-      "scope": "Interacción entre vistas, contextos y servicios; HTTP real de catálogo/detalle y rechazo de perfil sin sesión; registro, verificación y reenvío con transporte simulado; autenticación con transporte simulado: registro, reenvío, verificación, inicio, cierre y sesión en memoria, incluyendo la conexión entre pantallas",
+      "scope": "Vistas, contextos y servicios con transporte controlado, incluida sesión persistente/restauración/renovación. Contratos HTTP públicos reales y seis casos dinámicos de lectura en copia local congelada; no autentican cuentas reales ni prueban todas las rutas de Render.",
       "environment": {
         "source": "tests/environment/backend-source.json",
         "configuration": "tests/environment/compose.yml",
         "products": 100,
         "variants": 200,
         "verification": "Copia detenida y recreada; los mismos cuatro contratos aprobaron. No se contabilizan como ocho casos únicos."
+      },
+      "securityChecks": {
+        "runner": "scripts/dast-local.js",
+        "guide": "tests/manual/dast-local.md",
+        "cases": 6,
+        "scope": "GET prefijados sobre servicio sintético, rechazo de perfil/JWT, parámetros y campos sensibles conocidos; sin escrituras, correo o pago."
       }
     },
     {
@@ -154,10 +171,16 @@
       "files": [
         ".maestro/catalogo-publico.yaml",
         ".maestro/detalle-producto.yaml",
-        "tests/manual/registro-cliente.md"
+        "tests/manual/registro-cliente.md",
+        "tests/manual/inicio-sesion.md",
+        "tests/manual/cuenta-cliente.md",
+        "tests/manual/compra-cliente.md",
+        "tests/manual/android-profiles.md",
+        "tests/manual/android-release.md",
+        "scripts/android-release.js"
       ],
-      "status": "passed",
-      "scope": "Los dos recorridos Maestro y su evidencia existente cubren catálogo/detalle. HU-01 conserva evidencia manual separada en Android/Expo Go, anterior a esta actualización de base.",
+      "status": "partial",
+      "scope": "Catálogo/detalle F2 aprobados en los binarios identificados; aceptación privada y física separada, pendiente.",
       "evidence": {
         "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
         "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
@@ -174,6 +197,27 @@
         "record": "tests/manual/registro-cliente.md",
         "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5",
         "scope": "Registro, primer correo, código incorrecto, reenvío y cuenta verificada, confirmados por el usuario"
+      },
+      "finalAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "publicAndroid": {
+          "status": "passed_for_public_scope",
+          "previewRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
+          "previewAttempt": 2,
+          "releaseRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066",
+          "previewScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
+          "releaseScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB.",
+          "limits": "No ejecuta cuenta privada, teléfono físico ni Play App Signing. La URI malformada se rechaza antes del decoder."
+        },
+        "debug": "historical-source-5dc-only-not-F2",
+        "privateAndroid": {
+          "status": "not_run",
+          "execution": "automation_preparation_awaiting_verified_reserved_account"
+        },
+        "physical": {
+          "status": "not_run",
+          "decision": "deferred_by_user"
+        }
       }
     },
     {
@@ -253,7 +297,7 @@
       "iteration": "I1",
       "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "partial",
-      "reason": "Registro, verificación y reenvío integrados mediante PR #36. Se conserva la aceptación manual anterior y se comprueba su conexión con login mediante transporte simulado. Queda por confirmar el recorrido combinado en Android.",
+      "reason": "Registro, verificación y reenvío implementados y probados con transporte controlado. La evidencia manual anterior se conserva; falta la aceptación privada/física final de F2.",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
       "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
       "manualAcceptance": {
@@ -266,9 +310,29 @@
         "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
       },
       "pending": [
-        "Confirmar en Android el recorrido combinado de HU-01 y HU-02"
+        "Comprobar en Android final registro, verificación, reenvío e inicio; validación manual aplazada por el usuario."
       ],
-      "updateBase": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3"
+      "updateBase": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3",
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/registrationApi.test.ts",
+          "tests/integration/Registration.test.tsx",
+          "tests/integration/AuthenticationFlow.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-02",
@@ -277,11 +341,10 @@
       "expected": "Credenciales validadas, autenticación con API, sesión establecida, errores controlados y reconocimiento de sesión en rutas privadas.",
       "status": "partial",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8",
-      "available": "Formulario, API, sesión en memoria y conexión con registro implementados. Lint, TypeScript, configuración y 264 pruebas en 19 suites aprobados. La exportación JavaScript Android aprobó; se conserva la comprobación manual anterior del usuario. Las pruebas nuevas del recorrido combinado usan transporte simulado.",
+      "available": "Login y cierre, SecureStore nativo para refreshToken/sessionId, restauración y renovación coordinada implementados. Las pruebas controladas cubren rotación, 401 concurrentes, cambios de cuenta, errores de red/almacenamiento y respuestas tardías. La comprobación Android anterior mantiene su alcance histórico.",
       "pending": [
-        "Confirmar en Android el recorrido combinado de registro, verificación, inicio y cierre",
-        "Entrada directa, vencimiento natural y cuenta no verificada: casos específicos pendientes en Android",
-        "MOB-005: almacenamiento seguro, restauración y renovación coordinada de sesión"
+        "Validar en Android final restauración al cerrar/abrir, renovación y cierre, incluidos fallos de conexión o almacenamiento.",
+        "Comprobar entrada directa sin sesión, vencimiento natural y cuenta no verificada; aceptación manual/física aplazada."
       ],
       "evidence": [
         "__tests__/authApi.test.ts",
@@ -308,6 +371,28 @@
           "Vencimiento natural en Android",
           "Cuenta no verificada en Android"
         ]
+      },
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/authApi.test.ts",
+          "__tests__/sessionStorage.test.ts",
+          "__tests__/SessionController.test.ts",
+          "__tests__/sessionInterceptors.test.ts",
+          "tests/integration/Login.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
       }
     },
     {
@@ -315,69 +400,310 @@
       "story": "HU-03",
       "iteration": "I2",
       "expected": "Catálogo público desde API, estados carga/error/vacío, información identificable y acceso al detalle; criterios de HU-03 (#9).",
-      "status": "verified_for_current_board_scope",
-      "available": "Pruebas del cliente para estados y filtros, contratos HTTP reales y recorrido básico Android. El avance no incluye carrito ni compra.",
-      "pending": [],
+      "status": "partial",
+      "available": "Catálogo, búsqueda, filtros, orden y estados implementados; pruebas del cliente con transporte controlado y contratos HTTP públicos. Android histórico cubre la consulta básica de su propio incremento.",
+      "pending": [
+        "Comprobación física final aplazada por el usuario; estados alternativos de error/carga/vacío cubiertos con transporte controlado."
+      ],
       "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/9",
-      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
+      "acceptanceLimit": "Aceptación pública F2 del caso nominal por API34/API36; no acredita cada estado alternativo ni teléfono físico.",
+      "reason": "Implementación y cobertura controlada, con aceptación pública nativa de F2 enlazada separadamente de la histórica.",
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/catalogApi.test.ts",
+          "__tests__/MobileCatalog.test.tsx",
+          "__tests__/CatalogScreen.test.tsx",
+          "tests/integration/Storefront.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "passed_for_public_scope",
+        "previewRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
+        "previewAttempt": 2,
+        "releaseRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066",
+        "previewScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
+        "releaseScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB.",
+        "limits": "No ejecuta cuenta privada, teléfono físico ni Play App Signing. La URI malformada se rechaza antes del decoder."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-04",
       "story": "HU-04",
       "iteration": "I3",
       "expected": "Detalle público del ID seleccionado desde API, carga/error/producto no disponible y pantalla preparada para acciones posteriores; criterios de HU-04 (#10).",
-      "status": "verified_for_current_board_scope",
-      "available": "Pruebas del cliente para detalle, datos y errores; contratos HTTP reales y recorrido básico Android. Selección de compra pertenece al trabajo funcional posterior.",
-      "pending": [],
+      "status": "partial",
+      "available": "Detalle por variante con precio, imágenes, existencias y estados implementados; pruebas del cliente con transporte controlado y contratos HTTP públicos. Agregar al carrito se comprueba aparte en CP-05.",
+      "pending": [
+        "Comprobación física final aplazada por el usuario; estados alternativos de error/carga/vacío cubiertos con transporte controlado."
+      ],
       "androidEvidence": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/10",
-      "acceptanceLimit": "El recorrido Android cubre la consulta básica; los estados alternativos están comprobados en pruebas del cliente."
+      "acceptanceLimit": "Aceptación pública F2 del caso nominal por API34/API36; no acredita cada estado alternativo ni teléfono físico.",
+      "reason": "Implementación y cobertura controlada, con aceptación pública nativa de F2 enlazada separadamente de la histórica.",
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/productsApi.test.ts",
+          "__tests__/ProductDetailScreen.test.tsx",
+          "tests/integration/Storefront.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "passed_for_public_scope",
+        "previewRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
+        "previewAttempt": 2,
+        "releaseRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066",
+        "previewScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
+        "releaseScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB.",
+        "limits": "No ejecuta cuenta privada, teléfono físico ni Play App Signing. La URI malformada se rechaza antes del decoder."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-09",
       "story": "HU-09",
       "iteration": "I3",
       "expected": "Consultar y modificar los campos permitidos del perfil propio, validar datos, sincronizar cambios y controlar errores de actualización.",
-      "status": "not_executed",
-      "reason": "Consulta y modificación del perfil pendientes. El cierre de sesión en memoria se comprueba dentro de CP-02.",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15"
+      "status": "partial",
+      "reason": "Consulta y edición del perfil propio implementadas mediante Repository/Factory, con validación y descarte de datos internos.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15",
+      "available": "Lectura y actualización, contactos nulos, misma sesión y cancelación de respuestas de otra cuenta cubiertos con transporte controlado.",
+      "pending": [
+        "Comprobar consulta y actualización reales del perfil en Android final; aceptación privada/física aplazada."
+      ],
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/profileApi.test.ts",
+          "__tests__/profileRepository.test.ts",
+          "__tests__/profileViewModel.test.tsx",
+          "__tests__/ProfileNullable.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-05",
       "story": "HU-05",
       "iteration": "I4",
       "expected": "Agregar, modificar cantidades y retirar productos del carrito; importes consistentes, autenticación y errores controlados de API/disponibilidad.",
-      "status": "not_executed",
-      "reason": "El botón actual no integra el carrito del servidor",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/11"
+      "status": "partial",
+      "reason": "Carrito del servidor integrado por variante y cantidad: agregar, ajustar, retirar y tratar existencias insuficientes.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/11",
+      "available": "Totales del servidor, sesión, doble pulsación, cambio de cuenta y errores de stock/red cubiertos con transporte controlado.",
+      "pending": [
+        "Comprobar carrito y stock con una cuenta real en Android final; aceptación privada/física aplazada."
+      ],
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/purchaseApi.test.ts",
+          "__tests__/cartViewModel.test.tsx",
+          "__tests__/CartStock.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-06",
       "story": "HU-06",
       "iteration": "I5",
       "expected": "Consultar direcciones, registrar datos requeridos y seleccionar una dirección válida vinculada con la cuenta.",
-      "status": "not_executed",
-      "reason": "Depende de API-002 y módulo móvil",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/12"
+      "status": "partial",
+      "reason": "Consulta y selección de direcciones propias y captura validada de una nueva dirección implementadas.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/12",
+      "available": "La dirección nueva se envía sólo al confirmar el pedido mediante la transacción real; resumen, dirección y validaciones cubiertos con transporte controlado. La API no ofrece CRUD separado de direcciones.",
+      "pending": [
+        "Comprobar direcciones y resumen propios en Android final; aceptación privada/física aplazada."
+      ],
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/purchaseApi.test.ts",
+          "__tests__/checkoutViewModel.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-08",
       "story": "HU-08",
       "iteration": "I5",
       "expected": "Consultar pedidos propios desde API, información de cada pedido y estados de carga, error y vacío.",
-      "status": "not_executed",
-      "reason": "Historial móvil no disponible",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/14"
+      "status": "partial",
+      "reason": "Lista de pedidos propios y seguimiento de un pedido perteneciente a esa lista implementados.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/14",
+      "available": "Pertenencia a la lista propia, coincidencia del pedido, importes y estado vacío cubiertos con transporte controlado.",
+      "pending": [
+        "Consultar pedidos y estados reales en Android final; aceptación privada/física aplazada."
+      ],
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/ordersApi.test.ts",
+          "__tests__/accountViewModels.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     },
     {
       "group": "CP-07",
       "story": "HU-07",
       "iteration": "I6",
       "expected": "Revisar productos y dirección, validar datos, usar contrato real y confirmar compra sólo con aceptación del backend o pago; errores controlados.",
-      "status": "not_executed",
-      "reason": "Depende de API-003, PAG-001 y módulos de compra",
-      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/13"
+      "status": "partial",
+      "reason": "Resumen y confirmación de checkout, apertura admitida de Mercado Pago y consulta del estado de pago implementados.",
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/13",
+      "available": "Contrato, totales/dirección, stock, respuestas perdidas y cambios de cuenta cubiertos con transporte controlado. Volver del proveedor no acredita pago sin confirmación del servidor.",
+      "pending": [
+        "Validar el recorrido privado de compra en Android final. La aceptación manual/física y un pago real siguen pendientes; no se declaran ejecutados."
+      ],
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/purchaseApi.test.ts",
+          "__tests__/checkoutViewModel.test.tsx",
+          "__tests__/payment.test.ts",
+          "__tests__/CheckoutStatusScreen.test.tsx",
+          "__tests__/PurchaseRouting.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
+    },
+    {
+      "group": "CP-10",
+      "story": "HU-10",
+      "expected": "Solicitar recuperación, validar código y nueva contraseña con confirmación, permitir reenvío controlado y presentar errores sin consumir el código en un paso previo.",
+      "status": "partial",
+      "reason": "Recuperación implementada; falta aceptación privada/física final.",
+      "available": "Cliente conectado a verify-user-email y reset-psw; envío, validación, cancelación, reenvío y descarte de secretos cubiertos con transporte controlado.",
+      "pending": [
+        "Comprobar correo, reenvío y restablecimiento reales en Android final al retomar la validación manual."
+      ],
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/47",
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/passwordRecoveryApi.test.ts",
+          "__tests__/accountViewModels.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
+    },
+    {
+      "group": "CP-11",
+      "story": "HU-11",
+      "expected": "Consultar reseñas; publicar sólo con sesión, elegibilidad de compra entregada y aceptación de reglas; reportar una reseña y ocultar/restaurar autores localmente.",
+      "status": "partial",
+      "reason": "Reseñas, elegibilidad, reporte y preferencias locales implementados; falta aceptación nativa final.",
+      "available": "Campos públicos, publicación elegible, límites, sesión, reporte con referencia válida y ocultación reversible por cuenta cubiertos con transporte controlado.",
+      "pending": [
+        "Comprobar reseñas públicas y operaciones de una cuenta elegible en Android final; aceptación manual/física aplazada."
+      ],
+      "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/48",
+      "implementation": "implemented",
+      "clientVerification": {
+        "status": "covered_with_controlled_transport",
+        "files": [
+          "__tests__/reviewsApi.test.ts",
+          "__tests__/reviewsSession.test.tsx",
+          "__tests__/reviewAuthorPreferences.test.ts",
+          "__tests__/reviewPreferencesViewModel.test.tsx",
+          "__tests__/accountViewModels.test.tsx"
+        ],
+        "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
+      },
+      "finalAndroidAcceptance": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      }
     }
   ],
   "manualRecordFields": [
@@ -400,7 +726,12 @@
   ],
   "differences": {
     "boardStoryPoints": 52,
-    "note": "Se conserva la línea base, responsables, fechas y las nueve historias del tablero personal. La planeación de otro repositorio no redefine estos criterios. Esta revisión no altera estados del tablero ni marca módulos pendientes como terminados."
+    "note": "Se conservan las nueve HU iniciales, sus iteraciones y los 52 SP de la línea base del tablero personal. HU-10 (#47) y HU-11 (#48) son ampliaciones autorizadas sin SP, iteración o fechas nuevas. Esta actualización refleja implementación y cobertura controlada; no modifica estados del tablero ni convierte aceptación pendiente en aprobada.",
+    "baselineStories": 9,
+    "additionalStories": [
+      "HU-10",
+      "HU-11"
+    ]
   },
   "verifiedIncrement": {
     "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
@@ -443,5 +774,53 @@
     "combinedFlow": "tests/integration/AuthenticationFlow.test.tsx",
     "transport": "simulated",
     "scope": "Combinación de HU-01 y HU-02. Las pruebas no envían correos ni crean cuentas en Render. La exportación no es un APK ni una nueva aceptación en teléfono."
+  },
+  "currentSourceVerification": {
+    "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+    "prebuildRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41707259944",
+    "prebuildStatus": "passed_for_prebuild_scope",
+    "prebuildScope": "Calidad, SAST/dependencias, HTTP con DAST local e inspección de guiones; Android/TLS omitidos por matriz de develop.",
+    "localClientAndInfrastructurePassed": 1702,
+    "automationLocal": {
+      "passed": 1763,
+      "suites": 67,
+      "skipped": 0,
+      "scope": "Cliente y herramientas validados localmente; no aceptación nativa final."
+    },
+    "dependencyAudit": {
+      "high": 3,
+      "critical": 0,
+      "scope": "Avisos npm por versiones declaradas visibles; backport CommonJS sin falsear identidad.",
+      "details": "docs/decoder-seguro.md"
+    }
+  },
+  "currentArtifacts": {
+    "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+    "production": {
+      "buildId": "2e902741-6bfd-4171-a336-2a784ae41f58",
+      "status": "finished_downloaded_provenance_checked",
+      "bytes": 68959549,
+      "sha256": "7ffe6560cf3eddb41f5a595c2073cc1e5a3e07e27ffc695e18d3eb6a0635a253",
+      "receipt": "config/android-release-validation.json",
+      "localChecks": [
+        "verifyReceipt",
+        "verifyBuild",
+        "verifyPrebuild"
+      ],
+      "nativeAcceptance": "passed_for_public_scope",
+      "nativeRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066",
+      "nativeScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB."
+    },
+    "preview": {
+      "buildId": "b409ac48-41b0-4292-8e9c-df8153006f71",
+      "status": "FINISHED",
+      "workflow": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
+      "initialAttempt": "WAIT_TIMEOUT mientras el build existente seguía en cola",
+      "resumedAcceptance": "passed_attempt_2_reused_same_build",
+      "nativeAcceptance": "passed_for_public_scope",
+      "sha256": "092cdbbc6942fe16c941f814a0b581b26c33c8cd658ae5b0015d9c10f947d564",
+      "nativeScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK."
+    },
+    "scope": "Procedencia, inspección y aceptación pública verificadas; aceptación privada, teléfono físico y publicación en Play siguen pendientes."
   }
 }
