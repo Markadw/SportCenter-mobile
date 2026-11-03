@@ -251,3 +251,16 @@ describe('Decoder oficial23 reproducido en Linux y Windows', () => {
     expect(result.stderr).not.toContain('corrupt fixture');
   }));
 });
+
+
+test('acepta el certificado V3.0 real del APK derivado sin confundir public key ni firmante ambiguo', () => {
+  const certificate = '00969f3cc0708e299834d7ea0b64578d7def88302138ec3075b99a6908964668';
+  const output = ['Verifies', 'Verified using v2 scheme (APK Signature Scheme v2): true',
+    'Verified using v3 scheme (APK Signature Scheme v3): true', 'Number of signers: 1',
+    'V3.0 Signer: certificate SHA-256 digest: ' + certificate,
+    'V3.0 Signer: public key SHA-256 digest: ' + 'f'.repeat(64)].join('\n');
+  expect(signatureEvidence(output)).toMatchObject({ verified: true, signers: 1, certificateSha256: [certificate], schemes: ['v2', 'v3'] });
+  expect(() => signatureEvidence(output.replace('certificate SHA-256 digest:', 'public key SHA-256 digest:'))).toThrow();
+  expect(() => signatureEvidence(output.replace('Number of signers: 1', 'Number of signers: 2'))).toThrow();
+  expect(() => signatureEvidence(output.replaceAll('V3.0 Signer:', 'V3.2 Signer:'))).toThrow();
+});

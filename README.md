@@ -132,9 +132,9 @@ npm run test:api
 
 La suite HTTP consulta catálogo, detalle y rechazo del perfil sin sesión; no crea cuentas ni modifica datos. Los resultados de cada ejecución se distinguen de la preparación de sus scripts.
 
-Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, contratos HTTP e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar una candidata Android de develop, se puede ejecutar manualmente **Integración y aceptación móvil**, seleccionar la rama `develop` y activar `run_android`. El push posterior a un merge tampoco repite Android. Un fallo de calidad o HTTP bloquea la integración.
+Los PR hacia `develop`, tanto en borrador como listos, exigen lint, TypeScript, pruebas del cliente, contratos HTTP e inspección k6. No generan APK ni ejecutan Android automáticamente. Para comprobar Android se utilizan etiquetas explícitas e inmutables `candidate/android-*` (candidata nueva) o `validation/android-*` (el mismo APK ya compilado). GitHub sólo ofrece `workflow_dispatch` cuando el workflow existe en la rama predeterminada; como `main` aún no lo contiene, la selección manual de `develop` con `run_android` quedará disponible cuando se cumpla esa condición. El push posterior a un merge tampoco repite Android. Un fallo de calidad o HTTP bloquea la integración.
 
-Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. Cuando se solicita Android manualmente, deben aprobar tanto la compilación EAS como Maestro. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
+Los flujos Maestro de catálogo y detalle siguen disponibles sobre un APK candidato en un emulador Android API 34 de GitHub. La etiqueta de candidata exige la compilación EAS y Maestro; la etiqueta de validación reutiliza el build identificado y exige su procedencia y ejecución real. El modo `validation/profiles-*` verifica los builds Debug y AAB existentes, según [su guía](tests/manual/android-profiles.md), sin reconstruirlos. Omitir Android permite continuar el desarrollo, pero no acredita una prueba del APK. Las entregas a main conservan su política de aceptación Android.
 
 Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un commit de backend identificado. No ejecutarlos contra el Render compartido ni servicios de pago. Su inspección no equivale a medir capacidad o aprobar rendimiento.
 
@@ -148,9 +148,10 @@ Los guiones k6 de rendimiento y estrés requieren una API propia aislada y un co
 | PR listo | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android |
 | Push integrado, incluido merge | develop | Calidad, contratos HTTP e inspección k6 |
 | Push integrado, incluido merge | main | Calidad, contratos HTTP, inspección k6 y compilación/aceptación Android; conserva evidencia |
-| Manual | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
+| Manual, cuando workflow_dispatch esté disponible | develop, release/* o hotfix/* | Integración; Android opcional sólo en develop y obligatorio en candidatas |
 | Tag de candidata | candidate/android-* | Calidad, HTTP, seguridad, APK, aceptación API34 y rechazo controlado API30; conserva evidencia |
 | Tag de validación | validation/android-* | Auxiliar del segundo pipeline: calidad, seguridad, procedencia e inspección del mismo APK, API34, API30 y ejecución de 16 KB simulados en API36 x86_64; sin nueva compilación EAS |
+| Tag de perfiles | validation/profiles-* | Auxiliar del segundo pipeline: procedencia congelada de Debug/AAB, políticas y firmas, Debug con Metro en API34, APK derivado del AAB sin Metro y simulación 16 KB API36; no compila ni publica |
 | Medición manual | develop o ramas de trabajo | Referencia, carga y esfuerzo con backend y datos aislados en el runner |
 
 El merge se atiende mediante push a su destino. No se añade un segundo disparador por cierre del PR. El resultado Resultado de integración falla si una etapa obligatoria falla, se cancela o se omite; en `develop` está marcada como requerida para integrar cambios. Los PR verifican la combinación con la base y los pushes verifican el commit de la rama. En una rama con PR abierto pueden aparecer dos eventos de GitHub: el push sólo consulta si el PR se hace cargo y omite el trabajo duplicado. No hay ejecuciones programadas ni reintentos automáticos de Android.

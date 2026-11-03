@@ -7,6 +7,11 @@ name: CP-03 catalogo publico en Android
     visible: "Explora por deporte"
     timeout: 45000
 - takeScreenshot: cp03-inicio
+- assertVisible:
+    text: "^Catálogo$"
+    enabled: true
+- waitForAnimationToEnd:
+    timeout: 5000
 - tapOn: "Catálogo"
 - extendedWaitUntil:
     visible: "Buscar en el catálogo"

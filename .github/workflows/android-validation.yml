@@ -2,7 +2,7 @@
 name: Validación nativa del mismo APK
 on:
   push:
-    tags: ['validation/android-*']
+    tags: ['validation/android-*', 'validation/profiles-*']
 permissions:
   contents: read
   actions: read
@@ -26,6 +26,7 @@ jobs:
     with:
       keep_evidence: true
   native:
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/android-') }}
     name: Inspección y pruebas nativas del mismo APK
     needs: [quality, security]
     runs-on: ubuntu-24.04
@@ -178,7 +179,7 @@ jobs:
   result:
     name: Resultado de validación nativa
     needs: [quality, security, native]
-    if: always()
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/android-') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -193,3 +194,152 @@ jobs:
           RESULT_QUALITY: ${{ needs.quality.result }}
           RESULT_SECURITY: ${{ needs.security.result }}
           RESULT_NATIVE: ${{ needs.native.result }}
+  profiles:
+    name: Debug y AAB existentes con ejecución pública
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/profiles-') }}
+    needs: [quality, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      keep_evidence: 'true'
+      PRODUCT_NAME: ${{ vars.ANDROID_TEST_PRODUCT_NAME }}
+      PINNING_EPHEMERAL_AVD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Exigir fuente congelada y comprobaciones de develop
+        id: source
+        run: node scripts/android-profiles.js prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar el lockfile para resolver Expo sin modificarlo
+        run: npm ci --no-audit --no-fund
+      - name: Consultar sólo los dos builds existentes
+        run: node scripts/android-profiles.js view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar y exigir los dos SHA256 congelados
+        run: node scripts/android-profiles.js download
+      - name: Instalar y verificar decoder23 y Build Tools37
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0" "build-tools;37.0.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
+      - name: Validar perfiles, AAB y APK derivado con firma temporal
+        id: inspection
+        timeout-minutes: 12
+        run: node scripts/android-profiles.js inspect
+      - name: Instalar Maestro verificado
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro-profiles.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-profiles.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/maestro-profiles.zip" -d "$RUNNER_TEMP/maestro-profiles"
+          echo "$RUNNER_TEMP/maestro-profiles/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar KVM del runner efímero
+        id: kvm
+        timeout-minutes: 2
+        run: node scripts/android-profiles.js kvm
+      - name: Debug API34 con Metro en AVD nueva
+        id: debug34
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles-debug34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node scripts/android-profiles.js debug34
+      - name: Release API34 sin Metro en otra AVD nueva
+        id: release34
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles-release34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node scripts/android-profiles.js release34
+      - name: API36 16KB simulados del APK derivado AAB
+        id: pages16k
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis_ps16k
+          channel: stable
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: profiles16k
+          ram-size: '4096M'
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: node scripts/android-profiles.js api36
+      - name: Resumir alcance de los perfiles
+        if: always()
+        run: node scripts/android-profiles.js summary
+      - name: Limpiar sólo temporales de esta validación
+        if: always()
+        run: node scripts/android-profiles.js cleanup
+      - name: Conservar sólo informes y capturas públicas de perfiles
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-profiles-evidence
+          path: |
+            test-results/android-profiles-source.json
+            test-results/android-profiles.json
+            test-results/android-profiles-summary.md
+            test-results/android-command-line-tools.json
+            test-results/profiles-development.xml
+            test-results/profiles-production.xml
+            test-results/profiles-production16k.xml
+            test-results/profiles-development/**/*.png
+            test-results/profiles-production/**/*.png
+            test-results/profiles-production16k/**/*.png
+          if-no-files-found: error
+          retention-days: 14
+  profiles_result:
+    name: Resultado de Debug y AAB
+    needs: [quality, security, profiles]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/profiles-') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - name: Exigir calidad, seguridad y ambos perfiles reales
+        run: node scripts/android-profiles.js gate
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_PROFILES: ${{ needs.profiles.result }}

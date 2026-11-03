@@ -41,6 +41,25 @@ test('pinning debe consumir API34 real de la automatización actual y del mismo 
 });
 
 
+test('admite sólo las tres rutas exactas del modo perfiles sin cambiar fuente ni identidad c816', () => {
+  const profiles = 'scripts/android-profiles.js\n__tests__/androidProfiles.test.js\ntests/manual/android-profiles.md';
+  expect(verifySourceProof(proof, env, profiles, env.GITHUB_SHA)).toMatchObject({ artifactSourceCommit: SOURCE.commit,
+    automationCommit: env.GITHUB_SHA, buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256 });
+});
+test.each(['scripts/another-profile.js', '__tests__/another-profile.test.js', 'tests/manual/another-profile.md',
+  'src/app/index.tsx', 'plugins/with-network-security.js', 'config/security-pins.json', 'app.json', 'eas.json',
+  'assets/images/sport-center-icon.png', 'package.json', 'package-lock.json'])('la compatibilidad de perfiles no permite ruta ajena: %s', file => {
+  expect(() => verifySourceProof(proof, env, 'scripts/android-profiles.js\n' + file, env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
+});
+
+
+test('admite sólo los dos flujos públicos de sincronización manteniendo el APK congelado', () => {
+  const publicFlows = '.maestro/catalogo-publico.yaml\n.maestro/detalle-producto.yaml';
+  expect(verifySourceProof(proof, env, publicFlows, env.GITHUB_SHA)).toMatchObject({ artifactSourceCommit: SOURCE.commit,
+    buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256 });
+  expect(() => verifySourceProof(proof, env, publicFlows + '\n.maestro/another.yaml', env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
+});
+
 test('admite sólo la ruta auditada exacta del addon y rechaza vecinos/runtime', () => {
   const check = changed => verifyAutomation({ commit: env.GITHUB_SHA, ref: env.GITHUB_REF, repository: env.GITHUB_REPOSITORY, changed });
   expect(check('scripts/android-pinning-proxy.py')).toMatchObject({ changedAutomationFiles: 1 });
