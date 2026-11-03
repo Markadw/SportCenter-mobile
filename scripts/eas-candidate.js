@@ -5,7 +5,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { selectAndroidBuild } = require('./android-ci');
 
-const EAS_CLI_VERSION = '27.2.0';
+const EAS_CLI_VERSION = '27.4.0';
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const active = new Set(['NEW', 'IN_QUEUE', 'IN_PROGRESS', 'PENDING_CANCEL']);
 class CandidateError extends Error {
@@ -121,7 +121,7 @@ async function ensureCandidateBuild({ identity, listBuilds, viewBuild, createBui
 async function runEas(args, { cwd, env }) {
   try {
     // Los resultados quedan capturados: no imprimir config, errores remotos ni URLs firmadas.
-    const { stdout } = await promisify(execFile)('npx', ['--yes', 'eas-cli@latest', ...args],
+    const { stdout } = await promisify(execFile)('npx', ['--yes', `eas-cli@${EAS_CLI_VERSION}`, ...args],
       { cwd, env, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
     return args[0] === '--version' ? stdout.trim() : JSON.parse(stdout);
   } catch { throw new CandidateError('EAS_REQUEST_FAILED'); }

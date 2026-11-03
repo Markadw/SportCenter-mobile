@@ -177,7 +177,7 @@ test('CLI inyectada mantiene el JSON del download y sólo guarda metadata públi
   for (const [file, value] of [['app.json', values.app], ['eas.json', values.eas]]) fs.writeFileSync(path.join(cwd, file), JSON.stringify(value));
   fs.writeFileSync(path.join(cwd, 'package-lock.json'), values.lockfile);
   const request = jest.fn(async args => {
-    if (args[0] === '--version') return 'eas-cli/27.2.0 linux-x64 node-v22.20.0';
+    if (args[0] === '--version') return 'eas-cli/27.4.0 linux-x64 node-v22.20.0';
     if (args[0] === 'config') return values.effectiveConfig;
     if (args[0] === 'build:list') return [build()];
     if (args[0] === 'build:view') return build();
@@ -193,7 +193,7 @@ test('CLI inyectada mantiene el JSON del download y sólo guarda metadata públi
 }));
 
 
-test.each(['antes de config', 'antes de crear'])('una versión latest nueva bloquea %s sin compilar', stage => temporary(async cwd => {
+test.each(['antes de config', 'antes de crear'])('una versión distinta de la fijada bloquea %s sin compilar', stage => temporary(async cwd => {
   const values = settings();
   for (const [file, value] of [['app.json', values.app], ['eas.json', values.eas]]) fs.writeFileSync(path.join(cwd, file), JSON.stringify(value));
   fs.writeFileSync(path.join(cwd, 'package-lock.json'), values.lockfile);
@@ -201,7 +201,7 @@ test.each(['antes de config', 'antes de crear'])('una versión latest nueva bloq
   const request = jest.fn(async args => {
     if (args[0] === '--version') {
       versionCalls += 1;
-      return stage === 'antes de config' || versionCalls > 1 ? 'eas-cli/27.2.1 linux-x64 node-v22.20.0' : 'eas-cli/27.2.0 linux-x64 node-v22.20.0';
+      return stage === 'antes de config' || versionCalls > 1 ? 'eas-cli/27.4.1 linux-x64 node-v22.20.0' : 'eas-cli/27.4.0 linux-x64 node-v22.20.0';
     }
     if (args[0] === 'config') return values.effectiveConfig;
     if (args[0] === 'build:list') return [];
@@ -211,4 +211,36 @@ test.each(['antes de config', 'antes de crear'])('una versión latest nueva bloq
     API_BASE_URL: values.apiUrl, EAS_CONFIG_REVISION: values.revision }, request })).rejects.toThrow('CLI_VERSION_UNVERIFIED');
   expect(request.mock.calls.some(([args]) => args[0] === 'build')).toBe(false);
   if (stage === 'antes de config') expect(request).toHaveBeenCalledTimes(1);
+}));
+
+
+test('el transporte por defecto fija la CLI en cada proceso y verifica versión antes de config y build', () => temporary(async cwd => {
+  const values = settings();
+  for (const [file, value] of [['app.json', values.app], ['eas.json', values.eas]]) fs.writeFileSync(path.join(cwd, file), JSON.stringify(value));
+  fs.writeFileSync(path.join(cwd, 'package-lock.json'), values.lockfile);
+  const execFile = jest.fn((command, args, options, callback) => {
+    const action = args[2];
+    const responses = { '--version': 'eas-cli/27.4.0 linux-x64 node-v22.20.0', config: values.effectiveConfig,
+      'build:list': [], build: [build()], 'build:view': build() };
+    if (!Object.hasOwn(responses, action)) return callback(Error('Proceso inesperado'));
+    callback(null, action === '--version' ? responses[action] : JSON.stringify(responses[action]), '');
+  });
+  // execFile tiene un contrato promisificado especial: stdout y stderr separados.
+  execFile[require('node:util').promisify.custom] = (...args) => new Promise((resolve, reject) => {
+    execFile(...args, (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr }));
+  });
+  jest.doMock('node:child_process', () => ({ ...jest.requireActual('node:child_process'), execFile }));
+  try {
+    let defaultMain;
+    jest.isolateModules(() => { defaultMain = require('../scripts/eas-candidate').main; });
+    await expect(defaultMain({ cwd, env: { EXPO_TOKEN: 'PRIVATE-TOKEN', GITHUB_SHA: sha, GITHUB_RUN_ATTEMPT: '1',
+      API_BASE_URL: values.apiUrl, EAS_CONFIG_REVISION: values.revision } })).resolves.toMatchObject({ buildId, source: 'created' });
+    expect(execFile.mock.calls.map(([, args]) => args[2])).toEqual(['--version', 'config', 'build:list', '--version', 'build', 'build:view']);
+    for (const [command, args, options] of execFile.mock.calls) {
+      expect(command).toBe('npx');
+      expect(args.slice(0, 2)).toEqual(['--yes', 'eas-cli@27.4.0']);
+      expect(args).not.toContain('eas-cli@latest');
+      expect(options).toMatchObject({ cwd, timeout: 120000, windowsHide: true });
+    }
+  } finally { jest.dontMock('node:child_process'); }
 }));
