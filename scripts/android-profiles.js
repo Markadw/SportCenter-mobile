@@ -466,14 +466,15 @@ async function runtime(env, mode, { run = command, save = report, wait = waitFor
         metro.on('error', () => { metro.spawnFailure = true; });
         await ready(metro);
         await adb(['reverse', 'tcp:8081', 'tcp:8081']); reverse = true;
-        flowDirectory = path.join(files.scratch, 'debug-flows'); fs.mkdirSync(flowDirectory);
+        flowDirectory = path.join(files.scratch, 'debug-flows'); fs.mkdirSync(flowDirectory, { mode: 0o700 });
         entry.metro = { loopbackReady: true, reverseReady: true, schemeVerified: true };
         entry.launchMethod = 'launcher-url-input'; entry.deepLinkAcceptance = 'not-tested-by-this-run';
         const connection = await getMetroContext();
         need(connection.serverUrl === METRO_SERVER, 'METRO_SERVER_URL_NOT_ALLOWED');
         const flows = fs.readdirSync('.maestro').filter(file => file.endsWith('.yaml'));
         need(flows.length === 2, 'PUBLIC_FLOW_COUNT');
-        for (const file of flows) fs.writeFileSync(path.join(flowDirectory, file), debugFlows(fs.readFileSync(path.join('.maestro', file), 'utf8'), connection.serverUrl));
+        for (const file of flows) fs.writeFileSync(path.join(flowDirectory, file),
+          debugFlows(fs.readFileSync(path.join('.maestro', file), 'utf8'), connection.serverUrl), { flag: 'wx', mode: 0o600 });
         entry.metro = { ...entry.metro, ...connection };
       } else {
         need(!(await adb(['reverse', '--list'])).includes('tcp:8081'), 'ADB_REVERSE_STILL_PRESENT');
