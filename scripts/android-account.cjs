@@ -17,7 +17,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   artifactSha256: 'dda9576bdc03753f5ba24600b676770592a6915aa1b42792e49b87efdafef07d',
   appVersion: '1.0.0', appBuildVersion: '1' });
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
-const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-probes', 'app-install', 'AC01-navigate', 'AC01-email',
+const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'app-install', 'AC01-navigate', 'AC01-email',
   'AC01-password', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
@@ -33,9 +33,11 @@ const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID
   'ACCOUNT_UI_ACTION_AMBIGUOUS', 'ACCOUNT_PROFILE_MISMATCH', 'ACCOUNT_MAESTRO_FAILED', 'ACCOUNT_JUNIT_INVALID',
   'ACCOUNT_PROCESS_FAILED', 'ACCOUNT_SESSION_CLEANUP_UNCONFIRMED', 'ACCOUNT_DEVICE_CLEANUP_FAILED',
   'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE']);
+const PARENT_ERROR = 'ACCOUNT_SANDBOX_PARENT_INVALID';
+const TOOL_ERROR = 'ACCOUNT_SANDBOX_TOOL_INVALID';
 class AccountError extends Error { constructor(code) { super(code); this.code = code; } }
 function need(value, code) { if (!value) throw new AccountError(code); }
-function safeCode(error) { return CODES.includes(error?.code) ? error.code : 'ACCOUNT_UNEXPECTED_FAILURE'; }
+function safeCode(error) { return [...CODES, PARENT_ERROR, TOOL_ERROR].includes(error?.code) ? error.code : 'ACCOUNT_UNEXPECTED_FAILURE'; }
 function verifyProducer(run, jobs, candidate, inspection) {
   need(run?.id === SOURCE.producer && run.run_attempt === SOURCE.attempt && run.head_sha === SOURCE.commit &&
     run.head_branch === 'candidate/android-rc4' && run.event === 'push' && run.path === '.github/workflows/api-android.yml' &&
@@ -187,14 +189,14 @@ async function apkHash(file) { const hash = createHash('sha256'); for await (con
 
 // Wiring deliberately accepts a source proof verified in a credential-free step.
 // The future workflow must not inject account secrets into prepare/download/inspect.
-async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, now = Date.now, wait = pause, hash = apkHash }) {
+async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, parent = sandboxParent, now = Date.now, wait = pause, hash = apkHash }) {
   need(process.platform === 'linux' || env.ACCOUNT_UNIT_TEST === true, 'ACCOUNT_SANDBOX_FAILED');
   need(context?.artifactSourceCommit === SOURCE.commit && context.automationCommit === env.GITHUB_SHA && context.producerVerified === true &&
     context.producerRun === SOURCE.producer && context.producerAttempt === SOURCE.attempt && context.apkSha256 === SOURCE.sha256 && context.parentInspectionVerified === true,
   'ACCOUNT_ARTIFACT_MISMATCH');
   need(await hash(apk) === SOURCE.sha256, 'ACCOUNT_ARTIFACT_MISMATCH');
   const secret = credentials(env), state = { status: 'failed', stage: 'device-check', automationCommit: context.automationCommit, cases: {}, errors: [], cleanup: {} };
-  let box, setupAttempted = false, loginAttempted = false, loggedOut = false, caseId = 'AC01', sequence = 0, installed = false, remoteCreated = false;
+  let box, parentContext, setupAttempted = false, loginAttempted = false, loggedOut = false, caseId = 'AC01', sequence = 0, installed = false, remoteCreated = false;
   const stdout = result => typeof result === 'string' ? result : result.stdout;
   const serialRaw = stdout(await run('adb', ['devices'], {}));
   const devices = serialRaw.trim().split(/\r?\n/).slice(1).filter(Boolean).map(line => line.split(/\s+/));
@@ -218,8 +220,10 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     need((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34' && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['reverse', '--list'])).trim(), 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['shell', 'pm', 'list', 'packages', SOURCE.appId])).trim(), 'ACCOUNT_PROCESS_FAILED');
+    state.stage = 'sandbox-parent-verify'; parentContext = parent(env); await parentContext.verifyMaestro(run);
+    parentContext.confirm(false);
     state.stage = 'sandbox-probes'; setupAttempted = true; state.sandboxAttempted = true;
-    try { box = await create({ runnerTemp: env.RUNNER_TEMP, runId: env.GITHUB_RUN_ID, env }); }
+    try { box = await create({ runnerTemp: parentContext.path, runId: env.GITHUB_RUN_ID, env }); }
     catch (error) { state.sandboxDiagnostic = safeSandboxDiagnostic(error); throw error; }
     await adb(['shell', 'mkdir', remote]); remoteCreated = true; await adb(['shell', 'chmod', '700', remote]);
     state.stage = 'app-install'; await adb(['install', apk]); installed = true;
@@ -270,6 +274,8 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     }
     catch (error) { state.errors.push(new AccountError('ACCOUNT_SANDBOX_CLEANUP_FAILED')); state.failureStage ||= 'cleanup-sandbox';
       state.sandboxDiagnostic ||= safeSandboxDiagnostic(error); }
+    try { if (parentContext && state.cleanup.sandbox === true) parentContext.confirm(true); }
+    catch { state.errors.push(new AccountError(PARENT_ERROR)); state.failureStage ||= 'cleanup-sandbox'; }
   }
   if (state.errors.some(error => /CLEANUP/.test(error.code))) state.status = 'failed';
   return publicReport(state);
@@ -284,7 +290,8 @@ async function command(file, args, options = {}) {
 function locations(env) {
   need(typeof env.RUNNER_TEMP === 'string' && path.isAbsolute(env.RUNNER_TEMP), 'ACCOUNT_SANDBOX_FAILED');
   const scratch = path.join(env.RUNNER_TEMP, 'sportcenter-account-control');
-  return { scratch, metadata: path.join(scratch, 'build.json'), apk: path.join(scratch, 'candidate.apk'), proof: 'test-results/android-account-source.json', report: 'test-results/android-account.json' };
+  return { scratch, metadata: path.join(scratch, 'build.json'), apk: path.join(scratch, 'candidate.apk'),
+    parent: path.join(scratch, 'sandbox-parent.json'), proof: 'test-results/android-account-source.json', report: 'test-results/android-account.json' };
 }
 function privateDirectory(directory) {
   try { fs.mkdirSync(directory, { mode: 0o700 }); } catch (error) { need(error.code === 'EEXIST', 'ACCOUNT_SANDBOX_FAILED'); }
@@ -344,8 +351,62 @@ function updateSource(file, value) {
   const stat = fs.lstatSync(file); need(stat.isFile() && !stat.isSymbolicLink(), 'ACCOUNT_ARTIFACT_MISMATCH');
   const target = file + '.tmp'; save(target, value); fs.renameSync(target, file);
 }
+function validateParentProof(proof, actual, environmentPath) {
+  need(proof && Object.keys(proof).sort().join(',') === 'cleanupConfirmed,device,inode,mode,path,uid,version' && proof.version === 1 &&
+    /^\/tmp\/sportcenter-account-[A-Za-z0-9]{6}$/.test(proof.path || '') && environmentPath === proof.path &&
+    typeof proof.cleanupConfirmed === 'boolean' && proof.mode === '711' && Number.isSafeInteger(proof.uid) && proof.uid > 0 &&
+    /^\d+$/.test(proof.device || '') && /^\d+$/.test(proof.inode || ''), PARENT_ERROR);
+  need(actual && actual.directory === true && actual.symlink === false && actual.tmpCanonical === '/tmp' && actual.canonical === proof.path &&
+    actual.uid === proof.uid && actual.callerUid === proof.uid && actual.device === proof.device && actual.inode === proof.inode && actual.mode === '711', PARENT_ERROR);
+  return proof.path;
+}
+function parentFacts(base) {
+  const stat = fs.lstatSync(base, { bigint: true });
+  return { directory: stat.isDirectory(), symlink: stat.isSymbolicLink(), canonical: fs.realpathSync(base), tmpCanonical: fs.realpathSync('/tmp'),
+    uid: Number(stat.uid), callerUid: process.getuid(), device: String(stat.dev), inode: String(stat.ino), mode: (Number(stat.mode) & 0o7777).toString(8) };
+}
+function readParent(env) {
+  need(process.platform === 'linux', PARENT_ERROR);
+  const file = locations(env).parent, descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = fs.fstatSync(descriptor); need(stat.isFile() && stat.size <= 4096 && stat.uid === process.getuid() && (stat.mode & 0o777) === 0o600, PARENT_ERROR);
+    const proof = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    validateParentProof(proof, parentFacts(proof.path), env.ACCOUNT_SANDBOX_PARENT); return proof;
+  } catch { throw new AccountError(PARENT_ERROR); } finally { fs.closeSync(descriptor); }
+}
+function sandboxParent(env) {
+  let proof; try { proof = readParent(env); } catch { throw new AccountError(PARENT_ERROR); }
+  return { path: proof.path,
+    confirm(value) { need(typeof value === 'boolean', PARENT_ERROR); proof = readParent(env); updateSource(locations(env).parent, { ...proof, cleanupConfirmed: value }); },
+    async verifyMaestro(run) {
+      try {
+        const result = await run('/bin/sh', ['-c', 'command -v maestro'], { env: { PATH: env.PATH, LANG: 'C.UTF-8' } });
+        const executable = (typeof result === 'string' ? result : result.stdout).trim();
+        need(fs.realpathSync(executable) === proof.path + '/maestro-account/maestro/bin/maestro' && fs.statSync(executable).isFile(), TOOL_ERROR);
+      } catch { throw new AccountError(TOOL_ERROR); }
+    },
+  };
+}
+function runtimeDirectory(env) {
+  need(process.platform === 'linux' && !env.ANDROID_TEST_EMAIL && !env.ANDROID_TEST_PASSWORD, PARENT_ERROR);
+  need(typeof env.GITHUB_ENV === 'string' && path.isAbsolute(env.GITHUB_ENV), PARENT_ERROR);
+  const files = locations(env); privateDirectory(files.scratch); need(!fs.existsSync(files.parent), PARENT_ERROR);
+  const base = fs.mkdtempSync('/tmp/sportcenter-account-'); fs.chmodSync(base, 0o711);
+  const actual = parentFacts(base), proof = { version: 1, path: base, device: actual.device, inode: actual.inode, uid: actual.uid, mode: '711', cleanupConfirmed: true };
+  validateParentProof(proof, actual, base); save(files.parent, proof);
+  fs.appendFileSync(env.GITHUB_ENV, 'ACCOUNT_SANDBOX_PARENT=' + base + '\n');
+}
+function assertParentCleanup(proof) { need(proof?.cleanupConfirmed === true, PARENT_ERROR); }
+function cleanupParent(env) {
+  const file = locations(env).parent;
+  if (!fs.existsSync(file)) return;
+  const proof = readParent(env); assertParentCleanup(proof);
+  // Exact new /tmp directory, inode/device/uid/mode verified immediately above.
+  // No fallback and no modification/removal of RUNNER_TEMP, HOME or ancestors.
+  fs.rmSync(proof.path, { recursive: true }); fs.rmSync(file);
+}
 async function probe(env, { run = command, create = createSandbox,
-  readSource = file => JSON.parse(fs.readFileSync(file, 'utf8')), writeSource = updateSource, writeReport = save } = {}) {
+  parent = sandboxParent, readSource = file => JSON.parse(fs.readFileSync(file, 'utf8')), writeSource = updateSource, writeReport = save } = {}) {
   need(!env.ANDROID_TEST_EMAIL && !env.ANDROID_TEST_PASSWORD && !env.EXPO_TOKEN && !env.GITHUB_TOKEN, 'ACCOUNT_AUTOMATION_SCOPE');
   const files = locations(env), context = readSource(files.proof);
   need(context.artifactSourceCommit === SOURCE.commit && context.automationCommit === env.GITHUB_SHA && context.producerVerified === true &&
@@ -353,29 +414,37 @@ async function probe(env, { run = command, create = createSandbox,
     context.parentInspectionVerified === true, 'ACCOUNT_ARTIFACT_MISMATCH');
   const state = { status: 'failed', stage: 'probe-adb-start-server', automationCommit: env.GITHUB_SHA, cases: {}, errors: [],
     cleanup: { device: true, localSession: true, sandbox: false } };
-  let box, failure, setupAttempted = false;
+  let box, parentContext, failure, setupAttempted = false;
   try {
     const started = await run('adb', ['start-server']);
     need(!started || !Object.hasOwn(started, 'exitCode') || started.exitCode === 0, 'ACCOUNT_PROCESS_FAILED');
+    state.stage = 'sandbox-parent-verify'; parentContext = parent(env); await parentContext.verifyMaestro(run); parentContext.confirm(false);
     state.stage = 'sandbox-probes'; setupAttempted = true; state.sandboxAttempted = true;
-    box = await create({ runnerTemp: env.RUNNER_TEMP, runId: env.GITHUB_RUN_ID, env });
+    box = await create({ runnerTemp: parentContext.path, runId: env.GITHUB_RUN_ID, env });
     need(box.probes?.ipv4RejectedWithCounter === true && box.probes?.adbLoopbackReachable === true, 'ACCOUNT_SANDBOX_FAILED');
+    state.stage = 'sandbox-tool-version'; const version = await box.runAs(['maestro', '--version'], {}, 30000);
+    need(version.exitCode === 0 && version.timedOut !== true && version.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) === '2.12.0', TOOL_ERROR);
   } catch (error) { failure = error; if (setupAttempted) state.sandboxDiagnostic = safeSandboxDiagnostic(error); }
   if (box) {
     try { await box.cleanup(); state.cleanup.sandbox = true; }
     catch (error) { failure ||= error; state.sandboxDiagnostic ||= safeSandboxDiagnostic(error); }
   } else state.cleanup.sandbox = !setupAttempted || state.sandboxDiagnostic?.cleanupConfirmed === true;
+  try { if (parentContext && state.cleanup.sandbox === true) parentContext.confirm(true); }
+  catch (error) { failure ||= error; state.cleanup.sandbox = false; }
   if (failure || !state.cleanup.sandbox) {
-    state.errors = [new AccountError(!setupAttempted ? safeCode(failure) : state.cleanup.sandbox ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_SANDBOX_CLEANUP_FAILED')];
+    state.errors = [new AccountError(!setupAttempted || failure instanceof AccountError ? safeCode(failure) : state.cleanup.sandbox ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_SANDBOX_CLEANUP_FAILED')];
+    if (!state.cleanup.sandbox) state.errors.push(new AccountError('ACCOUNT_SANDBOX_CLEANUP_FAILED'));
     writeReport(files.report, publicReport(state));
     throw new AccountError(state.errors[0].code);
   }
   writeSource(files.proof, { ...context, sandboxPreflight: { status: 'passed', ipv4RejectedWithCounter: true,
-    ipv6RulesVerified: true, adbLoopbackReachable: true, cleanupConfirmed: true, scope: 'no-emulator-no-account-no-Maestro' } });
+    ipv6RulesVerified: true, adbLoopbackReachable: true, maestroVersionVerified: true, cleanupConfirmed: true,
+    scope: 'no-emulator-no-account-Maestro-version-only' } });
 }
 async function main(mode, env = process.env) {
   const files = locations(env);
   if (mode === 'prepare') return prepare(env);
+  if (mode === 'runtime-dir') return runtimeDirectory(env);
   if (mode === 'probe') return probe(env);
   if (mode === 'kvm') {
     need(!env.ANDROID_TEST_EMAIL && !env.ANDROID_TEST_PASSWORD, 'ACCOUNT_AUTOMATION_SCOPE');
@@ -417,6 +486,7 @@ async function main(mode, env = process.env) {
     if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n\n') + '\n'); return;
   }
   if (mode === 'cleanup') {
+    cleanupParent(env);
     const directory = path.resolve(files.scratch), parent = path.resolve(env.RUNNER_TEMP);
     need(path.dirname(directory) === parent && path.basename(directory) === 'sportcenter-account-control', 'ACCOUNT_SANDBOX_FAILED');
     if (fs.existsSync(directory)) { need(fs.lstatSync(directory).isDirectory() && !fs.lstatSync(directory).isSymbolicLink(), 'ACCOUNT_SANDBOX_FAILED'); fs.rmSync(directory, { recursive: true }); }
@@ -426,5 +496,5 @@ async function main(mode, env = process.env) {
 }
 module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
   credentials, parsePrivateUi, hasLabel, point, profileMatches, fixtureStatus, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
-  locations, prepare, probe, main };
+  locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };
 if (require.main === module) main(process.argv[2]).catch(error => { process.stderr.write(safeCode(error) + '\n'); process.exitCode = 1; });

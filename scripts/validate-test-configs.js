@@ -146,7 +146,8 @@ function validateAccountWorkflow(workflow) {
   assert.equal(job['timeout-minutes'], 35);
   assert.deepEqual(job.env, { keep_evidence: 'true' }, 'No credenciales globales de cuenta');
   const commands = ['node scripts/android-account.cjs prepare', 'npm ci --no-audit --no-fund',
-    'node scripts/android-account.cjs view', 'node scripts/android-account.cjs download', 'node scripts/android-account.cjs kvm',
+    'node scripts/android-account.cjs view', 'node scripts/android-account.cjs download', 'node scripts/android-account.cjs runtime-dir',
+    'node scripts/android-account.cjs kvm',
     'node scripts/android-account.cjs probe'];
   const order = commands.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(order.every((index, n) => index >= 0 && (!n || index > order[n - 1])));
@@ -173,6 +174,7 @@ function validateAccountWorkflow(workflow) {
   }
   const install = job.steps.find(step => step.name?.startsWith('Instalar Maestro'));
   assert.ok(install.run.includes('cli-2.12.0/maestro.zip') && install.run.includes('a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e') && install.run.includes('sha256sum --check --strict'));
+  assert.ok(install.run.includes('umask 022') && install.run.includes('$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin') && !install.run.includes('chmod'), 'Herramientas públicas sólo en la base exclusiva, sin abrir carpetas existentes');
   assert.ok(job.steps.findIndex(step => step.run === 'node scripts/android-account.cjs finish') > job.steps.indexOf(runtime));
   assert.equal(job.steps.find(step => step.run === 'node scripts/android-account.cjs cleanup')?.if, 'always()');
   validateAndroidEvidence(job, ['test-results/android-account-source.json', 'test-results/android-account.json']);

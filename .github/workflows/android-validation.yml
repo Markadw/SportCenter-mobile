@@ -538,6 +538,8 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       - name: Descargar el mismo APK y verificar su huella
         run: node scripts/android-account.cjs download
+      - name: Crear directorio exclusivo para el proceso aislado
+        run: node scripts/android-account.cjs runtime-dir
       - name: Instalar Maestro 2.12 verificado sin credenciales de cuenta
         shell: bash
         run: |
@@ -546,8 +548,10 @@ jobs:
             --output "$RUNNER_TEMP/maestro-account.zip" \
             https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
           echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-account.zip" | sha256sum --check --strict
-          unzip -q "$RUNNER_TEMP/maestro-account.zip" -d "$RUNNER_TEMP/maestro-account"
-          echo "$RUNNER_TEMP/maestro-account/maestro/bin" >> "$GITHUB_PATH"
+          umask 022
+          test -n "${ACCOUNT_SANDBOX_PARENT:-}"
+          unzip -q "$RUNNER_TEMP/maestro-account.zip" -d "$ACCOUNT_SANDBOX_PARENT/maestro-account"
+          echo "$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin" >> "$GITHUB_PATH"
       - name: Preparar KVM sin credenciales de cuenta
         timeout-minutes: 2
         run: node scripts/android-account.cjs kvm

@@ -39,9 +39,13 @@ Esta versión registra el texto introducido y guarda variables/comandos evaluado
 
 Se ejecuta con un UID Linux efímero, HOME/XDG/tmp/cwd privados 0700 y entorno hijo permitido explícitamente. Las credenciales se pasan sólo como variables MAESTRO al subproceso que introduce el campo correspondiente. Se excluyen proxies, opciones Java heredadas, tokens GitHub/Expo y el resto del entorno del runner.
 
+`runtime-dir` crea un padre nuevo y dedicado `/tmp/sportcenter-account-XXXXXX`, modo 0711 y propiedad del usuario del runner. Ese modo permite atravesar la ruta conocida, sin listar su contenido. Sólo la distribución pública y fijada de Maestro se instala allí con permisos de lectura/ejecución; cada raíz del UID, HOME, logs y datos de prueba siguen en 0700. No se cambia el modo de RUNNER_TEMP, HOME ni sus ancestros, ni se mueve el raw de EAS o las credenciales a un directorio público.
+
+La identidad del padre (ruta canónica, ausencia de symlink, UID, dispositivo, inode y modo) se registra en un archivo 0600 dentro del control privado 0700. Probe y runtime vuelven a exigir esa identidad; el launcher de Maestro debe resolverse al directorio público de esa misma base, nunca a una instalación anterior dentro de RUNNER_TEMP. Una marca privada impide borrar la base mientras la limpieza del UID no esté confirmada. La eliminación final exige la misma identidad y no usa rutas alternativas si falta la prueba. Ni ese archivo privado ni el directorio base se suben como artifacts.
+
 Antes de suministrar credenciales al proceso Maestro se exigen reglas IPv4/IPv6 del UID al principio de OUTPUT: permiten exclusivamente 127.0.0.1/::1 y rechazan el resto. Se prueba una conexión no loopback rechazada con incremento del contador de la regla y una respuesta real ADB host:version por loopback. Si falta sudo, reglas, aislamiento o ADB, no se empieza el login. El adb server y el emulador conservan su UID original, por lo que la app mantiene su conexión HTTPS al backend.
 
-Primero se ejecuta `probe` sin credenciales, antes de crear una AVD: inicia sólo el servidor ADB, exige las mismas reglas y pruebas TCP, y confirma la limpieza. Si falla, el JSON conserva únicamente códigos de una lista fija, la primera causa y el resultado independiente de limpieza. No conserva mensajes ni salidas de procesos. El runtime repite las comprobaciones con su propio UID; el probe anterior no sustituye esa verificación.
+Primero se ejecuta `probe` sin credenciales, antes de crear una AVD: inicia sólo el servidor ADB, exige las mismas reglas y pruebas TCP, abre `maestro --version` bajo el UID y confirma la limpieza. La última línea no vacía debe ser exactamente 2.12.0; cualquier aviso público previo permanece privado y no se interpreta como instrucción. Si falla, el JSON conserva únicamente códigos de una lista fija, la primera causa y el resultado independiente de limpieza. No conserva mensajes ni salidas de procesos. El runtime repite las comprobaciones con su propio UID; el probe anterior no sustituye esa verificación.
 
 No se depende de la opción `sudo --chdir`: la política de sudo puede prohibirla incluso con sudo sin contraseña. Un wrapper Node fijo, ya bajo el UID destino, cambia al directorio privado validado y ejecuta la herramienta sin shell. Este ajuste elimina esa dependencia de política; no demuestra que fuera la causa de una ejecución anterior.
 
@@ -58,9 +62,9 @@ Se conserva el auxiliar `android-validation.yml`, con job aislado para `validati
 1. `prepare`, con GITHUB_TOKEN de sólo lectura: fuente, productor y evidencia.
 2. `npm ci` del lock; no contiene credenciales de la cuenta.
 3. `view`, exclusivamente con EXPO_TOKEN; raw privado.
-4. `download`, sin credenciales de cuenta; APK/hash fijo.
-5. Maestro 2.12.0/hash ya establecido y rutas SDK existentes; `kvm` con `PINNING_EPHEMERAL_AVD=true` en runner efímero.
-6. `probe` sin credenciales: servidor ADB, aislamiento Linux real y limpieza. No instala APK, inicia emulador, abre Maestro ni usa la cuenta. Si aprueba, agrega esa evidencia booleana al JSON de procedencia existente; si falla, publica un resultado fallido con los siete casos sin ejecutar.
+4. `download`, sin credenciales de cuenta; APK/hash fijo. `runtime-dir` crea y registra su padre dedicado, publicando sólo ACCOUNT_SANDBOX_PARENT para los pasos siguientes.
+5. Maestro 2.12.0/hash ya establecido se extrae únicamente bajo ACCOUNT_SANDBOX_PARENT/maestro-account y su bin se añade al PATH; los metadatos y ZIP pueden permanecer en el control privado. Se exige el ADB del SDK existente. `kvm` usa `PINNING_EPHEMERAL_AVD=true` en runner efímero.
+6. `probe` sin credenciales: servidor ADB, aislamiento Linux real, versión fijada del CLI bajo el UID y limpieza. No instala APK, inicia emulador, ejecuta flujos de Maestro ni usa la cuenta. Si aprueba, agrega esa evidencia booleana al JSON de procedencia existente; si falla, publica un resultado fallido con los siete casos sin ejecutar.
 7. AVD API34 x86_64 nueva, sin Metro, sin reverse ni paquete previo. Únicamente este paso recibe los dos secretos de cuenta y ejecuta `runtime`.
 8. `finish` exige siete controles y las tres limpiezas. `summary` sólo publica estados permitidos.
 9. `cleanup` siempre; upload de las dos rutas JSON exactas, retención 14 días. No carpetas ni patrones que puedan incluir raw.

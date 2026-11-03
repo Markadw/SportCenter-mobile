@@ -27,6 +27,7 @@ function ui(nodes) { return '<?xml version="1.0" encoding="UTF-8"?><hierarchy ro
   package: SOURCE.appId, class: 'android.widget.TextView', enabled: 'true', clickable: 'false', bounds: '[10,20][200,80]', ...node,
 }).map(([key, value]) => key + '="' + attr(value) + '"').join(' ') + '/>').join('') + '</hierarchy>'; }
 function junit(name = 'AC01', extras = '') { const n = name + ' private account'; return '<testsuites><testsuite tests="1" failures="0"><testcase id="' + n + '" name="' + n + '" classname="' + n + '" status="SUCCESS">' + extras + '</testcase></testsuite></testsuites>'; }
+function parentFixture() { return { path: '/tmp/sportcenter-account-AbC123', confirm: () => {}, verifyMaestro: async () => {} }; }
 
 test('exact approved attempt2 plus immutable APK evidence is accepted', () => assert.equal(account.verifyProducer(producer(), jobs(), candidate(), inspection()).producerVerified, true));
 for (const [label, mutate] of [
@@ -159,6 +160,7 @@ async function runtime(config = {}) {
   };
   const create = async options => {
     assert.ok(!Object.hasOwn(options, 'run'), 'sandbox must retain capturedRun, not the strict ADB/Git executor');
+    assert.equal(options.runnerTemp, '/tmp/sportcenter-account-AbC123');
     if (config.failSetupCleanup) { const error = new Error('private setup data'); error.code = 'SANDBOX_SETUP_CLEANUP_FAILED'; throw error; }
     return { root: '/private/root',
     createPrivateFile: async (name, body) => { files.set('/private/root/' + name, body); return '/private/root/' + name; },
@@ -184,7 +186,7 @@ async function runtime(config = {}) {
   const result = await account.runAcceptance({ env: { ACCOUNT_UNIT_TEST: true, GITHUB_RUN_ID: '123', GITHUB_SHA: sha, RUNNER_TEMP: '/tmp',
     ANDROID_TEST_EMAIL: email, ANDROID_TEST_PASSWORD: password }, context: { artifactSourceCommit: SOURCE.commit, automationCommit: sha,
     producerVerified: true, producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true },
-    apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create, xmlTree });
+    apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create, parent: parentFixture, xmlTree });
   assert.ok(!JSON.stringify(result).includes(email) && !JSON.stringify(result).includes(password));
   return { result, calls, flows, cleaned, installed, authenticated };
 }
@@ -226,12 +228,18 @@ test('credential-free probe starts only the ADB server and records coded proof a
   const context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
     producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
   await account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    parent: parentFixture,
     readSource: () => context, writeSource: (file, value) => writes.push({ file, value }), writeReport: (...args) => reports.push(args),
     run: async (file, args) => { calls.push({ file, args }); return { stdout: '' }; },
-    create: async options => { assert.ok(!Object.hasOwn(options, 'run')); return { probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true }, cleanup: async () => calls.push({ cleanup: true }) }; },
+    create: async options => { assert.ok(!Object.hasOwn(options, 'run')); assert.equal(options.runnerTemp, '/tmp/sportcenter-account-AbC123'); return {
+      probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true }, runAs: async (args, secretEnv) => {
+        assert.deepEqual(args, ['maestro', '--version']); assert.deepEqual(secretEnv, {});
+        return { exitCode: 0, timedOut: false, stdout: 'Public fixed banner\n\n2.12.0\n' };
+      }, cleanup: async () => calls.push({ cleanup: true }) }; },
   });
   assert.deepEqual(calls, [{ file: 'adb', args: ['start-server'] }, { cleanup: true }]);
   assert.equal(writes.length, 1); assert.equal(writes[0].value.sandboxPreflight.cleanupConfirmed, true); assert.equal(reports.length, 0);
+  assert.equal(writes[0].value.sandboxPreflight.maestroVersionVerified, true);
 });
 test('probe refuses credentials and never starts an emulator or account on failure', async () => {
   for (const key of ['ANDROID_TEST_EMAIL', 'ANDROID_TEST_PASSWORD', 'EXPO_TOKEN', 'GITHUB_TOKEN']) {
@@ -239,6 +247,7 @@ test('probe refuses credentials and never starts an emulator or account on failu
   }
   const reports = [], calls = [];
   await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    parent: parentFixture,
     readSource: () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
       producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
     run: async (file, args) => { calls.push({ file, args }); return { stdout: '' }; },
@@ -248,6 +257,32 @@ test('probe refuses credentials and never starts an emulator or account on failu
   assert.deepEqual(calls, [{ file: 'adb', args: ['start-server'] }]); assert.equal(reports.length, 1);
   assert.ok(reports[0].cases.every(item => item.status === 'not_run')); assert.equal(reports[0].cleanup.sandbox, false);
   assert.ok(!JSON.stringify(reports).includes('private-person') && !JSON.stringify(reports).includes('private-password'));
+});
+test('dedicated parent proof requires exact /tmp identity, owner and 0711 without accepting neighbors', () => {
+  const proof = { version: 1, path: '/tmp/sportcenter-account-AbC123', device: '1', inode: '2', uid: 1001, mode: '711', cleanupConfirmed: true };
+  const actual = { directory: true, symlink: false, canonical: proof.path, tmpCanonical: '/tmp', uid: 1001, callerUid: 1001, device: '1', inode: '2', mode: '711' };
+  assert.equal(account.validateParentProof(proof, actual, proof.path), proof.path);
+  for (const [key, value] of [['directory', false], ['symlink', true], ['canonical', '/tmp/elsewhere'], ['tmpCanonical', '/private/tmp'],
+    ['uid', 999], ['callerUid', 999], ['device', '3'], ['inode', '3'], ['mode', '700']]) {
+    assert.throws(() => account.validateParentProof(proof, { ...actual, [key]: value }, proof.path), /ACCOUNT_SANDBOX_PARENT_INVALID/);
+  }
+  for (const value of ['/tmp', '/tmp/sportcenter-account-AbC123/child', '/tmp/sportcenter-account-AbC123-other', '/home/runner/work/_temp']) {
+    assert.throws(() => account.validateParentProof({ ...proof, path: value }, { ...actual, canonical: value }, value), /ACCOUNT_SANDBOX_PARENT_INVALID/);
+  }
+  assert.throws(() => account.validateParentProof(proof, actual, '/tmp/sportcenter-account-ZzZ999'), /ACCOUNT_SANDBOX_PARENT_INVALID/);
+  assert.throws(() => account.assertParentCleanup({ ...proof, cleanupConfirmed: false }), /ACCOUNT_SANDBOX_PARENT_INVALID/);
+});
+test('probe marks parent active before sandbox creation and confirms only after cleanup', async () => {
+  const calls = [], reports = [], context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
+    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+  await account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    parent: () => ({ path: '/tmp/sportcenter-account-AbC123', verifyMaestro: async () => calls.push('verify-tool'), confirm: value => calls.push('confirmed:' + value) }),
+    readSource: () => context, writeSource: () => calls.push('source-pass'), writeReport: (file, value) => reports.push(value),
+    run: async () => { calls.push('adb'); return { exitCode: 0, stdout: '' }; },
+    create: async () => { calls.push('create'); return { probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true },
+      runAs: async () => { calls.push('tool-version'); return { exitCode: 0, stdout: '2.12.0\n' }; }, cleanup: async () => calls.push('cleanup') }; },
+  });
+  assert.deepEqual(calls, ['adb', 'verify-tool', 'confirmed:false', 'create', 'tool-version', 'cleanup', 'confirmed:true', 'source-pass']); assert.equal(reports.length, 0);
 });
 test('ADB start failure preserves process code and never claims sandbox setup or cleanup failed', async () => {
   const reports = [], calls = [];
