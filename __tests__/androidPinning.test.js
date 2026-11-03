@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -220,6 +220,116 @@ test('a certificate failure must follow upstream TLS and capture of that exact l
 test.each([undefined, 'other_or_ambiguous', 'protocol_error'])('generic TLS failure %s cannot masquerade as certificate rejection', failureCategory => {
   expect(() => verdict(proof().map(e => e.event === 'client_tls_failed' ? { ...e, failureCategory } : e), context())).toThrow();
 });
+test.each([
+  ['control', 'catalog_visible'], ['control', 'product_visible'], ['control', 'image_2xx'],
+  ['attack', 'catalog_visible'], ['attack', 'error_visible'], ['attack', 'tls_failure_event'],
+  ['recovery', 'catalog_visible'], ['recovery', 'product_visible'],
+])('timeout conserva fase/operación %s.%s y último control exitoso', async (phase, operation) => {
+  jest.useFakeTimers({ now: 0 });
+  try {
+    const result = {}, progress = createPilotProgress(result);
+    await progress.action('setup', 'clock_check', async () => true);
+    const pending = progress.wait(phase, operation, async () => false, 1).catch(error => error);
+    await jest.advanceTimersByTimeAsync(1000);
+    const error = await pending;
+    expect(error).toBeInstanceOf(PilotWaitTimeout);
+    expect(progress.errorCode(error)).toBe('PILOT_' + phase.toUpperCase() + '_' + operation.toUpperCase() + '_TIMEOUT');
+    expect(result.progress).toEqual({ phase, operation, lastSuccessfulControl: { phase: 'setup', operation: 'clock_check' } });
+  } finally { jest.useRealTimers(); }
+});
+test('acciones fallidas conservan última operación y no serializan mensajes arbitrarios', async () => {
+  const result = {}, progress = createPilotProgress(result), error = new Error('SECRET https://private.invalid');
+  await progress.action('control', 'catalog_visible', async () => true);
+  await expect(progress.action('control', 'catalog_opened', async () => { throw error; })).rejects.toBe(error);
+  expect(progress.errorCode(error)).toBe('PILOT_CONTROL_CATALOG_OPENED_FAILED');
+  expect(JSON.stringify(result)).not.toMatch(/SECRET|private.invalid/);
+  expect(() => progress.enter('SECRET', 'url')).toThrow('PILOT_DIAGNOSTIC_STEP_INVALID');
+});
+test('instrumentación conserva los plazos existentes sin reintentos ni esperas adicionales', async () => {
+  const result = {}, wait = jest.fn(async task => task()), progress = createPilotProgress(result, wait), task = jest.fn(async () => true);
+  await progress.wait('setup', 'proxy_ca_ready', task, 30000);
+  await progress.wait('setup', 'boot_with_ca', task, 120000);
+  await progress.wait('control', 'product_visible', task);
+  expect(wait.mock.calls.map(([, timeout]) => timeout)).toEqual([30000, 120000, undefined]);
+  expect(task).toHaveBeenCalledTimes(3);
+});
+// Standards-compliant 1x1 RGBA PNG; fixture CRCs were generated with Node's independent zlib.crc32.
+const failurePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+test('captura PNG exige firma, CRC, stream decodificable, tamaño y fin exacto', () => {
+  expect(validFailurePng(failurePng)).toBe(true);
+  const corrupt = Buffer.from(failurePng); corrupt[corrupt.length - 1] ^= 1;
+  for (const bytes of [Buffer.from('JPEG SECRET'), failurePng.subarray(0, 33), corrupt, Buffer.concat([failurePng, Buffer.from('SECRET')]), Buffer.alloc(2 * 1024 * 1024 + 1)])
+    expect(validFailurePng(bytes)).toBe(false);
+});
+function diagnosticOptions(change = {}) {
+  const runAdb = jest.fn(async (args, options) => {
+    expect(options.timeout).toBeLessThanOrEqual(2500); expect(options.killSignal).toBe('SIGKILL');
+    if (args[0] === 'get-state') return 'device\n';
+    if (args[0] === 'shell') return '123\n';
+    if (args[0] === 'logcat') return 'FATAL EXCEPTION\nProcess: another.package, PID: 1';
+    if (args[0] === 'exec-out') { expect(args).toEqual(['exec-out', 'screencap', '-p']); expect(options.encoding).toBeNull(); return failurePng; }
+    throw Error('Unexpected diagnostic command');
+  });
+  return { runAdb, xml: '<hierarchy><node package="com.markadw.sportcenter" text="Catálogo"/><node package="com.markadw.sportcenter" text="Public product"/><node package="com.markadw.sportcenter" text="SECRET https://private.invalid"/></hierarchy>',
+    productName: 'Public product', runId: 'own-run', readEvents: () => [
+      { runId: 'own-run', phase: 'control', event: 'image_response', host: 'SECRET https://private.invalid', cert: { private: 'CA' } },
+      { runId: 'own-run', phase: 'attack', event: 'client_tls_failed', message: 'SECRET' },
+      { runId: 'other-run', phase: 'control', event: 'passthrough' },
+      { runId: 'own-run', phase: '__proto__', event: 'image_response' },
+      { runId: 'own-run', phase: 'attack', event: 'SECRET' } ], allowScreenshot: true, savePng: jest.fn(), ...change };
+}
+test('diagnóstico conserva sólo UI permitida, conteos allowlist y salud acotada', async () => {
+  const options = diagnosticOptions(), report = await failureDiagnostics(options);
+  expect(report.ui).toEqual({ catalog: true, product: true, errorState: false });
+  expect(report.eventCounts).toEqual({ control: { image_response: 1 }, attack: { client_tls_failed: 1 }, recovery: {} });
+  expect(report.ignoredEvents).toBe(3);
+  expect(report.health).toEqual({ adbAccessible: true, processRunning: true, ownFatalCrashDetected: false });
+  expect(report.screenshot).toEqual({ attempted: true, saved: true, path: 'test-results/maestro/pinning-failure.png' });
+  expect(options.savePng).toHaveBeenCalledTimes(1); expect(options.savePng).toHaveBeenCalledWith(failurePng);
+  expect(JSON.stringify(report)).not.toMatch(/SECRET|private.invalid|Public product|another.package/);
+});
+test('UI de error se informa como booleano sin conservar XML; eventos excesivos se acotan', async () => {
+  const report = await failureDiagnostics(diagnosticOptions({ allowScreenshot: false,
+    xml: '<hierarchy><node package="com.markadw.sportcenter" text="No se pudo cargar el catálogo"/><node package="com.markadw.sportcenter" text="Reintentar"/></hierarchy>',
+    readEvents: () => Array.from({ length: 5001 }, () => ({ runId: 'own-run', phase: 'attack', event: 'intercept' })) }));
+  expect(report.ui).toEqual({ catalog: false, product: false, errorState: true });
+  expect(report.eventCounts.attack.intercept).toBe(5000); expect(report.eventsTruncated).toBe(true);
+});
+test('ADB inaccesible no intenta PNG/proceso/logcat y no publica el error de transporte', async () => {
+  const options = diagnosticOptions({ runAdb: jest.fn(async () => { throw Error('SECRET https://private.invalid'); }) });
+  const report = await failureDiagnostics(options);
+  expect(options.runAdb).toHaveBeenCalledTimes(1);
+  expect(report.health).toEqual({ adbAccessible: false, processRunning: null, ownFatalCrashDetected: null });
+  expect(report.screenshot).toEqual({ attempted: false, saved: false }); expect(JSON.stringify(report)).not.toMatch(/SECRET|private.invalid/);
+});
+test('crash propio sólo produce booleano y no guarda buffer, PID ni texto', async () => {
+  const options = diagnosticOptions({ allowScreenshot: false }); const base = options.runAdb;
+  options.runAdb = async (args, execution) => args[0] === 'logcat' ? 'FATAL EXCEPTION\nProcess: com.markadw.sportcenter, PID: 999\nSECRET' : base(args, execution);
+  const report = await failureDiagnostics(options);
+  expect(report.health.ownFatalCrashDetected).toBe(true); expect(JSON.stringify(report)).not.toMatch(/SECRET|999|FATAL EXCEPTION/);
+});
+test.each(['capture', 'invalid-png', 'save'])('fallo auxiliar %s no cambia error original ni impide finally/cleanup', async kind => {
+  const result = { status: 'blocked_or_failed' }, progress = createPilotProgress(result), original = new PilotWaitTimeout();
+  progress.enter('control', 'image_2xx'); result.errorCode = progress.errorCode(original);
+  const options = diagnosticOptions(), runAdb = options.runAdb, cleanup = jest.fn();
+  if (kind === 'save') options.savePng = () => { throw Error('SECRET'); };
+  else options.runAdb = async (args, execution) => {
+    if (args[0] !== 'exec-out') return runAdb(args, execution);
+    if (kind === 'capture') throw Error('SECRET'); return Buffer.from('SECRET');
+  };
+  try { result.failureDiagnostics = await failureDiagnostics(options); } finally { cleanup(); }
+  expect(result.status).toBe('blocked_or_failed'); expect(result.errorCode).toBe('PILOT_CONTROL_IMAGE_2XX_TIMEOUT');
+  expect(result.failureDiagnostics.screenshot.saved).toBe(false); expect(cleanup).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(result)).not.toContain('SECRET');
+});
+test('guest no verificado y eventos ilegibles no habilitan captura ni inventan evidencias', async () => {
+  const options = diagnosticOptions({ allowScreenshot: false, readEvents: () => { throw Error('SECRET JSON'); } });
+  const report = await failureDiagnostics(options);
+  expect(report.eventsAvailable).toBe(false); expect(report.screenshot.attempted).toBe(false);
+  expect(options.runAdb.mock.calls.some(([args]) => args[0] === 'exec-out')).toBe(false);
+  expect(JSON.stringify(report)).not.toContain('SECRET');
+});
+
 test('Play Store absence uses list packages, not the pm path exit1 failure', async () => {
   const adb = jest.fn(async (...args) => {
     expect(args).toEqual(['shell', 'pm', 'list', 'packages', 'com.android.vending']);

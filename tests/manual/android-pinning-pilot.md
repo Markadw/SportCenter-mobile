@@ -68,3 +68,11 @@ El lector de XML compilado rechaza comentarios, DTD, entidades declaradas y CDAT
 La imagen AOSP está publicada en el [catálogo oficial](https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml); Android documenta [root en AOSP sin apps Google](https://developer.android.com/studio/run/managing-avds#system-images). El cambio de imagen no acredita todavía el control TLS nativo: deben pasar de nuevo todas las guardias y los controles causales con el mismo APK.
 
 Formato primario: [android sdk list](https://developer.android.com/tools/agents/android-cli/commands/sdk_list#understand_the_output). El JAR ListAction permanece en el ZIP23, pero el launcher oficial sdkmanager ejecuta Android CLI y no ese formatter Java.
+
+## Diagnóstico saneado del piloto
+
+El informe identifica phase y operation antes de cada espera de preparación, control positivo, ataque y recuperación, junto al último control exitoso y un código PILOT_<FASE>_<OPERACIÓN>_TIMEOUT o _FAILED. Se conservan los plazos originales. Los controles de copia CA y reloj se registran cuando ya han pasado sus comprobaciones existentes; no sustituyen el veredicto causal TLS. El timeout v10 no se atribuye todavía a una espera específica.
+
+Al fallar sólo se resumen tres booleanos de la última lectura UI (catálogo, producto y estado de error), conteos acotados por fase/tipo de evento permitido, y salud ADB/proceso/crash con identidad del paquete propio. No se guardan textos UI, XML, filas de eventos, URLs, cuerpos, credenciales, CA, logcat o proxy crudos. Un dato de salud no disponible permanece desconocido; no se transforma en éxito.
+
+La captura opcional usa adb exec-out screencap -p únicamente después de acreditar el AVD guest y acceso ADB. Se guarda una sola imagen bajo test-results/maestro/pinning-failure.png si es PNG RGB/RGBA no entrelazado, con firma, chunks/CRC, dimensiones, stream y tamaño acotados válidos. Sus comandos auxiliares tienen límites de1500/2500ms y no alteran las esperas de control. Un fallo de captura/guardado nunca sustituye el error original ni evita finally; la limpieza sigue bloqueando si no puede comprobarse.
