@@ -34,10 +34,10 @@ function signatureEvidence(output) {
   const signers = counts.length === 1 ? Number(counts[0][1]) : 0;
   assert.ok(Number.isSafeInteger(signers) && signers > 0 && signers <= 16, 'Falta evidencia de firmantes del APK.');
   const schemes = [...output.matchAll(/^Verified using (v[\d.]+) scheme[^\r\n]*:\s*true\s*$/gm)].map(match => match[1]);
-  assert.ok(schemes.some(value => ['v2', 'v3', 'v3.1'].includes(value)), 'Falta una firma APK v2 o v3 válida.');
+  assert.ok(schemes.some(value => ['v2', 'v3', 'v3.0', 'v3.1'].includes(value)), 'Falta una firma APK v2 o v3 válida.');
   const certificates = new Map();
   // SDK anteriores: Signer #1; Build Tools 37: V2 Signer. Nunca aceptar la huella de public key.
-  for (const match of output.matchAll(/^(?:Signer #([1-9]\d*) certificate|V(?:2|3(?:\.1)?) Signer(?: #([1-9]\d*))?: certificate) SHA-256 digest:\s*([a-fA-F0-9]{64})\s*$/gm)) {
+  for (const match of output.matchAll(/^(?:Signer #([1-9]\d*) certificate|V(?:2|3(?:\.[01])?) Signer(?: #([1-9]\d*))?: certificate) SHA-256 digest:\s*([a-fA-F0-9]{64})\s*$/gm)) {
     assert.ok(match[1] || match[2] || signers === 1, 'Firmante sin índice ambiguo.');
     const index = Number(match[1] || match[2] || 1), digest = match[3].toLowerCase();
     assert.ok(index <= signers && (!certificates.has(index) || certificates.get(index) === digest), 'Huellas de firmantes contradictorias.');

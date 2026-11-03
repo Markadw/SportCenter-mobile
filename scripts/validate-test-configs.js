@@ -17,9 +17,62 @@ function validateDecoder23(job, beforeIndex, afterIndex = -1) {
   assert.ok(evidence?.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
 }
 
+function validateProfilesWorkflow(workflow) {
+  const job = workflow.jobs.profiles, result = workflow.jobs.profiles_result;
+  assert.ok(job && result, 'Falta validación separada de perfiles');
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/profiles-') }}");
+  assert.deepEqual(job.needs, ['quality', 'security']);
+  assert.equal(job['runs-on'], 'ubuntu-24.04');
+  assert.equal(job['timeout-minutes'], 60);
+  assert.equal(job.env.keep_evidence, 'true');
+  assert.equal(job.env.PINNING_EPHEMERAL_AVD, 'true');
+  assert.ok(!job.env.EXPO_TOKEN && !job.env.GITHUB_TOKEN && !job.env.GITHUB_SHA && !job.env.GITHUB_REF, 'Tokens sólo en la consulta correspondiente');
+  const ordered = ['prepare', 'view', 'download', 'inspect', 'kvm', 'api34', 'api36'];
+  let previous = -1;
+  for (const mode of ordered) {
+    const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-profiles.js ' + mode
+      || step.with?.script === 'node scripts/android-profiles.js ' + mode);
+    assert.equal(matches.length, 1, 'Cada fase de perfiles debe ejecutarse exactamente una vez: ' + mode);
+    assert.ok(matches[0].index > previous && !matches[0].step.if && !matches[0].step['continue-on-error'], 'Fase omitida o fuera de orden: ' + mode);
+    previous = matches[0].index;
+  }
+  const token = job.steps.filter(step => step.env?.EXPO_TOKEN);
+  assert.equal(token.length, 1); assert.equal(token[0].run, 'node scripts/android-profiles.js view');
+  const githubToken = job.steps.filter(step => step.env?.GITHUB_TOKEN);
+  assert.equal(githubToken.length, 1); assert.equal(githubToken[0].run, 'node scripts/android-profiles.js prepare');
+  for (const step of job.steps) assert.ok(!step.env?.GITHUB_SHA && !step.env?.GITHUB_REF, 'No sustituir la procedencia');
+  const commands = job.steps.map(step => step.run || '').join('\n');
+  assert.ok(!/eas-cli[^\n]*\sbuild\s|eas-cli[^\n]*\s(?:submit|update)\b|eas-candidate/.test(commands), 'No crear ni publicar artefactos en la validación de perfiles');
+  const inspect = job.steps.findIndex(step => step.run === 'node scripts/android-profiles.js inspect');
+  validateDecoder23(job, inspect, job.steps.findIndex(step => step.run === 'node scripts/android-profiles.js download'));
+  assert.ok(job.steps.find(step => step.id === 'command_line_tools').run.includes('"build-tools;37.0.0"'));
+  assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
+  for (const [id, api, target, name] of [['api34', 34, 'google_apis', 'profiles34'], ['pages16k', 36, 'google_apis_ps16k', 'profiles16k']]) {
+    const step = job.steps.find(item => item.id === id);
+    assert.equal(step.uses, 'reactivecircus/android-emulator-runner@v2');
+    assert.equal(step.with['api-level'], api); assert.equal(step.with.target, target); assert.equal(step.with.arch, 'x86_64');
+    assert.equal(step.with['avd-name'], name); assert.equal(step.with['force-avd-creation'], true); assert.equal(step.with['disable-linux-hw-accel'], false);
+    assert.ok(step.with['emulator-options'].includes('-accel on') && step.with['emulator-options'].includes('-no-snapshot'));
+  }
+  assert.equal(job.steps.find(step => step.run === 'node scripts/android-profiles.js cleanup')?.if, 'always()');
+  assert.equal(job.steps.find(step => step.run === 'node scripts/android-profiles.js summary')?.if, 'always()');
+  const artifact = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(artifact.with.name, 'android-profiles-evidence');
+  assert.ok(!/\.apk|\.aab|\.apks|\.jks|\.pass|private|logcat|eas-private/.test(artifact.with.path));
+  for (const file of ['android-profiles-source.json', 'android-profiles.json', 'profiles-development.xml', 'profiles-production.xml', 'profiles-production16k.xml']) {
+    assert.ok(artifact.with.path.includes(file), 'Evidencia ausente: ' + file);
+  }
+  assert.equal(result.name, 'Resultado de Debug y AAB');
+  assert.deepEqual(result.needs, ['quality', 'security', 'profiles']);
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/profiles-') }}");
+  const gate = result.steps.find(step => step.run === 'node scripts/android-profiles.js gate');
+  assert.ok(gate);
+  for (const id of ['quality', 'security', 'profiles']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '$' + '{{ needs.' + id + '.result }}');
+}
+
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
-  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*'] } }, 'Validación sólo en tags validation/android-*');
+  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*'] } }, 'Validación sólo en tags validation/android-*');
   assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'read' }, 'No elevar permisos globales');
   assert.equal(workflow.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.equal(workflow.jobs.quality.with.keep_evidence, true);
@@ -27,6 +80,7 @@ function validateNativeWorkflow(workflow) {
   assert.deepEqual(workflow.jobs.security.permissions, { contents: 'read', 'security-events': 'write', actions: 'read' });
   assert.equal(workflow.jobs.security.with.keep_evidence, true);
   const job = workflow.jobs.native;
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/android-') }}");
   assert.deepEqual(job.needs, ['quality', 'security']);
   assert.equal(job['runs-on'], 'ubuntu-24.04');
   assert.equal(job.env.EXPO_TOKEN, undefined, 'EXPO_TOKEN sólo en build:view');
@@ -73,7 +127,7 @@ function validateNativeWorkflow(workflow) {
   }
   const result = workflow.jobs.result;
   assert.equal(result.name, 'Resultado de validación nativa');
-  assert.deepEqual(result.needs, ['quality', 'security', 'native']); assert.equal(result.if, 'always()');
+  assert.deepEqual(result.needs, ['quality', 'security', 'native']); assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/android-') }}");
   const gate = result.steps.find(step => step.run === 'node scripts/android-16k.js gate');
   assert.ok(gate, 'Falta agregado de resultados reales');
   for (const id of ['quality', 'security', 'native']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '$' + '{{ needs.' + id + '.result }}');
@@ -103,9 +157,9 @@ function validateWorkflows(workflows) {
   assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
     'TypeScript debe informar también cuando ESLint falle');
   const cryptoSetup = client.jobs.validate.steps.find(step => step.run === 'bash scripts/android-pinning-install.sh');
-  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
+  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
   assert.equal(client.jobs.validate.steps.find(step => step.id === 'tests').env.PINNING_TEST_MITMDUMP,
-    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
   const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
     'El artefacto existente debe conservar los informes estáticos');
@@ -252,6 +306,7 @@ function validateWorkflows(workflows) {
     'Una inspección k6 no debe crear artefactos');
 
   validateNativeWorkflow(workflows.get('android-validation.yml'));
+  validateProfilesWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
