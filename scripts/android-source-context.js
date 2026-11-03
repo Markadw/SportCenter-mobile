@@ -8,7 +8,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile', runId: 
   api: 'https://back-sport-ghxk.onrender.com', image: 'system-images;android-36;google_apis_ps16k;x86_64', maestro: '2.12.0' });
 const AUTOMATION_FILES = Object.freeze(['.github/workflows/android-validation.yml', '.github/workflows/ci.yml', '.github/workflows/api-android.yml',
   'scripts/android-16k.js', 'scripts/android-source-context.js', 'scripts/inspect-android-artifact.js',
-  'scripts/android-pinning.js', 'scripts/validate-test-configs.js', '__tests__/android16k.test.js',
+  'scripts/android-pinning.js', 'scripts/android-pinning-proxy.py', 'scripts/validate-test-configs.js', '__tests__/android16k.test.js',
   '__tests__/androidSourceContext.test.js', '__tests__/androidArtifactInspection.test.js',
   '__tests__/androidPinning.test.js', '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js',
   '__tests__/release-infrastructure.test.js', '__tests__/security.test.js', '__tests__/static-analysis.test.js', 'tests/manual/android-16k.md', 'README.md', 'docs/seguridad-candidata.md', 'tests/plan.json', 'tests/manual/android-pinning-pilot.md']);

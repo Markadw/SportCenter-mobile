@@ -175,11 +175,12 @@ test('no publica logcat y rechaza fatales Java/nativos identificados del paquete
 });
 function simulation(overrides = {}) {
   const { meta, candidate } = metadata();
-  const env = { RUNNER_TEMP: os.tmpdir(), ANDROID_HOME: os.tmpdir(), PRODUCT_NAME: 'Producto público' };
+  const env = { RUNNER_TEMP: os.tmpdir(), ANDROID_HOME: os.tmpdir(), PRODUCT_NAME: 'Producto público', ANDROID_SERIAL: overrides.serial || 'emulator-5554' };
   let pageCalls = 0;
   const run = jest.fn(async (file, args) => {
-    const command = args.join(' ');
+    const command = (file === 'adb' && args[0] === '-s' ? args.slice(2) : args).join(' ');
     if (file === 'maestro') return '';
+    if (command === 'get-state') return overrides.deviceState || 'device';
     if (command === 'shell getconf PAGE_SIZE') { pageCalls++; return overrides.afterPage && pageCalls > 1 ? overrides.afterPage : '16384\n'; }
     if (command === 'shell getprop ro.product.cpu.abi') return 'x86_64';
     if (command === 'shell getprop ro.build.version.sdk') return '36';
@@ -200,10 +201,10 @@ test('piloto comprueba runtime antes/después, instala el mismo APK y ejecuta s�
   const options = simulation();
   await probe(options);
   expect(options.save).toHaveBeenLastCalledWith({ outcome: 'passed' });
-  expect(options.run.mock.calls.filter(([, args]) => args.join(' ') === 'shell getconf PAGE_SIZE')).toHaveLength(2);
+  expect(options.run.mock.calls.filter(([, args]) => args.slice(2).join(' ') === 'shell getconf PAGE_SIZE')).toHaveLength(2);
   expect(options.run.mock.calls.find(([file]) => file === 'maestro')[1]).toContain('.maestro');
-  const install = options.run.mock.calls.find(([, args]) => args[0] === 'install');
-  expect(install[1]).toEqual(['install', '-r', path.join(os.tmpdir(), 'sport-center.apk')]);
+  const install = options.run.mock.calls.find(([file, args]) => file === 'adb' && args[2] === 'install');
+  expect(install[1]).toEqual(['-s', 'emulator-5554', 'install', '-r', path.join(os.tmpdir(), 'sport-center.apk')]);
   expect(options.wait).toHaveBeenCalledWith({ apiUrl: SOURCE.api, android: true });
 });
 test.each([{ hash: '0'.repeat(64) }, { compat: 'true' }, { appAbi: 'arm64-v8a' }, { pid: '' },
@@ -253,15 +254,35 @@ test.each([1, 2, 3])('no acepta una compuerta padre fallida u omitida: %s', inde
 test('Maestro API34 se ejecuta de nuevo y produce procedencia separada, nunca infiere éxito del padre', async () => {
   const options = simulation();
   const base = options.run;
-  options.run = jest.fn((file, args, config) => args.join(' ') === 'shell getprop ro.build.version.sdk' ? Promise.resolve('34') : base(file, args, config));
+  options.run = jest.fn((file, args, config) => args.slice(2).join(' ') === 'shell getprop ro.build.version.sdk' ? Promise.resolve('34') : base(file, args, config));
   options.source = () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40) });
   await acceptApi34(options);
   expect(options.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'passed', publicFlows: 2,
     artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), apkSha256: SOURCE.apkSha256 }));
   expect(options.run.mock.calls.some(([file]) => file === 'maestro')).toBe(true);
-  options.run = jest.fn().mockResolvedValue('36');
+  options.run = jest.fn((file, args) => args.slice(2).join(' ') === 'get-state' ? Promise.resolve('device') : Promise.resolve('36'));
   await expect(acceptApi34(options)).rejects.toThrow('API34_RUNTIME_MISMATCH');
 });
+test.each(['probe', 'api34'])('Maestro %s usa el mismo serial acreditado por ADB con --device antes de test', async mode => {
+  const options = simulation({ serial: 'emulator-5562' }), base = options.run;
+  if (mode === 'api34') { options.source = () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40) });
+    options.run = jest.fn((file, args, config) => args.slice(2).join(' ') === 'shell getprop ro.build.version.sdk' ? Promise.resolve('34') : base(file, args, config)); }
+  await (mode === 'probe' ? probe(options) : acceptApi34(options));
+  const calls = options.run.mock.calls;
+  expect(calls.find(([file]) => file === 'maestro')[1].slice(0, 3)).toEqual(['--device', 'emulator-5562', 'test']);
+  for (const [, args] of calls.filter(([file]) => file === 'adb')) expect(args.slice(0, 2)).toEqual(['-s', 'emulator-5562']);
+  expect(calls.find(([, args]) => args.includes('get-state'))).toBeDefined();
+});
+test.each(['physical-device', 'emulator-5554,emulator-5556'])('serial no-emulador o ambiguo bloquea antes de Maestro: %s', serial => {
+  const options = simulation({ serial });
+  return expect(probe(options)).rejects.toThrow('ANDROID_SERIAL_INVALID').then(() => expect(options.run).not.toHaveBeenCalled());
+});
+test.each(['probe', 'api34'])('transporte offline bloquea %s antes de instalar o invocar Maestro', async mode => {
+  const options = simulation({ deviceState: 'offline' }); options.source = () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40) });
+  await expect(mode === 'probe' ? probe(options) : acceptApi34(options)).rejects.toThrow('ANDROID_DEVICE_NOT_READY');
+  expect(options.run.mock.calls.some(([file, args]) => file === 'maestro' || args.includes('install'))).toBe(false);
+});
+
 test.each(['failure', 'skipped', 'cancelled', undefined])('el agregado bloquea calidad/seguridad/nativo %s', async status => {
   for (const key of ['RESULT_QUALITY', 'RESULT_SECURITY', 'RESULT_NATIVE']) {
     await expect(main('gate', { RUNNER_TEMP: os.tmpdir(), RESULT_QUALITY: 'success', RESULT_SECURITY: 'success', RESULT_NATIVE: 'success', [key]: status }))
