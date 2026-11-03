@@ -6,6 +6,11 @@ name: CP-04 detalle publico en Android
 - extendedWaitUntil:
     visible: "Explora por deporte"
     timeout: 45000
+- assertVisible:
+    text: "^Catálogo$"
+    enabled: true
+- waitForAnimationToEnd:
+    timeout: 5000
 - tapOn: "Catálogo"
 - extendedWaitUntil:
     visible: "Buscar en el catálogo"

@@ -51,3 +51,11 @@ test.each(['scripts/another-profile.js', '__tests__/another-profile.test.js', 't
   'assets/images/sport-center-icon.png', 'package.json', 'package-lock.json'])('la compatibilidad de perfiles no permite ruta ajena: %s', file => {
   expect(() => verifySourceProof(proof, env, 'scripts/android-profiles.js\n' + file, env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
 });
+
+
+test('admite sólo los dos flujos públicos de sincronización manteniendo el APK congelado', () => {
+  const publicFlows = '.maestro/catalogo-publico.yaml\n.maestro/detalle-producto.yaml';
+  expect(verifySourceProof(proof, env, publicFlows, env.GITHUB_SHA)).toMatchObject({ artifactSourceCommit: SOURCE.commit,
+    buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256 });
+  expect(() => verifySourceProof(proof, env, publicFlows + '\n.maestro/another.yaml', env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
+});

@@ -51,6 +51,7 @@ function validateProfilesWorkflow(workflow) {
   assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
   for (const [id, api, target, name] of [['api34', 34, 'google_apis', 'profiles34'], ['pages16k', 36, 'google_apis_ps16k', 'profiles16k']]) {
     const step = job.steps.find(item => item.id === id);
+    if (id === 'pages16k') validate16kMemory(step);
     assert.equal(step.uses, 'reactivecircus/android-emulator-runner@v2');
     assert.equal(step.with['api-level'], api); assert.equal(step.with.target, target); assert.equal(step.with.arch, 'x86_64');
     assert.equal(step.with['avd-name'], name); assert.equal(step.with['force-avd-creation'], true); assert.equal(step.with['disable-linux-hw-accel'], false);
@@ -70,6 +71,11 @@ function validateProfilesWorkflow(workflow) {
   const gate = result.steps.find(step => step.run === 'node scripts/android-profiles.js gate');
   assert.ok(gate);
   for (const id of ['quality', 'security', 'profiles']) assert.equal(gate.env['RESULT_' + id.toUpperCase()], '$' + '{{ needs.' + id + '.result }}');
+}
+
+function validate16kMemory(step) {
+  assert.equal(step.with['ram-size'], '4096M', 'API36 16KB requiere RAM guest fija de 4096M');
+  assert.ok(!/(?:^|\s)-(?:memory|m)(?:\s|=|[0-9]|$)/i.test(step.with['emulator-options']), 'No sobrescribir RAM guest mediante opciones CLI');
 }
 
 function validateNativeWorkflow(workflow) {
@@ -117,6 +123,7 @@ function validateNativeWorkflow(workflow) {
   for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],
     ['pinning', 30, 'default', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
     const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
+    if (id === 'pages16k') validate16kMemory(step);
     assert.ok(index > previous && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
     if (id === 'pages16k') assert.equal(step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}", '16KB exige prerrequisitos aprobados y ausencia de cancelación, independientemente de pinning');
     else assert.ok(!step.if, 'API34 y MITM conservan sus guardias obligatorias');
@@ -329,6 +336,28 @@ function validateWorkflows(workflows) {
   }
 }
 
+function validatePublicFlow(file, commands) {
+  assert.ok(['catalogo-publico.yaml', 'detalle-producto.yaml'].includes(file), 'Flujo público desconocido');
+  assert.ok(Array.isArray(commands), 'Comandos públicos incompletos');
+  assert.deepEqual(commands[0], { launchApp: { clearState: true } }, 'Cada caso exige arranque limpio');
+  const home = commands.findIndex(command => command?.extendedWaitUntil?.visible === 'Explora por deporte');
+  assert.ok(home > 0, 'El inicio debe ser visible antes de la pestaña');
+  assert.deepEqual(commands[home], { extendedWaitUntil: { visible: 'Explora por deporte', timeout: 45000 } });
+  const taps = commands.map((command, index) => command?.tapOn === 'Catálogo' ? index : -1).filter(index => index >= 0);
+  assert.equal(taps.length, 1, 'Catálogo requiere un único tap, sin reintentos');
+  const tap = taps[0];
+  assert.equal(commands.slice(0, tap + 1).filter(command => command && Object.hasOwn(command, 'tapOn')).length, 1,
+    'No añadir taps alternativos antes de la transición al catálogo');
+  assert.ok(tap > home + 2, 'La pestaña debe comprobarse después del inicio');
+  assert.deepEqual(commands.slice(tap - 2, tap), [
+    { assertVisible: { text: '^Catálogo$', enabled: true } }, { waitForAnimationToEnd: { timeout: 5000 } },
+  ], 'Exigir pestaña visible/habilitada y espera nativa acotada antes del único tap');
+  assert.deepEqual(commands[tap + 1], { extendedWaitUntil: { visible: 'Buscar en el catálogo', timeout: 30000 } },
+    'La transición a catálogo conserva su aserción obligatoria');
+  assert.ok(!/"(?:sleep|retry|retryTapIfNoChange|optional|skip|continue-on-error)"/.test(JSON.stringify(commands)),
+    'No ocultar fallos ni sustituir sincronización por sleeps o reintentos');
+}
+
 function main() {
   const workflows = new Map();
   for (const directory of ['.github/workflows', '.maestro']) {
@@ -340,6 +369,7 @@ function main() {
         assert.equal(documents.length, 2);
         assert.equal(documents[0].toJS().appId, '${APP_ID}');
         assert.ok(Array.isArray(documents[1].toJS()));
+        if (['catalogo-publico.yaml', 'detalle-producto.yaml'].includes(name)) validatePublicFlow(name, documents[1].toJS());
       } else {
         assert.equal(documents.length, 1);
         const workflow = documents[0].toJS();
@@ -361,5 +391,5 @@ function main() {
   console.log('Matriz por evento/rama, dependencias, resultados obligatorios y política de artefactos válidos.');
   console.log('Esta validación no compila APK ni ejecuta Android o carga.');
 }
-module.exports = { validateWorkflows };
+module.exports = { validateWorkflows, validatePublicFlow };
 if (require.main === module) main();

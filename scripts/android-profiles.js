@@ -27,7 +27,8 @@ const FILES = Object.freeze(['.github/workflows/ci.yml', '.github/workflows/andr
   '__tests__/androidProfiles.test.js', '__tests__/android16k.test.js', '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js',
   'scripts/validate-test-configs.js', 'tests/manual/android-profiles.md', 'README.md',
   'scripts/android-pinning.js', '__tests__/androidPinning.test.js', 'tests/manual/android-pinning-pilot.md',
-  'scripts/inspect-android-artifact.js', '__tests__/androidArtifactInspection.test.js', 'scripts/android-16k.js', 'scripts/android-source-context.js', '__tests__/androidSourceContext.test.js']);
+  'scripts/inspect-android-artifact.js', '__tests__/androidArtifactInspection.test.js', 'scripts/android-16k.js', 'scripts/android-source-context.js', '__tests__/androidSourceContext.test.js',
+  '.maestro/catalogo-publico.yaml', '.maestro/detalle-producto.yaml']);
 const tagPattern = /^refs\/tags\/validation\/profiles-[A-Za-z0-9_.-]+$/;
 const HEX = /^[a-f0-9]{64}$/;
 const METRO_SERVER = 'http://127.0.0.1:8081';
@@ -301,9 +302,15 @@ function debugFlows(source, url) {
   const documents = YAML.parseAllDocuments(source); need(documents.length === 2 && documents.every(document => !document.errors.length), 'MAESTRO_FLOW_INVALID');
   const header = documents[0].toJSON(), commands = documents[1].toJSON();
   need(header.appId === '${APP_ID}' && Array.isArray(commands) && commands[0]?.launchApp?.clearState === true, 'MAESTRO_CLEAR_STATE_REQUIRED');
+  const onboardingText = String.raw`^This is the developer menu\. It gives you access to useful tools in your development builds\.$`;
   const launcher = [{ extendedWaitUntil: { visible: 'Development Build', timeout: 30000 } }, { tapOn: 'http://' }, { inputText: url },
     'hideKeyboard', { takeScreenshot: 'debug-launcher-connect' }, { tapOn: 'Connect' }];
-  return YAML.stringify(header) + '---\n' + YAML.stringify([commands[0], ...launcher, ...commands.slice(1)]);
+  // SDK57 Continue finishes onboarding but leaves the regular menu open. Its bottom sheet explicitly supports Android Back.
+  const onboarding = [{ extendedWaitUntil: { visible: onboardingText, timeout: 45000 } }, { assertVisible: '^Continue$' },
+    { takeScreenshot: 'debug-developer-menu-onboarding' }, { tapOn: '^Continue$' },
+    { extendedWaitUntil: { visible: '^Reload$', timeout: 10000 } }, { assertNotVisible: onboardingText }, 'back',
+    { extendedWaitUntil: { notVisible: '^Reload$', timeout: 10000 } }, { assertNotVisible: onboardingText }];
+  return YAML.stringify(header) + '---\n' + YAML.stringify([commands[0], ...launcher, ...onboarding, ...commands.slice(1)]);
 }
 async function waitMetro(child, fetchApi = fetch, sleep = pause) {
   for (let attempt = 0; attempt < 90; attempt += 1) {

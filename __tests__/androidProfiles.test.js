@@ -10,7 +10,7 @@ const { EventEmitter } = require('node:events');
 const { createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 const YAML = require('yaml');
-const { validateWorkflows } = require('../scripts/validate-test-configs');
+const { validateWorkflows, validatePublicFlow } = require('../scripts/validate-test-configs');
 const pins = require('../config/security-pins.json');
 const { SOURCE, BUILDS, BUNDLETOOL, FILES, verifySource, verifyProducer, verifyBuild, download,
   application, resolvePolicy, policyEvidence, METRO_SERVER, ProfileError, verifyMetroContext, queryMetroContext, debugFlows, metroAbsent, stopMetro, runtime, main } = require('../scripts/android-profiles');
@@ -52,7 +52,7 @@ test('congela perfiles, hashes reales y fuente distinta de preview; no contiene 
 });
 test.each([{ ref: 'refs/tags/validation/android-rc1' }, { ref: 'refs/heads/develop' }, { repository: 'other/repo' },
   { sha: SOURCE.commit, head: SOURCE.commit }, { head: 'b'.repeat(40) }, { dirty: ' M app.json' },
-  { changed: 'src/app/index.tsx' }, { changed: 'eas.json' }, { changed: 'package-lock.json' }, { changed: '' }])('bloquea fuente ajena o árbol de aplicación cambiado %#', change => {
+  { changed: 'src/app/index.tsx' }, { changed: 'eas.json' }, { changed: 'package-lock.json' }, { changed: '.maestro/another.yaml' }, { changed: '' }])('bloquea fuente ajena o árbol de aplicación cambiado %#', change => {
   expect(() => verifySource({ ...source, ...change })).toThrow();
 });
 test('exige productor final aprobado y rechaza omisiones, paginación y duplicados', () => {
@@ -120,18 +120,51 @@ function metroFixture() {
   manifest: { runtimeVersion: 'exposdk:57.0.0', launchAsset: { url: METRO_SERVER + '/node_modules/expo-router/entry.bundle?platform=android&dev=true' },
     extra: { eas: { projectId: SOURCE.projectId }, expoClient: { sdkVersion: '57.0.0', android: { package: SOURCE.appId } } } } };
 }
-test('Debug usa UIConnect explícita con URL verificada y mantiene las aserciones de la app real', () => {
-  const original = fs.readFileSync(path.join(__dirname, '../.maestro', fs.readdirSync(path.join(__dirname, '../.maestro'))[0]), 'utf8');
+test.each(['catalogo-publico.yaml', 'detalle-producto.yaml'])('Debug completa onboarding SDK57 obligatorio después de Connect y conserva %s', file => {
+  const original = fs.readFileSync(path.join(__dirname, '../.maestro', file), 'utf8');
   const commands = YAML.parseAllDocuments(original)[1].toJSON();
-  const transformed = YAML.parseAllDocuments(debugFlows(original, METRO_SERVER))[1].toJSON();
-  expect(transformed.slice(0,7)).toEqual([commands[0], { extendedWaitUntil: { visible: 'Development Build', timeout: 30000 } },
+  const documents = YAML.parseAllDocuments(debugFlows(original, METRO_SERVER));
+  const transformed = documents[1].toJSON();
+  const onboardingText = String.raw`^This is the developer menu\. It gives you access to useful tools in your development builds\.$`;
+  expect(documents[0].toJSON()).toEqual(YAML.parseAllDocuments(original)[0].toJSON());
+  expect(transformed.slice(0,7)).toEqual([{ launchApp: { clearState: true } },
+    { extendedWaitUntil: { visible: 'Development Build', timeout: 30000 } },
     { tapOn: 'http://' }, { inputText: METRO_SERVER }, 'hideKeyboard', { takeScreenshot: 'debug-launcher-connect' }, { tapOn: 'Connect' }]);
-  expect(transformed.slice(7)).toEqual(commands.slice(1));
-  expect(transformed.some(command => typeof command === 'object' && command.openLink)).toBe(false);
+  expect(transformed.slice(7,16)).toEqual([
+    { extendedWaitUntil: { visible: onboardingText, timeout: 45000 } }, { assertVisible: '^Continue$' },
+    { takeScreenshot: 'debug-developer-menu-onboarding' }, { tapOn: '^Continue$' },
+    { extendedWaitUntil: { visible: '^Reload$', timeout: 10000 } }, { assertNotVisible: onboardingText }, 'back',
+    { extendedWaitUntil: { notVisible: '^Reload$', timeout: 10000 } }, { assertNotVisible: onboardingText },
+  ]);
+  expect(transformed.slice(16)).toEqual(commands.slice(1));
+  expect(transformed.filter(command => command === 'back')).toHaveLength(1);
+  expect(JSON.stringify(transformed)).not.toMatch(/openLink|optional|runFlow|retry|continue-on-error/);
+  expect(() => debugFlows(original.replace('clearState: true', 'clearState: false'), METRO_SERVER)).toThrow('MAESTRO_CLEAR_STATE_REQUIRED');
   for (const url of ['http://localhost:8081', METRO_SERVER + '/', 'http://other.invalid', 'https://127.0.0.1:8081']) {
     expect(() => debugFlows(original,url)).toThrow('METRO_SERVER_URL_NOT_ALLOWED');
   }
 });
+
+test.each(['catalogo-publico.yaml', 'detalle-producto.yaml'])('la sincronización pública conserva el tap único y la aserción de transición en %s', file => {
+  const commands = YAML.parseAllDocuments(fs.readFileSync(path.join(__dirname, '../.maestro', file), 'utf8'))[1].toJSON();
+  expect(() => validatePublicFlow(file, commands)).not.toThrow();
+  const tap = commands.findIndex(command => command.tapOn === 'Catálogo');
+  for (const mutate of [
+    value => value.splice(tap - 1, 1),
+    value => { value[tap - 2].assertVisible.enabled = false; },
+    value => { value[tap - 1].waitForAnimationToEnd.timeout = 30000; },
+    value => value.splice(tap, 0, { tapOn: 'Catálogo' }),
+    value => value.splice(1, 0, { tapOn: { text: '^Catálogo$', retryTapIfNoChange: true } }),
+    value => { value[tap + 1].extendedWaitUntil.visible = 'Explora por deporte'; },
+    value => { value[tap + 1].extendedWaitUntil.optional = true; },
+    value => value.push({ sleep: 5000 }),
+    value => value.push({ retry: { maxRetries: 2 } }),
+  ]) {
+    const changed = structuredClone(commands); mutate(changed);
+    expect(() => validatePublicFlow(file, changed)).toThrow();
+  }
+});
+
 test('valida metadata CLI/manifest de SDK57 y envía headers Android sin publicar cuerpos', async () => {
   const fixture = metroFixture();
   const fetchApi = jest.fn(async url => ({ status:200,ok:true,text:async () => JSON.stringify(url.includes('_expo/open') ? fixture.open : fixture.manifest) }));
@@ -260,4 +293,25 @@ test.each([
   workflow => { workflow.jobs.profiles_result.steps.find(step => step.run?.endsWith(' gate')).env.RESULT_PROFILES = 'success'; },
 ])('rechaza orquestación de perfiles insegura o que falsea resultados %#', mutate => {
   const config = workflows(); mutate(config.get('android-validation.yml')); expect(() => validateWorkflows(config)).toThrow();
+});
+
+
+test.each(['native', 'profiles'])('API36 16KB de %s fija RAM guest sin override CLI', jobName => {
+  const config = workflows();
+  const job = config.get('android-validation.yml').jobs[jobName];
+  expect(job.steps.find(step => step.id === 'pages16k').with['ram-size']).toBe('4096M');
+  expect(job.steps.find(step => step.id === 'api34').with['ram-size']).toBeUndefined();
+  expect(() => validateWorkflows(config)).not.toThrow();
+  for (const mutate of [
+    step => { delete step.with['ram-size']; },
+    step => { step.with['ram-size'] = '2560M'; },
+    step => { step.with['ram-size'] = 4096; },
+    step => { step.with['emulator-options'] += ' -memory 2048'; },
+    step => { step.with['emulator-options'] += ' -memory=2048'; },
+    step => { step.with['emulator-options'] += ' -qemu -m 2048'; },
+    step => { step.with['emulator-options'] += ' -qemu -m2048'; },
+  ]) {
+    const changed = workflows(); mutate(changed.get('android-validation.yml').jobs[jobName].steps.find(step => step.id === 'pages16k'));
+    expect(() => validateWorkflows(changed)).toThrow();
+  }
 });
