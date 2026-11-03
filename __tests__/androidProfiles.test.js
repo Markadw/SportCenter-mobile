@@ -13,7 +13,7 @@ const YAML = require('yaml');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const pins = require('../config/security-pins.json');
 const { SOURCE, BUILDS, BUNDLETOOL, FILES, verifySource, verifyProducer, verifyBuild, download,
-  application, resolvePolicy, policyEvidence, debugFlows, metroAbsent, stopMetro, runtime, main } = require('../scripts/android-profiles');
+  application, resolvePolicy, policyEvidence, METRO_SERVER, ProfileError, verifyMetroContext, queryMetroContext, debugFlows, metroAbsent, stopMetro, runtime, main } = require('../scripts/android-profiles');
 const sha = 'a'.repeat(40);
 const source = { sha, ref: 'refs/tags/validation/profiles-rc1', repository: SOURCE.repository,
   head: sha + '\n', changed: 'scripts/android-profiles.js\nREADME.md\n', dirty: '' };
@@ -114,12 +114,46 @@ test('política mantiene API pinned y loopback sólo en Debug, sin CAs nuevas ni
     [policy(true).replace('cleartextTrafficPermitted="false"', 'cleartextTrafficPermitted="true"'), true],
     [policy(true).replace('<pin-set>', '<pin-set expiration="2000-01-01">'), true]]) expect(() => policyEvidence(xml, debug)).toThrow();
 });
-test('Debug abre el servidor después de clearState; no aprueba sólo el launcher', () => {
+function metroFixture() {
+  return { open: { runtime: 'custom', appId: SOURCE.appId, scheme: 'exp+sport-center-mobile',
+    url: 'exp+sport-center-mobile://expo-development-client/?url=' + encodeURIComponent(METRO_SERVER) },
+  manifest: { runtimeVersion: 'exposdk:57.0.0', launchAsset: { url: METRO_SERVER + '/node_modules/expo-router/entry.bundle?platform=android&dev=true' },
+    extra: { eas: { projectId: SOURCE.projectId }, expoClient: { sdkVersion: '57.0.0', android: { package: SOURCE.appId } } } } };
+}
+test('Debug usa UIConnect explícita con URL verificada y mantiene las aserciones de la app real', () => {
   const original = fs.readFileSync(path.join(__dirname, '../.maestro', fs.readdirSync(path.join(__dirname, '../.maestro'))[0]), 'utf8');
-  const url = 'exp+sport-center-mobile://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081';
-  const transformed = YAML.parseAllDocuments(debugFlows(original, url))[1].toJSON();
-  expect(transformed[0]).toEqual({ launchApp: { clearState: true } }); expect(transformed[1]).toEqual({ openLink: url });
-  expect(() => debugFlows(original, 'http://unrelated.invalid')).toThrow();
+  const commands = YAML.parseAllDocuments(original)[1].toJSON();
+  const transformed = YAML.parseAllDocuments(debugFlows(original, METRO_SERVER))[1].toJSON();
+  expect(transformed.slice(0,7)).toEqual([commands[0], { extendedWaitUntil: { visible: 'Development Build', timeout: 30000 } },
+    { tapOn: 'http://' }, { inputText: METRO_SERVER }, 'hideKeyboard', { takeScreenshot: 'debug-launcher-connect' }, { tapOn: 'Connect' }]);
+  expect(transformed.slice(7)).toEqual(commands.slice(1));
+  expect(transformed.some(command => typeof command === 'object' && command.openLink)).toBe(false);
+  for (const url of ['http://localhost:8081', METRO_SERVER + '/', 'http://other.invalid', 'https://127.0.0.1:8081']) {
+    expect(() => debugFlows(original,url)).toThrow('METRO_SERVER_URL_NOT_ALLOWED');
+  }
+});
+test('valida metadata CLI/manifest de SDK57 y envía headers Android sin publicar cuerpos', async () => {
+  const fixture = metroFixture();
+  const fetchApi = jest.fn(async url => ({ status:200,ok:true,text:async () => JSON.stringify(url.includes('_expo/open') ? fixture.open : fixture.manifest) }));
+  await expect(queryMetroContext(fetchApi)).resolves.toMatchObject({ serverUrl: METRO_SERVER, appId: SOURCE.appId,
+    projectObserved:true, sdkVersion:'57.0.0', source:'official-cli-and-manifest' });
+  expect(fetchApi.mock.calls[0][0]).toBe(METRO_SERVER+'/_expo/open?platform=android&runtime=custom');
+  expect(fetchApi.mock.calls[1]).toEqual([METRO_SERVER+'/?platform=android', expect.objectContaining({redirect:'error',
+    headers:{'expo-platform':'android',Accept:'application/expo+json'}})]);
+  const minimal = metroFixture();delete minimal.manifest.extra;delete minimal.manifest.runtimeVersion;
+  expect(verifyMetroContext(minimal.open,minimal.manifest)).toMatchObject({projectObserved:false,sdkVersion:null,runtimeVersion:null});
+});
+test.each([
+  value => { value.open.appId='other.app'; }, value => { value.open.runtime='expo'; }, value => { value.open.scheme='other'; },
+  value => { value.open.url=value.open.url.replace(encodeURIComponent(METRO_SERVER),encodeURIComponent('http://user:pass@127.0.0.1:8081')); },
+  value => { value.open.url=value.open.url.replace(encodeURIComponent(METRO_SERVER),encodeURIComponent('http://127.0.0.1:8082')); },
+  value => { value.open.url+='&url='+encodeURIComponent(METRO_SERVER); },
+  value => { value.manifest.extra.eas.projectId='other-project'; }, value => { value.manifest.extra.expoClient.sdkVersion='58.0.0'; },
+  value => { value.manifest.runtimeVersion='exposdk:58.0.0'; }, value => { value.manifest.extra.expoClient.android.package='other.app'; },
+  value => { value.manifest.launchAsset.url=value.manifest.launchAsset.url.replace('127.0.0.1','other.invalid'); },
+  value => { value.manifest.launchAsset.url=value.manifest.launchAsset.url.replace('dev=true','dev=false'); },
+])('rechaza servidor, proyecto o bundle inesperado antes de UIConnect %#', mutate => {
+  const fixture=metroFixture();mutate(fixture);expect(()=>verifyMetroContext(fixture.open,fixture.manifest)).toThrow();
 });
 test('no confunde timeout o respuesta HTTP con ausencia de Metro', async () => {
   await expect(metroAbsent(jest.fn(async () => { throw Object.assign(new Error('private'), { cause: { code: 'ECONNREFUSED' } }); }))).resolves.toBe(true);
@@ -133,35 +167,76 @@ test('limpieza de Metro termina sólo el grupo propio y espera su salida', async
     expect(kill).toHaveBeenCalledWith(-123456, 'SIGTERM'); expect(child.kill).not.toHaveBeenCalled(); }
   finally { kill.mockRestore(); }
 });
-test('Debug alinea bind IPv4 con la URL y conserva limpieza ante fallo Maestro', async () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'sport-profiles-runtime-'));
-  fs.mkdirSync(path.join(temporary, 'sport-center-profiles'));
-  const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, pid: 123456 });
-  const state = { offlineStatus: 'passed', productionDerived: { aabSha256: BUILDS.production.sha256, apkSha256: 'd'.repeat(64) },
-    developmentInspection: { manifest: { schemes: ['exp+sport-center-mobile'] } } };
-  const run = jest.fn(async (tool, args) => {
-    if (tool === 'maestro') throw Error('controlled Maestro failure');
-    if (args[0] === 'devices') return 'List of devices attached\nemulator-5554\tdevice\n';
-    if (args.includes('ro.kernel.qemu')) return '1';
-    if (args.includes('ro.build.version.sdk')) return '34';
-    if (args.includes('ro.product.cpu.abi')) return 'x86_64';
+function runtimeFixture(options={}) {
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'sport-profiles-runtime-'));
+  fs.mkdirSync(path.join(temporary,'sport-center-profiles'));
+  const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null,pid:123456});
+  const state={offlineStatus:'passed',productionDerived:{aabSha256:BUILDS.production.sha256,apkSha256:'d'.repeat(64)},
+    developmentInspection:{manifest:{schemes:['exp+sport-center-mobile']}}};
+  let maestroCalls=0, packageChecks=0, idleCalls=0;
+  const run=jest.fn(async(tool,args)=>{
+    if(tool==='maestro'){maestroCalls++;if((options.failDebug??true)&&maestroCalls===1)throw Error('controlled Debug failure');return '';}
+    if(args[0]==='devices')return 'List of devices attached\nemulator-5554\tdevice\n';
+    if(args.includes('ro.kernel.qemu'))return '1';
+    if(args.includes('ro.build.version.sdk'))return '34';
+    if(args.includes('ro.product.cpu.abi'))return 'x86_64';
+    if(args.includes('pidof'))return '1234';
+    if(args.includes('--remove')&&options.failCleanup)throw Error('controlled cleanup failure');
+    if(args.includes('--list')&&options.leftoverReverse)return 'emulator-5554 tcp:8081 tcp:8081';
+    if(args.includes('packages')){packageChecks++;if(options.leftoverPackage&&packageChecks===2)return 'package:'+SOURCE.appId;}
     return '';
   });
-  const stop = jest.fn(async () => { child.signalCode = 'SIGTERM'; }); const save = jest.fn(), start = jest.fn(() => child);
-  try {
-    await expect(runtime({ RUNNER_TEMP: temporary, GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', PINNING_EPHEMERAL_AVD: 'true', PRODUCT_NAME: 'Test product' }, 34,
-      { run, save, stop, platform: 'linux', source: async () => ({}), fileHash: async file => file.endsWith('development.apk') ? BUILDS.development.sha256 : 'd'.repeat(64),
-        read: () => JSON.stringify(state), wait: async () => ({ ready: true }), idle: async () => true,
-        start, ready: async () => {} })).rejects.toThrow('PUBLIC_PROFILE_ACCEPTANCE_FAILED');
-    expect(start).toHaveBeenCalledWith(process.execPath, ['--dns-result-order=ipv4first', path.resolve('node_modules/expo/bin/cli'),
-      'start', '--dev-client', '--localhost', '--port', '8081'], expect.objectContaining({ detached: true }));
-    expect(start.mock.calls[0][2].env.NODE_OPTIONS).toBeUndefined();
-    expect(stop).toHaveBeenCalledWith(child, expect.any(Function));
-    expect(run.mock.calls.some(([, args]) => args.includes('--remove'))).toBe(true);
-    expect(run.mock.calls.some(([, args]) => args.includes('uninstall'))).toBe(true);
-    expect(run.mock.calls.filter(([tool]) => tool === 'maestro')).toHaveLength(1);
-    expect(save).toHaveBeenLastCalledWith({ development: expect.objectContaining({ status: 'failed', cleanup: 'passed' }) });
-  } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+  const stop=jest.fn(async()=>{child.signalCode='SIGTERM';}),save=jest.fn(),start=jest.fn(()=>child);
+  const config={run,save,stop,platform:'linux',source:async()=>({}),
+    fileHash:async file=>file.endsWith('development.apk')?BUILDS.development.sha256:'d'.repeat(64),
+    read:file=>file.endsWith('.xml')?'<testsuite><testcase name="catalog"/><testcase name="detail"/></testsuite>':JSON.stringify(state),
+    wait:async()=>({ready:true}),idle:async()=>{idleCalls++;if(options.metroStillListening&&idleCalls===2)throw new ProfileError('METRO_STILL_LISTENING');return true;},
+    start,ready:async()=>{},getMetroContext:async()=>{const f=metroFixture();return verifyMetroContext(f.open,f.manifest);}};
+  const env={RUNNER_TEMP:temporary,GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted',PINNING_EPHEMERAL_AVD:'true',PRODUCT_NAME:'Test product'};
+  return{run,save,start,stop,child,config,env,dispose:()=>fs.rmSync(temporary,{recursive:true,force:true})};
+}
+test('Debug falla, limpia y permite release independiente, pero mantiene agregado fallido y dispositivo explícito',async()=>{
+  const f=runtimeFixture();try{
+    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    expect(f.start).toHaveBeenCalledWith(process.execPath,['--dns-result-order=ipv4first',path.resolve('node_modules/expo/bin/cli'),
+      'start','--dev-client','--localhost','--port','8081'],expect.objectContaining({detached:true}));
+    expect(f.start.mock.calls[0][2].env.NODE_OPTIONS).toBeUndefined();
+    expect(f.stop).toHaveBeenCalledWith(f.child,expect.any(Function));
+    const calls=f.run.mock.calls.filter(([tool])=>tool==='maestro');expect(calls).toHaveLength(2);
+    for(const [,args,config]of calls){expect(args.slice(0,3)).toEqual(['--device','emulator-5554','test']);expect(config.env.ANDROID_SERIAL).toBeUndefined();}
+    expect(f.save.mock.calls.map(([value])=>value)).toEqual(expect.arrayContaining([
+      {development:expect.objectContaining({status:'failed',cleanup:'passed',launchMethod:'launcher-url-input',deepLinkAcceptance:'not-tested-by-this-run',selectedDevice:'emulator-5554'})},
+      {production:expect.objectContaining({status:'passed_public_scope',independentOfMetro:true,cleanReleaseStart:{metroAbsent:true,reverseAbsent:true,packageAbsent:true}})},
+      {runtimeApi34Status:'failed',runtimeApi34Failures:[{phase:'development',reason:'PUBLIC_PROFILE_ACCEPTANCE_FAILED'}]},
+    ]));
+    const firstUninstall=f.run.mock.calls.findIndex(([,args])=>args.includes('uninstall'));
+    const installs=f.run.mock.calls.map(([,args],index)=>args.includes('install')?index:-1).filter(index=>index>=0);
+    expect(installs[1]).toBeGreaterThan(firstUninstall);
+  }finally{f.dispose();}
+});
+test('si falla limpieza Debug se aborta antes de instalar o probar release',async()=>{
+  const f=runtimeFixture({failCleanup:true});try{
+    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_CLEANUP_FAILED');
+    expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(1);
+    expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(1);
+    expect(f.stop).toHaveBeenCalled();
+    expect(f.save).toHaveBeenLastCalledWith({runtimeApi34Status:'failed',abortedAfterCleanupFailure:true});
+  }finally{f.dispose();}
+});
+test.each([{leftoverReverse:true},{leftoverPackage:true},{metroStillListening:true}])('release exige ausencia de Metro/reverse/paquete antes de instalar %#',async options=>{
+  const f=runtimeFixture(options);try{
+    await expect(runtime(f.env,34,f.config)).rejects.toThrow('PROFILE_PUBLIC_PHASES_FAILED');
+    expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(1);
+    expect(f.run.mock.calls.filter(([,args])=>args.includes('install'))).toHaveLength(1);
+    expect(f.save.mock.calls.some(([value])=>value.production?.status==='passed_public_scope')).toBe(false);
+  }finally{f.dispose();}
+});
+test('ambos recorridos por perfil deben aprobar para el resultado API34 correcto',async()=>{
+  const f=runtimeFixture({failDebug:false});try{
+    await expect(runtime(f.env,34,f.config)).resolves.toBeUndefined();
+    expect(f.save).toHaveBeenLastCalledWith({runtimeApi34Status:'passed',runtimeApi34Failures:[]});
+    expect(f.run.mock.calls.filter(([tool])=>tool==='maestro')).toHaveLength(2);
+  }finally{f.dispose();}
 });
 test.each(['failure', 'skipped', 'cancelled', undefined])('agregado de perfiles bloquea resultado %s', async result => {
   await expect(main('gate', { RESULT_QUALITY: 'success', RESULT_SECURITY: 'success', RESULT_PROFILES: result })).rejects.toThrow('PROFILE_REQUIRED_JOB_NOT_SUCCESSFUL');
@@ -178,6 +253,8 @@ test.each([
   workflow => { workflow.jobs.profiles.steps.find(step => step.id === 'source').if = 'false'; },
   workflow => { workflow.jobs.profiles.steps.find(step => step.id === 'inspection')['continue-on-error'] = true; },
   workflow => { workflow.jobs.profiles.steps.find(step => step.id === 'pages16k').with.target = 'google_apis'; },
+  workflow => { workflow.jobs.profiles.steps.find(step => step.id === 'pages16k').if = 'always()'; },
+  workflow => { workflow.jobs.profiles.steps.find(step => step.id === 'pages16k').if = "${{ !cancelled() && steps.api34.outcome == 'success' }}"; },
   workflow => { workflow.jobs.profiles.steps = workflow.jobs.profiles.steps.filter(step => step.run !== 'node scripts/android-profiles.js cleanup'); },
   workflow => { workflow.jobs.profiles.steps.find(step => step.uses?.startsWith('actions/upload-artifact')).with.path += '\nkeystore.jks'; },
   workflow => { workflow.jobs.profiles_result.steps.find(step => step.run?.endsWith(' gate')).env.RESULT_PROFILES = 'success'; },

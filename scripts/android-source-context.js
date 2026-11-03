@@ -11,7 +11,8 @@ const AUTOMATION_FILES = Object.freeze(['.github/workflows/android-validation.ym
   'scripts/android-pinning.js', 'scripts/validate-test-configs.js', '__tests__/android16k.test.js',
   '__tests__/androidSourceContext.test.js', '__tests__/androidArtifactInspection.test.js',
   '__tests__/androidPinning.test.js', '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js',
-  '__tests__/release-infrastructure.test.js', '__tests__/security.test.js', '__tests__/static-analysis.test.js', 'tests/manual/android-16k.md', 'README.md', 'docs/seguridad-candidata.md', 'tests/plan.json', 'tests/manual/android-pinning-pilot.md']);
+  '__tests__/release-infrastructure.test.js', '__tests__/security.test.js', '__tests__/static-analysis.test.js', 'tests/manual/android-16k.md', 'README.md', 'docs/seguridad-candidata.md', 'tests/plan.json', 'tests/manual/android-pinning-pilot.md',
+  'scripts/android-profiles.js', '__tests__/androidProfiles.test.js', 'tests/manual/android-profiles.md']);
 const PROOF_FILE = 'test-results/android-validation-source.json';
 const validationTag = /^refs\/tags\/validation\/android-[A-Za-z0-9_.-]+$/;
 class ProbeError extends Error {

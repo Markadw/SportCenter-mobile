@@ -39,3 +39,15 @@ test('pinning debe consumir API34 real de la automatización actual y del mismo 
   expect(() => verifyApi34Evidence(report, context)).not.toThrow();
   for (const key of Object.keys(report)) expect(() => verifyApi34Evidence({ ...report, [key]: 'wrong' }, context)).toThrow('API34_NOT_VERIFIED');
 });
+
+
+test('admite sólo las tres rutas exactas del modo perfiles sin cambiar fuente ni identidad c816', () => {
+  const profiles = 'scripts/android-profiles.js\n__tests__/androidProfiles.test.js\ntests/manual/android-profiles.md';
+  expect(verifySourceProof(proof, env, profiles, env.GITHUB_SHA)).toMatchObject({ artifactSourceCommit: SOURCE.commit,
+    automationCommit: env.GITHUB_SHA, buildId: SOURCE.buildId, apkSha256: SOURCE.apkSha256 });
+});
+test.each(['scripts/another-profile.js', '__tests__/another-profile.test.js', 'tests/manual/another-profile.md',
+  'src/app/index.tsx', 'plugins/with-network-security.js', 'config/security-pins.json', 'app.json', 'eas.json',
+  'assets/images/sport-center-icon.png', 'package.json', 'package-lock.json'])('la compatibilidad de perfiles no permite ruta ajena: %s', file => {
+  expect(() => verifySourceProof(proof, env, 'scripts/android-profiles.js\n' + file, env.GITHUB_SHA)).toThrow('APP_TREE_CHANGED');
+});

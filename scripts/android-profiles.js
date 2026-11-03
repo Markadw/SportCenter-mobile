@@ -27,9 +27,10 @@ const FILES = Object.freeze(['.github/workflows/ci.yml', '.github/workflows/andr
   '__tests__/androidProfiles.test.js', '__tests__/android16k.test.js', '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js',
   'scripts/validate-test-configs.js', 'tests/manual/android-profiles.md', 'README.md',
   'scripts/android-pinning.js', '__tests__/androidPinning.test.js', 'tests/manual/android-pinning-pilot.md',
-  'scripts/inspect-android-artifact.js', '__tests__/androidArtifactInspection.test.js']);
+  'scripts/inspect-android-artifact.js', '__tests__/androidArtifactInspection.test.js', 'scripts/android-16k.js', 'scripts/android-source-context.js', '__tests__/androidSourceContext.test.js']);
 const tagPattern = /^refs\/tags\/validation\/profiles-[A-Za-z0-9_.-]+$/;
 const HEX = /^[a-f0-9]{64}$/;
+const METRO_SERVER = 'http://127.0.0.1:8081';
 class ProfileError extends Error { constructor(code) { super(code); this.code = code; } }
 function need(value, code) { if (!value) throw new ProfileError(code); }
 async function command(file, args, options = {}) {
@@ -265,13 +266,44 @@ async function inspectProfiles(env, run = command) {
   report({ productionDerived: { ...release, buildId: BUILDS.production.id, aabSha256: BUILDS.production.sha256,
     apkSha256: derivedHash, signingIdentity: 'temporary-local-validation-key-not-Play-identity' }, offlineStatus: 'passed' });
 }
+function verifyMetroContext(open, manifest) {
+  need(open?.runtime === 'custom' && open.appId === SOURCE.appId && open.scheme === 'exp+sport-center-mobile', 'METRO_CLI_SCOPE_MISMATCH');
+  let link, asset;
+  try { link = new URL(open.url); asset = new URL(manifest?.launchAsset?.url); } catch { throw new ProfileError('METRO_CONTEXT_URL_INVALID'); }
+  need(link.protocol === 'exp+sport-center-mobile:' && link.hostname === 'expo-development-client' && link.pathname === '/'
+    && !link.port && !link.username && !link.password && !link.hash
+    && [...link.searchParams.keys()].length === 1 && link.searchParams.get('url') === METRO_SERVER, 'METRO_SERVER_URL_NOT_ALLOWED');
+  need(asset.origin === METRO_SERVER && !asset.username && !asset.password && !asset.hash && asset.pathname.endsWith('.bundle')
+    && asset.searchParams.get('platform') === 'android' && asset.searchParams.get('dev') === 'true', 'METRO_MANIFEST_ASSET_MISMATCH');
+  const client = manifest.extra?.expoClient, sdk = client?.sdkVersion, runtimeVersion = manifest.runtimeVersion;
+  if (sdk != null) need(typeof sdk === 'string' && /^57\.0\.\d+$/.test(sdk), 'METRO_MANIFEST_SDK_MISMATCH');
+  if (runtimeVersion != null) need(typeof runtimeVersion === 'string' && /^exposdk:57\.0\.\d+$/.test(runtimeVersion), 'METRO_MANIFEST_RUNTIME_MISMATCH');
+  if (client?.android?.package != null) need(client.android.package === SOURCE.appId, 'METRO_MANIFEST_APP_MISMATCH');
+  const projects = [manifest.extra?.eas?.projectId, client?.extra?.eas?.projectId].filter(value => value != null);
+  need(projects.every(value => value === SOURCE.projectId), 'METRO_MANIFEST_PROJECT_MISMATCH');
+  return { serverUrl: METRO_SERVER, appId: SOURCE.appId, scheme: open.scheme, projectObserved: projects.length > 0,
+    sdkVersion: sdk ?? null, runtimeVersion: runtimeVersion ?? null, source: 'official-cli-and-manifest', scope: 'host-metadata-not-Android-connectivity-proof' };
+}
+async function queryMetroContext(fetchApi = fetch) {
+  const json = async (url, options = {}) => {
+    const response = await fetchApi(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10000) });
+    need(response.status === 200 && response.ok, 'METRO_CONTEXT_HTTP_FAILED');
+    const raw = await response.text(); need(raw.length > 0 && raw.length <= 1024 * 1024, 'METRO_CONTEXT_BODY_INVALID');
+    try { return JSON.parse(raw); } catch { throw new ProfileError('METRO_CONTEXT_JSON_INVALID'); }
+  };
+  const open = await json(METRO_SERVER + '/_expo/open?platform=android&runtime=custom');
+  const manifest = await json(METRO_SERVER + '/?platform=android', { headers: { 'expo-platform': 'android', Accept: 'application/expo+json' } });
+  return verifyMetroContext(open, manifest);
+}
 function debugFlows(source, url) {
   const YAML = require('yaml');
-  need(typeof url === 'string' && /^exp\+sport-center-mobile:\/\/expo-development-client\/\?url=/.test(url), 'DEVCLIENT_URL_INVALID');
+  need(url === METRO_SERVER, 'METRO_SERVER_URL_NOT_ALLOWED');
   const documents = YAML.parseAllDocuments(source); need(documents.length === 2 && documents.every(document => !document.errors.length), 'MAESTRO_FLOW_INVALID');
   const header = documents[0].toJSON(), commands = documents[1].toJSON();
   need(header.appId === '${APP_ID}' && Array.isArray(commands) && commands[0]?.launchApp?.clearState === true, 'MAESTRO_CLEAR_STATE_REQUIRED');
-  return YAML.stringify(header) + '---\n' + YAML.stringify([commands[0], { openLink: url }, ...commands.slice(1)]);
+  const launcher = [{ extendedWaitUntil: { visible: 'Development Build', timeout: 30000 } }, { tapOn: 'http://' }, { inputText: url },
+    'hideKeyboard', { takeScreenshot: 'debug-launcher-connect' }, { tapOn: 'Connect' }];
+  return YAML.stringify(header) + '---\n' + YAML.stringify([commands[0], ...launcher, ...commands.slice(1)]);
 }
 async function waitMetro(child, fetchApi = fetch, sleep = pause) {
   for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -297,13 +329,14 @@ async function metroAbsent(fetchApi = fetch) {
   throw new ProfileError('METRO_STILL_LISTENING');
 }
 async function runtime(env, api = 34, { run = command, save = report, wait = waitForService, sleep = pause, source = sourceContext,
-  read = fs.readFileSync, fileHash = hash, platform = process.platform, idle = metroAbsent, start = spawn, ready = waitMetro, stop = stopMetro } = {}) {
+  read = fs.readFileSync, fileHash = hash, platform = process.platform, idle = metroAbsent, start = spawn, ready = waitMetro, stop = stopMetro, getMetroContext = queryMetroContext } = {}) {
   const context = await source(env, run), files = locations(env);
   need(platform === 'linux' && env.GITHUB_ACTIONS === 'true' && env.RUNNER_ENVIRONMENT === 'github-hosted'
     && env.PINNING_EPHEMERAL_AVD === 'true', 'EPHEMERAL_HOSTED_AVD_REQUIRED');
   const devices = (await run('adb', ['devices'])).trim().split(/\r?\n/).filter(line => /\tdevice$/.test(line));
   need(devices.length === 1 && /^emulator-\d+\tdevice$/.test(devices[0]), 'ONLY_ONE_EMULATOR_ALLOWED');
-  const adb = args => run('adb', ['-s', devices[0].split('\t')[0], ...args]);
+  const serial = devices[0].split('\t')[0];
+  const adb = args => run('adb', ['-s', serial, ...args]);
   need((await adb(['shell', 'getprop', 'ro.kernel.qemu'])).trim() === '1'
     && (await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === String(api)
     && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'EMULATOR_RUNTIME_MISMATCH');
@@ -314,11 +347,17 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
     && env.PRODUCT_NAME.length <= 160 && !/[\r\n\x00-\x1f]/.test(env.PRODUCT_NAME), 'PRODUCT_NAME_REQUIRED');
   need((await wait({ apiUrl: SOURCE.api, android: true })).ready === true, 'CATALOG_NOT_READY');
   const phases = api === 34 ? ['development', 'production'] : ['production16k'];
+  const failures = [], statusKey = api === 34 ? 'runtimeApi34Status' : 'runtimeApi36Status';
   for (const phase of phases) {
-    const development = phase === 'development', entry = { ...context, api, abi: 'x86_64', status: 'running', profile: development ? 'development' : 'production' };
+    const development = phase === 'development', entry = { ...context, api, abi: 'x86_64', status: 'running', profile: development ? 'development' : 'production', selectedDevice: serial };
     let metro, metroFd, reverse = false, failure;
     try {
       await idle();
+      if (!development) {
+        need(!(await adb(['reverse', '--list'])).includes('tcp:8081'), 'ADB_REVERSE_STILL_PRESENT');
+        need((await adb(['shell', 'pm', 'list', 'packages', SOURCE.appId])).trim() === '', 'PREVIOUS_PACKAGE_STILL_PRESENT');
+        entry.cleanReleaseStart = { metroAbsent: true, reverseAbsent: true, packageAbsent: true };
+      }
       if (api === 36) {
         const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
         entry.image = verifyImage(fs.readFileSync(path.join(sdk, 'system-images/android-36/google_apis_ps16k/x86_64/source.properties'), 'utf8'));
@@ -343,20 +382,23 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
         await ready(metro);
         await adb(['reverse', 'tcp:8081', 'tcp:8081']); reverse = true;
         flowDirectory = path.join(files.scratch, 'debug-flows'); fs.mkdirSync(flowDirectory);
-        const url = 'exp+sport-center-mobile://expo-development-client/?url=' + encodeURIComponent('http://127.0.0.1:8081');
+        entry.metro = { loopbackReady: true, reverseReady: true, schemeVerified: true };
+        entry.launchMethod = 'launcher-url-input'; entry.deepLinkAcceptance = 'not-tested-by-this-run';
+        const connection = await getMetroContext();
+        need(connection.serverUrl === METRO_SERVER, 'METRO_SERVER_URL_NOT_ALLOWED');
         const flows = fs.readdirSync('.maestro').filter(file => file.endsWith('.yaml'));
         need(flows.length === 2, 'PUBLIC_FLOW_COUNT');
-        for (const file of flows) fs.writeFileSync(path.join(flowDirectory, file), debugFlows(fs.readFileSync(path.join('.maestro', file), 'utf8'), url));
-        entry.metro = { loopbackReady: true, reverseReady: true, schemeVerified: true };
+        for (const file of flows) fs.writeFileSync(path.join(flowDirectory, file), debugFlows(fs.readFileSync(path.join('.maestro', file), 'utf8'), connection.serverUrl));
+        entry.metro = { ...entry.metro, ...connection };
       } else {
         need(!(await adb(['reverse', '--list'])).includes('tcp:8081'), 'ADB_REVERSE_STILL_PRESENT');
         entry.independentOfMetro = true;
       }
       const output = 'test-results/profiles-' + phase;
-      await run('maestro', ['test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
-        '--format', 'junit', '--output', output + '.xml', '--test-output-dir', output, flowDirectory], { timeout: 600000, env: { ...env, ANDROID_SERIAL: devices[0].split('\t')[0] } });
+      await run('maestro', ['--device', serial, 'test', '-e', 'APP_ID=' + SOURCE.appId, '-e', 'PRODUCT_NAME=' + env.PRODUCT_NAME,
+        '--format', 'junit', '--output', output + '.xml', '--test-output-dir', output, flowDirectory], { timeout: 600000, env });
       need(assertAndroidReport(read(output + '.xml', 'utf8')) === 2, 'PUBLIC_FLOWS_INCOMPLETE');
-      entry.publicFlows = 2; entry.processAfter = verifyPid(await adb(['shell', 'pidof', SOURCE.appId]));
+      entry.selectedDevice = serial; entry.publicFlows = 2; entry.processAfter = verifyPid(await adb(['shell', 'pidof', SOURCE.appId]));
       entry.crashCheck = verifyCrashLog(await adb(['logcat', '-b', 'crash', '-d', '-v', 'brief']));
       if (api === 36) entry.runtimeAfter = verifyRuntime({ pageSize: await adb(['shell', 'getconf', 'PAGE_SIZE']), abi: 'x86_64', api: '36' });
       entry.status = 'passed_public_scope';
@@ -374,8 +416,13 @@ async function runtime(env, api = 34, { run = command, save = report, wait = wai
       entry.scope = api === 36 ? 'derived-AAB-x86_64-16KB-simulation-not-native-ARM64' : development ? 'Debug-with-Metro-public-flows' : 'AAB-derived-release-public-flows-without-Metro';
       save({ [phase]: entry });
     }
-    if (failure) throw failure;
+    if (failure) {
+      failures.push({ phase, reason: failure.code });
+      if (entry.cleanup !== 'passed') { save({ [statusKey]: 'failed', abortedAfterCleanupFailure: true }); throw new ProfileError('PROFILE_CLEANUP_FAILED'); }
+    }
   }
+  save({ [statusKey]: failures.length ? 'failed' : 'passed', [api === 34 ? 'runtimeApi34Failures' : 'runtimeApi36Failures']: failures });
+  if (failures.length) throw new ProfileError('PROFILE_PUBLIC_PHASES_FAILED');
 }
 async function main(mode, env = process.env) {
   if (mode === 'gate') { for (const value of [env.RESULT_QUALITY, env.RESULT_SECURITY, env.RESULT_PROFILES]) need(value === 'success', 'PROFILE_REQUIRED_JOB_NOT_SUCCESSFUL'); return; }
@@ -436,6 +483,6 @@ async function main(mode, env = process.env) {
   throw new ProfileError('PROFILE_MODE_UNKNOWN');
 }
 module.exports = { SOURCE, BUILDS, BUNDLETOOL, FILES, ProfileError, verifySource, verifyProducer, verifyBuild,
-  download, application, resolvePolicy, policyEvidence, inspectApk, debugFlows, waitMetro, stopMetro, metroAbsent, runtime, main };
+  download, application, resolvePolicy, policyEvidence, inspectApk, METRO_SERVER, verifyMetroContext, queryMetroContext, debugFlows, waitMetro, stopMetro, metroAbsent, runtime, main };
 if (require.main === module) main(process.argv[2]).catch(error => { console.error('Validación de perfiles bloqueada: ' + (error instanceof ProfileError ? error.code : 'PROFILE_VALIDATION_FAILED'));
   process.exitCode = 1; });

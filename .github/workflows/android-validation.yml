@@ -271,6 +271,7 @@ jobs:
           script: node scripts/android-profiles.js api34
       - name: API36 16KB simulados del APK derivado AAB
         id: pages16k
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36

@@ -33,7 +33,9 @@ function validateProfilesWorkflow(workflow) {
     const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-profiles.js ' + mode
       || step.with?.script === 'node scripts/android-profiles.js ' + mode);
     assert.equal(matches.length, 1, 'Cada fase de perfiles debe ejecutarse exactamente una vez: ' + mode);
-    assert.ok(matches[0].index > previous && !matches[0].step.if && !matches[0].step['continue-on-error'], 'Fase omitida o fuera de orden: ' + mode);
+    assert.ok(matches[0].index > previous && !matches[0].step['continue-on-error'], 'Fase omitida o fuera de orden: ' + mode);
+    if (mode === 'api36') assert.equal(matches[0].step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'API36 conserva prerrequisitos e independencia del resultado API34');
+    else assert.ok(!matches[0].step.if, 'Fase de perfiles no puede omitirse: ' + mode);
     previous = matches[0].index;
   }
   const token = job.steps.filter(step => step.env?.EXPO_TOKEN);
