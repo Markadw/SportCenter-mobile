@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, tapBounds, cleanEnv } = require('../scripts/android-pinning');
+const { TOOL, candidate, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv } = require('../scripts/android-pinning');
 const { buildNetworkSecurityConfig } = require('../plugins/with-network-security');
 const pinConfig = require('../config/security-pins.json');
 const api = pinConfig.domain, image = 'http2.mlstatic.com';
@@ -249,12 +249,169 @@ test('a reused connection, unrelated run or forbidden request cannot pass', () =
   expect(() => verdict([...proof(), { runId: 'other' }], context())).toThrow();
   expect(() => verdict([...proof(), event('control', 'forbidden_request', image, 'image')], context())).toThrow();
 });
-test('UI proof requires the app package and an unambiguous visible target', () => {
-  const xml = '<node package="com.markadw.sportcenter" text="Catálogo" bounds="[0,10][100,50]"></node>';
-  expect(visible(xml, 'Catálogo')).toBe(true); expect(tapBounds(xml, 'Catálogo')).toEqual([50, 30]);
+const navNode = (attrs = {}, children = '') => '<node ' + Object.entries({ package: 'com.markadw.sportcenter',
+  class: 'android.view.View', enabled: 'true', clickable: 'true', text: 'Catálogo', bounds: '[100,580][220,630]', ...attrs })
+  .map(([key, value]) => key + '="' + value + '"').join(' ') + '>' + children + '</node>';
+const navTree = children => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><hierarchy rotation="0">' + children + '</hierarchy>';
+
+test('UI proof selects one enabled clickable app control with valid screen bounds', () => {
+  const xml = navTree(navNode({ 'content-desc': 'Catálogo' })), evidence = {};
+  expect(visible(xml, 'Catálogo')).toBe(true); expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ label: 'Catálogo', status: 'selected', matchCount: 1, targetCount: 1,
+    selected: { class: 'android.view.View', enabled: true, clickable: true, bounds: [100, 580, 220, 630] } });
   expect(visible(xml.replace('com.markadw.sportcenter', 'browser'), 'Catálogo')).toBe(false);
-  expect(() => tapBounds(xml + xml, 'Catálogo')).toThrow();
 });
+
+test('repeated parent/child accessibility labels resolve to the same actual clickable ancestor', () => {
+  const child = navNode({ class: 'android.widget.TextView', clickable: 'false', bounds: '[130,600][190,620]' });
+  const evidence = {}, xml = navTree(navNode({ bounds: '[100,580][220,630]' }, child + child));
+  expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ matchCount: 3, targetCount: 1 });
+  expect(evidence.candidates.map(c => c.relation)).toEqual(['self', 'ancestor', 'ancestor']);
+});
+
+test('a label may inherit an unnamed enabled own-package clickable parent, not arbitrary coordinates', () => {
+  const evidence = {}, child = navNode({ clickable: 'false', bounds: '[130,600][190,620]' });
+  expect(tapBounds(navTree(navNode({ text: '' }, child)), 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence.candidates[0]).toMatchObject({ relation: 'ancestor', rejection: null });
+});
+
+test.each(['siblings', 'nested'])('two independently clickable targets remain ambiguous even at identical bounds: %s', kind => {
+  const xml = navTree(kind === 'siblings' ? navNode() + navNode() : navNode({}, navNode())), evidence = {};
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(evidence).toMatchObject({ status: 'blocked', targetCount: 2, errorClass: 'PilotTapError' });
+});
+
+test('disabled and foreign labels do not compete with a unique enabled app target', () => {
+  const xml = navTree(navNode({ enabled: 'false' }) + navNode({ package: 'browser' }) + navNode()), evidence = {};
+  expect(tapBounds(xml, 'Catálogo', evidence)).toEqual([160, 605]);
+  expect(evidence).toMatchObject({ matchCount: 3, targetCount: 1 });
+  expect(evidence.candidates.map(c => c.rejection)).toEqual(['not_enabled_or_visible', 'foreign_package', null]);
+});
+
+test.each([
+  [{ enabled: 'false' }, 'not_enabled_or_visible'], [{ 'visible-to-user': 'false' }, 'not_enabled_or_visible'],
+  [{ clickable: 'false' }, 'no_clickable_ancestor'], [{ text: 'Catálogo de ofertas' }, undefined],
+])('unusable or non-exact public label blocks without a fallback: %j', (attrs, rejection) => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode(attrs)), 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_MISSING');
+  if (rejection) expect(evidence.candidates[0].rejection).toBe(rejection);
+});
+
+test.each([{ enabled: '' }, { clickable: '' }])('unknown accessibility state never becomes the only selected target: %j', attrs => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode() + navNode(attrs)), 'Catálogo', evidence)).toThrow('PILOT_TAP_STATE_UNKNOWN');
+  expect(evidence.status).toBe('blocked');
+});
+
+test.each([
+  [{ text: 'Cuenta' }, 'conflicting_ancestor_label'], [{ package: 'browser', text: '' }, 'foreign_package'],
+  [{ text: '', enabled: 'false' }, 'not_enabled_or_visible'],
+])('non-clickable label cannot promote an unrelated/foreign/disabled ancestor: %j', (parent, rejection) => {
+  const evidence = {}, xml = navTree(navNode(parent, navNode({ clickable: 'false' })));
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_MISSING');
+  expect(evidence.candidates.at(-1).rejection).toBe(rejection);
+});
+
+test.each(['', '[0,0][0,20]', '[100,0][20,20]', '[-1,0][20,20]', '[0,0][999999999,20]',
+  '[0,0][16385,20]', 'SECRET https://private.invalid'])('unsafe bounds fail closed and never enter the report: %s', bounds => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode({ bounds })), 'Catálogo', evidence)).toThrow('PILOT_TAP_BOUNDS_INVALID');
+  expect(evidence.candidates[0].target).toMatchObject({ bounds: null, boundsState: 'invalid' });
+  expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('invalid or out-of-parent label bounds cannot borrow a parent coordinate', () => {
+  const evidence = {}, child = navNode({ clickable: 'false', bounds: '[80,580][230,630]' });
+  expect(() => tapBounds(navTree(navNode({ text: '' }, child)), 'Catálogo', evidence)).toThrow('PILOT_TAP_BOUNDS_INVALID');
+  expect(evidence.candidates[0].rejection).toBe('label_outside_target');
+});
+
+test('a second actionable target with invalid bounds is still ambiguous, not silently ignored', () => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode() + navNode({ bounds: 'bad' })), 'Catálogo', evidence)).toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(evidence.targetCount).toBe(2);
+});
+
+test('candidate diagnostics are bounded and contain only known classes, booleans, numeric bounds and public labels', () => {
+  const evidence = {}, xml = navTree(navNode({ class: 'SECRET https://private.invalid', 'resource-id': 'private-token',
+    'content-desc': 'SECRET' }).repeat(20));
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow(PilotTapError);
+  expect(evidence).toMatchObject({ label: 'Catálogo', matchCount: 20, targetCount: 20, candidatesTruncated: true });
+  expect(evidence.candidates).toHaveLength(16);
+  expect(evidence.candidates[0].labelNode.class).toBe('other');
+  expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid|private-token|resource-id|content-desc/);
+});
+
+test.each([
+  '<!DOCTYPE hierarchy [<!ENTITY test "Catálogo">]><hierarchy/>', '<!-- <node text="Catálogo"/> -->',
+  '<hierarchy><![CDATA[Catálogo]]></hierarchy>', '<hierarchy><?unexpected data?></hierarchy>',
+  '<hierarchy><node text="Catálogo" text="Cuenta"/></hierarchy>', '<hierarchy><node></hierarchy></node>',
+  '<hierarchy/>' + navNode(), '<hierarchy/><hierarchy/>', '<hierarchy>arbitrary text</hierarchy>',
+  navTree(navNode({ text: '&unknown;' })), navTree(navNode({ text: '&amp' })),
+  navTree(navNode({ text: '&#x110000;' })), navTree(navNode({ text: '&#xD800;' })),
+  navTree(navNode({ text: '&#0;' })), navTree(navNode({ text: 'bad\u0001' })),
+])('unsupported/malformed UI XML is rejected rather than sanitized: case %#', xml => {
+  const evidence = {};
+  expect(() => tapBounds(xml, 'Catálogo', evidence)).toThrow('PILOT_TAP_XML_INVALID');
+  expect(evidence).toMatchObject({ status: 'blocked', candidates: [], errorClass: 'PilotTapError' });
+});
+
+test('XML declaration quotes must match; unknown instructions are never stripped', () => {
+  const bad = '<?xml version="1.0\'?>' + '<hierarchy/>';
+  expect(() => tapBounds(bad, 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+  expect(() => tapBounds('<?XML version="1.0"?><hierarchy/>', 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+});
+
+test('standard XML entities decode exactly once, including the public label accent', () => {
+  const xml = navTree(navNode({ text: 'Cat&#225;logo', 'content-desc': '&amp;unknown; &quot; &apos; &lt; &gt; &#10; &#x1F600;' }));
+  expect(tapBounds(xml, 'Catálogo')).toEqual([160, 605]);
+});
+
+test.each([
+  () => ' '.repeat(2 * 1024 * 1024 + 1),
+  () => navTree(navNode().repeat(10001)),
+  () => navTree('<node>'.repeat(128) + '</node>'.repeat(128)),
+])('UI parser bounds size, node count and depth without returning a target: case %#', makeXml => {
+  expect(() => tapBounds(makeXml(), 'Catálogo')).toThrow('PILOT_TAP_XML_INVALID');
+});
+
+test('arbitrary expected labels never leak into the public-label diagnostic', () => {
+  const evidence = {};
+  expect(() => tapBounds(navTree(navNode()), 'SECRET https://private.invalid', evidence)).toThrow('PILOT_TAP_LABEL_NOT_ALLOWED');
+  expect(evidence.label).toBe('unsupported'); expect(JSON.stringify(evidence)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('each phase records selection and sends one tap at the unique target, with no retry', async () => {
+  const adb = jest.fn(async () => ''), result = {};
+  for (const phase of ['control', 'attack', 'recovery']) await tapCatalog(adb, navTree(navNode()), phase, result);
+  expect(adb.mock.calls).toEqual(Array(3).fill(['shell', 'input', 'tap', '160', '605']));
+  for (const phase of ['control', 'attack', 'recovery']) expect(result.navigationChecks[phase]).toMatchObject({
+    label: 'Catálogo', status: 'tap_sent', targetCount: 1, errorClass: null, errorCode: null });
+});
+
+test('selection failure is retained per phase and never sends input', async () => {
+  const adb = jest.fn(), result = {};
+  await expect(tapCatalog(adb, navTree(navNode() + navNode()), 'attack', result)).rejects.toThrow('PILOT_TAP_TARGET_AMBIGUOUS');
+  expect(adb).not.toHaveBeenCalled();
+  expect(result.navigationChecks.attack).toMatchObject({ status: 'blocked', errorCode: 'PILOT_TAP_TARGET_AMBIGUOUS', errorClass: 'PilotTapError' });
+});
+
+test.each([new Error('SECRET https://private.invalid'), new TypeError('SECRET'), 'SECRET'])('input failure records only a safe class and leaves the original error/cleanup intact: case %#', async original => {
+  const adb = jest.fn(async () => { throw original; }), result = {}, cleanup = jest.fn(); let caught;
+  try { await tapCatalog(adb, navTree(navNode()), 'recovery', result); } catch (error) { caught = error; } finally { cleanup(); }
+  expect(caught).toBe(original); expect(cleanup).toHaveBeenCalledTimes(1); expect(adb).toHaveBeenCalledTimes(1);
+  expect(result.navigationChecks.recovery).toMatchObject({ status: 'failed', errorCode: 'PILOT_TAP_INPUT_FAILED',
+    errorClass: original instanceof TypeError ? 'TypeError' : original instanceof Error ? 'Error' : 'unknown' });
+  expect(JSON.stringify(result)).not.toMatch(/SECRET|private.invalid/);
+});
+
+test('phase names cannot create arbitrary diagnostic keys or send a tap', async () => {
+  const adb = jest.fn(), result = {};
+  await expect(tapCatalog(adb, navTree(navNode()), 'SECRET', result)).rejects.toThrow('PILOT_TAP_PHASE_INVALID');
+  expect(adb).not.toHaveBeenCalled(); expect(result).toEqual({});
+});
+
 test('tool download is immutable and child tools receive no credentials', () => {
   const installer = fs.readFileSync(path.join(__dirname, '../scripts/android-pinning-install.sh'), 'utf8');
   expect(installer).toContain(TOOL.url); expect(installer).toContain(TOOL.sha256);

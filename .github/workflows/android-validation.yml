@@ -140,6 +140,7 @@ jobs:
           api-level: 36
           arch: x86_64
           target: google_apis_ps16k
+          ram-size: '4096M'
           channel: stable
           disable-linux-hw-accel: false
           force-avd-creation: true

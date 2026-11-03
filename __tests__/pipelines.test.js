@@ -379,6 +379,25 @@ describe('NSC estático antes de arrancar el primer AVD', () => {
   });
 });
 
+describe('RAM fija del entorno API36 16KB', () => {
+  test('reserva 4096M sólo para pages16k y conserva validación del pipeline', () => {
+    const config = workflows(), steps = config.get('android-validation.yml').jobs.native.steps;
+    expect(steps.find(step => step.id === 'pages16k').with['ram-size']).toBe('4096M');
+    for (const id of ['api34', 'pinning']) expect(steps.find(step => step.id === id).with['ram-size']).toBeUndefined();
+    expect(() => validateWorkflows(config)).not.toThrow();
+  });
+  test.each([undefined, '', '2560M', '4G', 4096])('rechaza RAM ausente o distinta del contrato 4096M: %p', ram => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.with['ram-size'] = ram;
+    expect(() => validateWorkflows(config)).toThrow('API36 16KB requiere RAM guest fija de 4096M');
+  });
+  test.each(['-memory 1536', '-memory=1536', '-m 1536', '-m1536'])('rechaza override de RAM por CLI: %s', override => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.with['emulator-options'] += ' ' + override;
+    expect(() => validateWorkflows(config)).toThrow('No sobrescribir RAM guest mediante opciones CLI');
+  });
+});
+
 describe('16KB independiente del rechazo TLS, con prerrequisitos y cancelación estrictos', () => {
   test.each(['inspection', 'nsc_preflight', 'kvm', 'api34'])('no permite omitir prerrequisito %s', prerequisite => {
     const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');

@@ -518,11 +518,109 @@ function texts(xml) {
   return [...xml.matchAll(/<node\b([^>]+)>/g)].map(m => Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(a => [a[1], decode(a[2])]))).filter(n => n.package === APP);
 }
 function visible(xml, expected) { return texts(xml).some(n => n.text === expected || n['content-desc'] === expected); }
-function tapBounds(xml, expected) {
-  const matches = texts(xml).filter(n => n.text === expected || n['content-desc'] === expected);
-  assert.equal(matches.length, 1, 'Control de navegación ausente o ambiguo.');
-  const b = matches[0].bounds?.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/); assert.ok(b);
-  assert.ok(+b[3] > +b[1] && +b[4] > +b[2]); return [Math.floor((+b[1] + +b[3]) / 2), Math.floor((+b[2] + +b[4]) / 2)];
+// UI Automator has a separate, bounded grammar: never relax the compiled-NSC parser for UI entities.
+function tapHierarchy(xml) {
+  assert.ok(typeof xml === 'string' && xml.length <= 2 * 1024 * 1024
+    && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(xml) && !xml.includes('<!'));
+  const declaration = xml.match(/^<\?xml version=(?:"1\.0"|'1\.0')(?: encoding=(?:"UTF-8"|'UTF-8'))?(?: standalone=(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>/);
+  const source = declaration ? xml.slice(declaration[0].length) : xml;
+  assert.ok(!source.includes('<?'));
+  const decode = value => {
+    const entities = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>' }; let output = '', offset = 0;
+    for (const match of value.matchAll(/&([^;&]{1,16});/g)) {
+      const prefix = value.slice(offset, match.index); assert.ok(!prefix.includes('&')); output += prefix;
+      if (Object.hasOwn(entities, match[1])) output += entities[match[1]];
+      else {
+        assert.match(match[1], /^(?:#x[0-9a-fA-F]{1,6}|#[0-9]{1,7})$/);
+        const code = Number.parseInt(match[1].slice(match[1][1] === 'x' ? 2 : 1), match[1][1] === 'x' ? 16 : 10);
+        assert.ok(code === 9 || code === 10 || code === 13 || code >= 32 && code <= 0xd7ff
+          || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff);
+        output += String.fromCodePoint(code);
+      }
+      offset = match.index + match[0].length;
+    }
+    const tail = value.slice(offset); assert.ok(!tail.includes('&')); return output + tail;
+  };
+  const root = { name: '#root' }, stack = [root], nodes = []; let offset = 0, hierarchy;
+  for (const match of source.matchAll(/<(?:[^<>"']|"[^"<]*"|'[^'<]*')*>|[^<]+/g)) {
+    assert.equal(match.index, offset); offset += match[0].length;
+    const token = match[0], parent = stack[stack.length - 1];
+    if (!token.startsWith('<')) { assert.equal(token.trim(), ''); continue; }
+    if (token.startsWith('</')) { assert.ok(stack.length > 1); assert.equal(token, '</' + parent.name + '>'); stack.pop(); continue; }
+    const opening = token.match(/^<(hierarchy|node)([\s\S]*?)(\/?)>$/); assert.ok(opening);
+    assert.ok(opening[1] === 'hierarchy' ? parent === root && !hierarchy : parent !== root);
+    const attrs = Object.create(null); let tail = opening[2];
+    while (tail.trim()) {
+      const attr = tail.match(/^\s+([\w:-]+)="([^"<]*)"/); assert.ok(attr && !Object.hasOwn(attrs, attr[1]));
+      attrs[attr[1]] = decode(attr[2]); tail = tail.slice(attr[0].length);
+    }
+    const node = { name: opening[1], attrs, parent };
+    if (node.name === 'hierarchy') hierarchy = node; else { nodes.push(node); assert.ok(nodes.length <= 10000); }
+    if (!opening[3]) { stack.push(node); assert.ok(stack.length <= 128); }
+  }
+  assert.ok(hierarchy); assert.equal(offset, source.length); assert.equal(stack.length, 1); return nodes;
+}
+const TAP_CLASSES = ['android.view.View', 'android.view.ViewGroup', 'android.widget.TextView', 'android.widget.Button',
+  'android.widget.ImageButton', 'android.widget.ImageView', 'android.widget.FrameLayout', 'android.widget.LinearLayout'];
+function tapNodeEvidence(node) {
+  const match = node.attrs.bounds?.match(/^\[(\d{1,5}),(\d{1,5})\]\[(\d{1,5}),(\d{1,5})\]$/);
+  const values = match?.slice(1).map(Number), valid = !!values && values.every(n => n <= 16384) && values[2] > values[0] && values[3] > values[1];
+  const state = key => node.attrs[key] === 'true' ? true : node.attrs[key] === 'false' ? false : null;
+  return { ownPackage: node.attrs.package === APP, class: TAP_CLASSES.includes(node.attrs.class) ? node.attrs.class : 'other',
+    enabled: state('enabled'), clickable: state('clickable'), visibleToUser: state('visible-to-user'),
+    bounds: valid ? values : null, boundsState: valid ? 'valid' : node.attrs.bounds === undefined ? 'missing' : 'invalid' };
+}
+class PilotTapError extends Error { constructor(code) { super(code); this.code = code; } }
+function tapBounds(xml, expected, evidence = {}) {
+  Object.assign(evidence, { label: expected === 'Catálogo' ? 'Catálogo' : 'unsupported', status: 'selecting',
+    matchCount: 0, targetCount: 0, candidates: [], candidatesTruncated: false, selected: null, errorCode: null, errorClass: null });
+  const fail = code => { Object.assign(evidence, { status: 'blocked', errorCode: code, errorClass: 'PilotTapError' }); throw new PilotTapError(code); };
+  if (expected !== 'Catálogo') fail('PILOT_TAP_LABEL_NOT_ALLOWED');
+  let nodes; try { nodes = tapHierarchy(xml); } catch { fail('PILOT_TAP_XML_INVALID'); }
+  const hasLabel = node => node.attrs.text === expected || node.attrs['content-desc'] === expected;
+  const matches = nodes.filter(hasLabel), targets = new Set(), invalidTargets = new Set(); let unknownState = false; evidence.matchCount = matches.length;
+  for (const label of matches) {
+    const detail = { labelNode: tapNodeEvidence(label), relation: 'none', rejection: null }; let target = label;
+    while (target?.name === 'node') {
+      const state = tapNodeEvidence(target); detail.lastExamined = state;
+      if (!state.ownPackage) { detail.rejection = 'foreign_package'; break; }
+      if (state.enabled !== true || state.visibleToUser === false) {
+        if (state.enabled === null) unknownState = true; detail.rejection = 'not_enabled_or_visible'; break;
+      }
+      // An accessible parent may repeat the label or inherit it from its child, never name another control.
+      if (target !== label && (target.attrs.text || target.attrs['content-desc']) && !hasLabel(target)) { detail.rejection = 'conflicting_ancestor_label'; break; }
+      if (state.clickable === true) {
+        detail.target = state; detail.relation = target === label ? 'self' : 'ancestor'; targets.add(target);
+        const a = detail.labelNode.bounds, b = state.bounds;
+        if (!a || !b) detail.rejection = 'invalid_bounds';
+        else if (a[0] < b[0] || a[1] < b[1] || a[2] > b[2] || a[3] > b[3]) detail.rejection = 'label_outside_target';
+        if (detail.rejection) invalidTargets.add(target);
+        break;
+      }
+      if (state.clickable === null) { unknownState = true; detail.rejection = 'unknown_clickable_state'; break; }
+      target = target.parent;
+    }
+    if (!detail.target && !detail.rejection) detail.rejection = 'no_clickable_ancestor';
+    if (evidence.candidates.length < 16) evidence.candidates.push(detail); else evidence.candidatesTruncated = true;
+  }
+  evidence.targetCount = targets.size;
+  if (unknownState) fail('PILOT_TAP_STATE_UNKNOWN');
+  if (targets.size !== 1) fail(targets.size ? 'PILOT_TAP_TARGET_AMBIGUOUS' : 'PILOT_TAP_TARGET_MISSING');
+  const [selected] = targets;
+  if (invalidTargets.has(selected)) fail('PILOT_TAP_BOUNDS_INVALID');
+  evidence.selected = tapNodeEvidence(selected); evidence.status = 'selected';
+  const b = evidence.selected.bounds; return [Math.floor((b[0] + b[2]) / 2), Math.floor((b[1] + b[3]) / 2)];
+}
+async function tapCatalog(adb, xml, phase, result) {
+  assert.ok(['control', 'attack', 'recovery'].includes(phase), 'PILOT_TAP_PHASE_INVALID');
+  result.navigationChecks ||= {}; const evidence = result.navigationChecks[phase] = {};
+  const coordinates = tapBounds(xml, 'Catálogo', evidence);
+  try { await adb('shell', 'input', 'tap', ...coordinates.map(String)); evidence.status = 'tap_sent'; }
+  catch (error) {
+    Object.assign(evidence, { status: 'failed', errorCode: 'PILOT_TAP_INPUT_FAILED',
+      errorClass: error instanceof TypeError ? 'TypeError' : error instanceof Error ? 'Error' : 'unknown' });
+    throw error; // The report keeps no message/stdout; preserve the original failure and finally cleanup.
+  }
 }
 async function readCompiledPolicy(env, apk, meta, controls = {}) {
   const pinsConfig = JSON.parse(fs.readFileSync('config/security-pins.json', 'utf8'));
@@ -649,7 +747,7 @@ async function pilot(env = process.env) {
       result.launchChecks[phase] = await progress.action(phase, 'catalog_launch', () => launchInstalledApp(adb, result.controls.launcher.component));
       let current = '';
       await progress.wait(phase, 'catalog_visible', async () => { current = await ui(); return visible(current, 'Catálogo'); });
-      await progress.action(phase, 'catalog_opened', () => adb('shell', 'input', 'tap', ...tapBounds(current, 'Catálogo').map(String)));
+      await progress.action(phase, 'catalog_opened', () => tapCatalog(adb, current, phase, result));
     }
     await catalog('control');
     await progress.wait('control', 'product_visible', async () => visible(await ui(), env.PRODUCT_NAME));
@@ -712,7 +810,7 @@ async function pilot(env = process.env) {
   }
   return result;
 }
-module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, tapBounds, cleanEnv, preflight, pilot };
+module.exports = { APP, TOOL, hostname, candidate, xmlTree, compiledPolicy, resolveNscResource, loadCompiledNsc, command, emulatorEvidence, verifyAospPackage, PilotLaunchError, compiledLauncher, packagePresence, installedApkEvidence, reinstallSameApk, launchInstalledApp, minSdkEvidence, clockEvidence, verdict, PilotWaitTimeout, createPilotProgress, validFailurePng, failureDiagnostics, playStorePresent, PilotCleanupError, removeOwnCa, assertCaAbsent, readUiDump, texts, visible, PilotTapError, tapBounds, tapCatalog, cleanEnv, preflight, pilot };
 if (require.main === module) {
   const isPreflight = process.argv[2] === 'preflight';
   (isPreflight ? preflight() : pilot()).then(result => {

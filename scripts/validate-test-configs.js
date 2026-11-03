@@ -17,6 +17,11 @@ function validateDecoder23(job, beforeIndex, afterIndex = -1) {
   assert.ok(evidence?.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
 }
 
+function validate16kMemory(step) {
+  assert.equal(step.with['ram-size'], '4096M', 'API36 16KB requiere RAM guest fija de 4096M');
+  assert.ok(!/(?:^|\s)-(?:memory|m)(?:\s|=|[0-9]|$)/i.test(step.with['emulator-options']), 'No sobrescribir RAM guest mediante opciones CLI');
+}
+
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
   assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*'] } }, 'Validación sólo en tags validation/android-*');
@@ -61,6 +66,7 @@ function validateNativeWorkflow(workflow) {
   for (const [id, api, target, command] of [['api34', 34, 'google_apis', 'node scripts/android-16k.js api34'],
     ['pinning', 30, 'default', 'node scripts/android-pinning.js'], ['pages16k', 36, 'google_apis_ps16k', 'node scripts/android-16k.js probe']]) {
     const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
+    if (id === 'pages16k') validate16kMemory(step);
     assert.ok(index > previous && !step['continue-on-error'], 'API34, MITM y 16KB son obligatorios y secuenciales');
     if (id === 'pages16k') assert.equal(step.if, "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}", '16KB exige prerrequisitos aprobados y ausencia de cancelación, independientemente de pinning');
     else assert.ok(!step.if, 'API34 y MITM conservan sus guardias obligatorias');
