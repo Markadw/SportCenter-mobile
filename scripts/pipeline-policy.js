@@ -2,7 +2,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const workBranch = /^(feature|fix|chore|test|release|hotfix)\/.+/;
-function executionPlan({ event, branch, base, head, android = false, evidence = false, draft = false }) {
+function executionPlan({ event, branch, base, head, refType = 'branch', deleted = false, android = false, evidence = false, draft = false }) {
+  assert.equal(typeof deleted, 'boolean', 'El estado deleted debe proceder del evento push.');
+  if (deleted) throw new Error('Eliminar una referencia no genera una candidata.');
+  if (refType === 'tag') {
+    if (event === 'push' && /^candidate\/android-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(branch)) {
+      return { stage: 'candidata', android: true, evidence: true };
+    }
+    throw new Error('Sólo un push de tag candidate/android-* puede solicitar una candidata por etiqueta.');
+  }
+  assert.equal(refType, 'branch', 'El resto de la matriz requiere una referencia de rama.');
   if (event === 'push' && workBranch.test(branch)) return { stage: 'trabajo', android: false, evidence: false };
   if (event === 'pull_request') {
     if (!['develop', 'main'].includes(base)) throw new Error('Destino de PR fuera de la matriz.');
@@ -27,9 +36,10 @@ async function pushQuality({ repository, branch, sha, deleted = false }, fetchPu
   return !prs.some((pr) => pr.state === 'open' && ['develop', 'main'].includes(pr.base?.ref) && pr.head?.sha === sha);
 }
 
-function evaluateChecks(results, requireAndroid) {
-  const required = ['plan', 'quality', 'api', 'performance'];
+function evaluateChecks(results, requireAndroid, requirePinning = false) {
+  const required = ['plan', 'quality', 'security', 'api', 'performance'];
   if (requireAndroid || !['skipped', undefined].includes(results.android)) required.push('android');
+  if (requirePinning || !['skipped', undefined].includes(results.pinning)) required.push('pinning');
   return required.filter((name) => results[name] !== 'success');
 }
 
@@ -51,26 +61,33 @@ async function main(mode, env = process.env) {
     return;
   }
   if (mode === 'plan') {
-    let draft = false;
+    let draft = false, deleted = false;
+    assert.ok(['branch', 'tag'].includes(env.GITHUB_REF_TYPE), 'Falta el tipo de referencia de GitHub.');
+    if (env.GITHUB_EVENT_NAME === 'push') {
+      const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
+      assert.equal(typeof event.deleted, 'boolean', 'Falta deleted en el evento push.'); deleted = event.deleted;
+    }
     if (env.GITHUB_EVENT_NAME === 'pull_request') {
       const pr = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8')).pull_request;
       draft = pr.draft;
       assert.equal(typeof draft, 'boolean');
     }
     const plan = executionPlan({ event: env.GITHUB_EVENT_NAME, branch: env.GITHUB_REF_NAME, base: env.GITHUB_BASE_REF,
-      head: env.GITHUB_HEAD_REF, draft, android: env.RUN_ANDROID === 'true', evidence: env.KEEP_EVIDENCE === 'true' });
-    fs.appendFileSync(env.GITHUB_OUTPUT, `android=${plan.android}\nevidence=${plan.evidence}\n`);
+      head: env.GITHUB_HEAD_REF, refType: env.GITHUB_REF_TYPE, deleted, draft, android: env.RUN_ANDROID === 'true', evidence: env.KEEP_EVIDENCE === 'true' });
+    const pinning = env.GITHUB_REF_TYPE === 'tag' && plan.android;
+    fs.appendFileSync(env.GITHUB_OUTPUT, `android=${plan.android}\nevidence=${plan.evidence}\npinning=${pinning}\n`);
     fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `## Matriz de ejecución\n\nEtapa: **${plan.stage}**. Android obligatorio: **${plan.android ? 'sí' : 'no'}**.\n\n`
       + (env.GITHUB_EVENT_NAME === 'pull_request' && env.GITHUB_BASE_REF === 'develop'
-        ? 'PR a develop: lint, TypeScript, pruebas del cliente, HTTP e inspección obligatorios. APK y Android se omiten; pueden solicitarse en una ejecución manual de develop. No se acredita aceptación Android.\n'
-        : draft ? 'Borrador: calidad e integración sin compilar APK. Al marcarlo listo se vuelve a evaluar la candidata.\n'
+        ? 'PR a develop: lint, TypeScript, pruebas del cliente, HTTP, seguridad e inspección obligatorios. APK y Android se omiten; pueden solicitarse en una ejecución manual de develop. No se acredita aceptación Android.\n'
+        : env.GITHUB_REF_TYPE === 'tag' ? 'Candidata explícita del commit congelado: exige APK, inspección, aceptación Android y rechazo nativo bajo MITM; no registra una entrega automáticamente.\n'
+          : draft ? 'Borrador: calidad e integración sin compilar APK. Al marcarlo listo se vuelve a evaluar la candidata.\n'
           : plan.android ? 'Esta ejecución exige compilación y aceptación Android aprobadas.\n'
-            : 'Integración sin APK ni Android; se comprueban calidad, HTTP e inspección.\n'));
+            : 'Integración sin APK ni Android; se comprueban calidad, HTTP, seguridad e inspección.\n'));
     return;
   }
   if (mode !== 'gate') throw new Error('Usar push, plan o gate.');
-  const results = Object.fromEntries(['plan', 'quality', 'api', 'performance', 'android'].map((name) => [name, env[`RESULT_${name.toUpperCase()}`] || 'skipped']));
-  const blocked = evaluateChecks(results, env.REQUIRE_ANDROID !== 'false');
+  const results = Object.fromEntries(['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning'].map((name) => [name, env[`RESULT_${name.toUpperCase()}`] || 'skipped']));
+  const blocked = evaluateChecks(results, env.REQUIRE_ANDROID !== 'false', env.REQUIRE_PINNING === 'true');
   const rows = Object.entries(results).map(([name, result]) => `| ${name} | ${result} |`);
   fs.appendFileSync(env.GITHUB_STEP_SUMMARY, ['## Resultado de integración', '', '| Comprobación | Estado |', '|---|---|', ...rows, '',
     blocked.length ? `**Bloqueada**: ${blocked.join(', ')}.\n`

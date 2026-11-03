@@ -1,0 +1,194 @@
+# Revalidación del APK c816 ya compilado: ninguna operación de compilación EAS.
+name: Validación nativa del mismo APK
+on:
+  push:
+    tags: ['validation/android-*']
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: android-validation-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  quality:
+    name: Calidad de validación nativa
+    uses: ./.github/workflows/ci.yml
+    with:
+      keep_evidence: true
+  security:
+    name: Seguridad de validación nativa
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      keep_evidence: true
+  native:
+    name: Inspección y pruebas nativas del mismo APK
+    needs: [quality, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PRODUCT_NAME: ${{ vars.ANDROID_TEST_PRODUCT_NAME }}
+      keep_evidence: 'true'
+      PINNING_CANDIDATE: 'true'
+      PINNING_EPHEMERAL_AVD: 'true'
+      PINNING_SYSTEM_IMAGE: system-images;android-30;default;x86_64
+      PINNING_EXPECTED_BUILD_ID: 2bf40b15-71fc-41c9-9ad6-bf825096b394
+      PINNING_EXPECTED_COMMIT: c8168584e92d620b9cdf75b6d27228128b12bc81
+      PINNING_EXPECTED_SHA256: 1ac0a14bec648434d8733d64ef817d3e41329fe47e1c6fea843cdda1a7bb814d
+      PINNING_IMAGE_HOST: http2.mlstatic.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verificar árbol app idéntico y compuertas reales del padre
+        id: parent
+        run: node scripts/android-16k.js prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar dependencias del lockfile para resolver la configuración Expo
+        id: install
+        run: npm ci --no-audit --no-fund
+      - name: Recuperar sólo la procedencia del mismo APK
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.parent.outputs.artifact_id }}
+          repository: Markadw/SportCenter-mobile
+          run-id: 41349708434
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/android16k-parent
+          merge-multiple: true
+      - name: Consultar únicamente build:view del build existente
+        run: node scripts/android-16k.js view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar el mismo APK y exigir su SHA256 conocido
+        run: node scripts/android-16k.js download
+      - name: Instalar y verificar decoder oficial Command-line Tools 23.0
+        id: command_line_tools
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK requerido}}"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" --install "cmdline-tools;23.0"
+          APKANALYZER="$sdk/cmdline-tools/23.0/bin/apkanalyzer" node scripts/inspect-android-artifact.js verify-tools23
+          echo "APKANALYZER=$sdk/cmdline-tools/23.0/bin/apkanalyzer" >> "$GITHUB_ENV"
+      - name: Inspección corregida de firma, manifiesto, ABI, ZIP, ELF y JADX
+        id: inspection
+        run: node scripts/inspect-android-artifact.js
+      - name: Verificar NSC compilada antes de iniciar cualquier AVD
+        id: nsc_preflight
+        run: node scripts/android-pinning.js preflight
+      - name: Instalar herramientas verificadas sin compilar la aplicación
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/android-pinning-install.sh
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          echo "$RUNNER_TEMP/maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar y diagnosticar acceso KVM del runner efímero
+        id: kvm
+        timeout-minutes: 2
+        run: node scripts/android-16k.js kvm
+      - name: Aceptación pública API34 del mismo APK
+        id: api34
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: sportcenter34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node scripts/android-16k.js api34
+      - name: Rechazo MITM y recuperación API30 en AVD nuevo
+        id: pinning
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: sportcenter30
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -writable-system
+          script: node scripts/android-pinning.js
+      - name: Ejecución 16KB x86_64 API36 en AVD nuevo
+        id: pages16k
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.nsc_preflight.outcome == 'success' && steps.kvm.outcome == 'success' && steps.api34.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis_ps16k
+          channel: stable
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: sportcenter16k
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: node scripts/android-16k.js probe
+      - name: Mostrar alcance y conservar el fallo histórico del padre
+        if: always()
+        run: node scripts/android-16k.js summary
+      - name: Conservar sólo evidencia compacta y capturas públicas
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-validation-evidence
+          path: |
+            test-results/android-validation-source.json
+            test-results/android-build.json
+            test-results/eas-candidate.json
+            test-results/android-command-line-tools.json
+            test-results/android-inspection.json
+            test-results/android-inspection.txt
+            test-results/android34.json
+            test-results/maestro.xml
+            test-results/maestro/
+            test-results/android-pinning-preflight.json
+            test-results/android-pinning.json
+            test-results/android16k.json
+            test-results/android16k-summary.md
+            test-results/android16k-maestro.xml
+            test-results/android16k-maestro/
+          if-no-files-found: error
+          retention-days: 14
+  result:
+    name: Resultado de validación nativa
+    needs: [quality, security, native]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - name: Exigir todos los resultados reales sin omisiones
+        run: node scripts/android-16k.js gate
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_NATIVE: ${{ needs.native.result }}

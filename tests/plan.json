@@ -38,6 +38,14 @@
       {
         "story": "HU-09",
         "issue": 15
+      },
+      {
+        "story": "HU-10",
+        "issue": 47
+      },
+      {
+        "story": "HU-11",
+        "issue": 48
       }
     ],
     "selection": "Los criterios vigentes son los de las issues del tablero personal. Los requisitos de otra planeación no se incorporan como bloqueadores sin reconciliación explícita."
@@ -55,7 +63,7 @@
       "name": "API APK y aceptación del incremento",
       "workflow": ".github/workflows/api-android.yml",
       "scope": "Calidad previa, contratos HTTP, build EAS y aceptación/regresión Android del APK candidato; resultado final que bloquea fallos u omisiones obligatorias; entrega interna de candidatas con evidencia tras aprobación",
-      "execution": "PR a develop, en borrador o listo: lint, TypeScript, pruebas del cliente, HTTP e inspección obligatorios, sin APK ni Android automáticos. Android puede solicitarse mediante ejecución manual en develop; si se solicita, exige compilación EAS y aceptación aprobadas. Main y candidatas manuales conservan su política Android. Fallos u omisiones de etapas requeridas bloquean; no hay reintentos ni builds programados."
+      "execution": "PR a develop: lint, TypeScript, pruebas del cliente, HTTP, npm audit, Semgrep y CodeQL obligatorios; sin APK automático. La candidata explícita por tag exige un APK de procedencia verificada, inspección, aceptación API34 y rechazo nativo controlado API30 usando ese mismo APK. No hay builds programados ni reintentos que creen sustitutos silenciosamente. La etiqueta validation/android-* activa android-validation.yml como auxiliar de este segundo pipeline: ejecuta calidad, seguridad, inspección, aceptación API34, rechazo controlado API30 y ejecución de 16 KB simulados en API36 x86_64 sobre el APK existente, verificando fuente y SHA256 sin crear otra compilación EAS."
     },
     {
       "id": 3,

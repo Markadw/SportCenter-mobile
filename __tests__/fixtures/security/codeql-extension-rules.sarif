@@ -1,0 +1,44 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "semanticVersion": "2.27.3"
+        },
+        "extensions": [
+          {
+            "name": "codeql-action/pr-diff-range",
+            "semanticVersion": "0.0.0"
+          },
+          {
+            "name": "codeql/javascript-queries",
+            "semanticVersion": "2.4.8+a1575b98a8cc19bcfa7bb6cb41be688cb3dae65c",
+            "rules": [
+              {
+                "id": "js/code-injection",
+                "defaultConfiguration": {
+                  "level": "error"
+                },
+                "properties": {
+                  "security-severity": "9.3"
+                }
+              }
+            ]
+          },
+          {
+            "name": "codeql/javascript-all",
+            "semanticVersion": "2.10.4+a1575b98a8cc19bcfa7bb6cb41be688cb3dae65c"
+          },
+          {
+            "name": "codeql/threat-models",
+            "semanticVersion": "1.1.0+a1575b98a8cc19bcfa7bb6cb41be688cb3dae65c"
+          }
+        ]
+      },
+      "results": []
+    }
+  ]
+}

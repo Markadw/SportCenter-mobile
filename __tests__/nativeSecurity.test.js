@@ -80,7 +80,7 @@ describe('CNG de seguridad de red Android', () => {
     const build = app.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties')[1].android;
     expect(build).toMatchObject({ enableMinifyInReleaseBuilds: true, enableShrinkResourcesInReleaseBuilds: true, usesCleartextTraffic: false });
     expect(build.extraProguardRules).not.toMatch(/-keep\s+(?:class|interface)\s+(?:\*|\*\*|expo\.\*\*|com\.facebook\.\*\*)/);
-    for (const permission of ['CAMERA','RECORD_AUDIO','READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE','READ_MEDIA_AUDIO','READ_MEDIA_IMAGES','READ_MEDIA_VIDEO']) {
+    for (const permission of ['SYSTEM_ALERT_WINDOW','VIBRATE','CAMERA','RECORD_AUDIO','READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE','READ_MEDIA_AUDIO','READ_MEDIA_IMAGES','READ_MEDIA_VIDEO']) {
       expect(app.android.blockedPermissions).toContain(`android.permission.${permission}`);
     }
     expect(app.android.permissions ?? []).not.toEqual(expect.arrayContaining(['android.permission.ACCESS_FINE_LOCATION']));

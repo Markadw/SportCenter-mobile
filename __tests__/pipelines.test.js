@@ -42,14 +42,14 @@ describe('Matriz y bloqueo de integración', () => {
   test('rechaza ramas fuera del flujo', () => {
     expect(() => executionPlan({ event: 'push', branch: 'otra' })).toThrow('fuera');
   });
-  test.each(['plan', 'quality', 'api', 'performance'])('la comprobación %s sigue siendo obligatoria sin Android', (name) => {
-    const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
+  test.each(['plan', 'quality', 'security', 'api', 'performance'])('la comprobación %s sigue siendo obligatoria sin Android', (name) => {
+    const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'skipped' };
     for (const result of ['failure', 'skipped', 'cancelled', undefined]) {
       expect(evaluateChecks({ ...results, [name]: result }, false)).toEqual([name]);
     }
   });
   test('Android omitido permite integrar en develop pero bloquea una ejecución que lo exige', () => {
-    const results = { plan: 'success', quality: 'success', api: 'success', performance: 'success', android: 'skipped' };
+    const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'skipped' };
     expect(evaluateChecks(results, true)).toEqual(['android']);
     expect(evaluateChecks(results, false)).toEqual([]);
   });
@@ -58,7 +58,7 @@ describe('Matriz y bloqueo de integración', () => {
     try {
       const env = { ...process.env, GITHUB_STEP_SUMMARY: path.join(temp, 'summary.md'),
         REQUIRE_ANDROID: 'true', RESULT_PLAN: 'success', RESULT_QUALITY: 'success',
-        RESULT_API: 'failure', RESULT_PERFORMANCE: 'success', RESULT_ANDROID: 'skipped' };
+        RESULT_SECURITY: 'success', RESULT_API: 'failure', RESULT_PERFORMANCE: 'success', RESULT_ANDROID: 'skipped' };
       const failed = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'gate'], { env, encoding: 'utf8' });
       expect(failed.status).toBe(1);
       expect(fs.readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8')).toContain('Bloqueada');
@@ -80,13 +80,13 @@ describe('Matriz y bloqueo de integración', () => {
     }
   });
   test('un Android ejecutado y fallido bloquea aunque fuera opcional', () => {
-    expect(evaluateChecks({ plan: 'success', quality: 'success', api: 'success',
+    expect(evaluateChecks({ plan: 'success', quality: 'success', security: 'success', api: 'success',
       performance: 'success', android: 'failure' }, false)).toEqual(['android']);
   });
 });
 
 function workflows() {
-  return new Map(['ci.yml', 'api-android.yml', 'performance.yml'].map((file) =>
+  return new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map((file) =>
     [file, YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8'))]));
 }
 describe('Dependencias reales de los YAML', () => {
@@ -130,7 +130,7 @@ describe('Dependencias reales de los YAML', () => {
   test('rechaza omitir las capturas del artefacto de diagnóstico Android', () => {
     const config = workflows();
     const evidence = config.get('api-android.yml').jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
-    evidence.with.path = 'test-results/maestro.xml';
+    evidence.with.path = evidence.with.path.replace('test-results/maestro/', '');
     expect(() => validateWorkflows(config)).toThrow('incluir las capturas');
   });
   test('detecta artefactos añadidos a una simple inspección', () => {
@@ -278,18 +278,179 @@ describe('Android opcional en develop', () => {
       const summary = path.join(temp, 'summary.md');
       fs.writeFileSync(event, JSON.stringify({ pull_request: { draft: false } }));
       const result = spawnSync(process.execPath, [path.join(root, 'scripts/pipeline-policy.js'), 'plan'], {
-        env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_BASE_REF: 'develop',
+        env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF_TYPE: 'branch', GITHUB_BASE_REF: 'develop',
           GITHUB_HEAD_REF: 'feature/app', GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
           GITHUB_STEP_SUMMARY: summary, RUN_ANDROID: 'false', KEEP_EVIDENCE: 'false' }, encoding: 'utf8',
       });
       expect(result.status).toBe(0);
-      expect(fs.readFileSync(output, 'utf8')).toBe('android=false\nevidence=false\n');
+      expect(fs.readFileSync(output, 'utf8')).toBe('android=false\nevidence=false\npinning=false\n');
       expect(fs.readFileSync(summary, 'utf8')).toContain('No se acredita aceptación Android');
     } finally {
       if (path.dirname(path.resolve(temp)) !== path.resolve(os.tmpdir()) || !path.basename(temp).startsWith('sport-pipeline-')) {
         throw new Error('Ruta temporal de prueba inesperada.');
       }
       fs.rmSync(temp, { recursive: true });
+    }
+  });
+});
+
+test('la candidata no aprueba si falta el piloto nativo exigido o se ejecutó y falló', () => {
+  const results = { plan: 'success', quality: 'success', security: 'success', api: 'success', performance: 'success', android: 'success', pinning: 'skipped' };
+  expect(evaluateChecks(results, true, true)).toEqual(['pinning']);
+  expect(evaluateChecks({ ...results, pinning: 'success' }, true, true)).toEqual([]);
+  expect(evaluateChecks({ ...results, pinning: 'failure' }, false, false)).toEqual(['pinning']);
+});
+
+describe('Revalidación nativa del mismo APK sin EAS build', () => {
+  test.each([
+    config => { config.on.push.tags = ['candidate/android-*']; },
+    config => { config.permissions['security-events'] = 'write'; },
+    config => { config.jobs.native.needs = ['quality']; },
+    config => { config.jobs.native.env.GITHUB_SHA = 'spoof'; },
+    config => { config.jobs.native.env.EXPO_TOKEN = 'secret'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'api34').if = 'always()'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'pages16k').with.target = 'google_apis'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'pinning').with['avd-name'] = 'sportcenter34'; },
+    config => { config.jobs.native.steps.unshift({ run: 'npx eas-cli@latest build --platform android' }); },
+    config => { config.jobs.result.needs = ['quality', 'security']; },
+    config => { config.jobs.result.steps.find(step => step.run?.endsWith(' gate')).env.RESULT_NATIVE = 'success'; },
+    config => { config.jobs.result.name = 'Resultado de integración'; },
+  ])('rechaza configuración que falsee el alcance o resultados %#', mutate => {
+    const configs = workflows(); mutate(configs.get('android-validation.yml'));
+    expect(() => validateWorkflows(configs)).toThrow();
+  });
+  test('seguridad sólo se llama una vez por cada uno de los dos orquestadores permitidos', () => {
+    const configs = workflows();
+    configs.get('android-validation.yml').jobs.duplicateSecurity = { uses: './.github/workflows/security.yml' };
+    expect(() => validateWorkflows(configs)).toThrow('una sola vez');
+  });
+});
+
+test.each(['android-validation.yml', 'api-android.yml'])('piloto AOSP requiere ruta y target exactos en %s', file => {
+  const configs = workflows(), job = configs.get(file).jobs[file === 'android-validation.yml' ? 'native' : 'pinning'];
+  const step = job.steps.find(step => step.with?.script === 'node scripts/android-pinning.js');
+  expect(step.with.target).toBe('default');
+  expect(job.env.PINNING_SYSTEM_IMAGE).toBe('system-images;android-30;default;x86_64');
+  step.with.target = 'google_apis';
+  expect(() => validateWorkflows(configs)).toThrow();
+  step.with.target = 'default';
+  job.env.PINNING_SYSTEM_IMAGE = 'system-images;android-30;google_apis;x86_64';
+  expect(() => validateWorkflows(configs)).toThrow();
+});
+
+describe('Dependencias de Expo config antes de EAS build:view', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'install'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'install');
+      config.jobs.native.steps = [step, ...config.jobs.native.steps.filter(item => item !== step)]; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'install');
+      config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'install').run = 'npm install'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'install').if = 'false'; },
+  ])('rechaza instalación ausente, antes de source prepare, después de EAS u omisible %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('KVM obligatorio, acotado y sin fallback', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'kvm'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'kvm').if = 'false'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'kvm')['timeout-minutes'] = 10; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'kvm'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'api34').with['emulator-options'] = '-accel off'; },
+  ])('rechaza KVM omitido, tardío, sin límite o TCG %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('NSC estático antes de arrancar el primer AVD', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'nsc_preflight'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'nsc_preflight').if = 'false'; },
+    config => { config.jobs.native.steps.find(step => step.id === 'nsc_preflight')['continue-on-error'] = true; },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'nsc_preflight'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { const artifact = config.jobs.native.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')); artifact.with.path = artifact.with.path.replace('test-results/android-pinning-preflight.json', ''); },
+  ])('bloquea NSC omitido, tardío, tolerado o sin evidencia %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('16KB independiente del rechazo TLS, con prerrequisitos y cancelación estrictos', () => {
+  test.each(['inspection', 'nsc_preflight', 'kvm', 'api34'])('no permite omitir prerrequisito %s', prerequisite => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace(" && steps." + prerequisite + ".outcome == 'success'", '');
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test.each(['inspection', 'nsc_preflight', 'kvm', 'api34'])('no admite un prerrequisito omitido %s', prerequisite => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace('steps.' + prerequisite + ".outcome == 'success'", 'steps.' + prerequisite + ".outcome == 'skipped'");
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test.each(['always()', 'cancelled()', 'success()'])('no sustituye !cancelled por %s', status => {
+    const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+    step.if = step.if.replace('!cancelled()', status);
+    expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+  });
+  test('no permite volver a condicionar 16KB al éxito de pinning ni omitir su condición', () => {
+    for (const change of [undefined, " && steps.pinning.outcome == 'success'"]) {
+      const config = workflows(), step = config.get('android-validation.yml').jobs.native.steps.find(item => item.id === 'pages16k');
+      step.if = change ? step.if.replace(' }}', change + ' }}') : undefined;
+      expect(() => validateWorkflows(config)).toThrow('16KB exige prerrequisitos');
+    }
+  });
+  test('pinning no se tolera aunque 16KB sea independiente; el agregado conserva el fallo nativo', async () => {
+    const workflow = workflows().get('android-validation.yml');
+    const pages = workflow.jobs.native.steps.find(step => step.id === 'pages16k');
+    const pinning = workflow.jobs.native.steps.find(step => step.id === 'pinning');
+    expect(pages.if).not.toMatch(/pinning|success\(\)/);
+    expect(workflow.jobs.native['continue-on-error']).toBeUndefined();
+    expect(pinning['continue-on-error']).toBeUndefined(); expect(pinning.if).toBeUndefined();
+    expect(pages['continue-on-error']).toBeUndefined();
+    const { main } = require('../scripts/android-16k');
+    await expect(main('gate', { RUNNER_TEMP: os.tmpdir(), RESULT_QUALITY: 'success', RESULT_SECURITY: 'success',
+      RESULT_NATIVE: 'failure', PAGES16K_OUTCOME: 'success', PINNING_OUTCOME: 'failure' })).rejects.toThrow('NATIVE_VALIDATION_NOT_SUCCESSFUL');
+    const broken = workflows(); broken.get('android-validation.yml').jobs.native.steps.find(step => step.id === 'pinning')['continue-on-error'] = true;
+    expect(() => validateWorkflows(broken)).toThrow();
+  });
+});
+
+describe('Command-line Tools23 exacto antes de inspector y NSC', () => {
+  test.each([
+    config => { config.jobs.native.steps = config.jobs.native.steps.filter(step => step.id !== 'command_line_tools'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'command_line_tools'); config.jobs.native.steps = [...config.jobs.native.steps.filter(item => item !== step), step]; },
+    config => { config.jobs.native.steps.find(step => step.id === 'command_line_tools').run = config.jobs.native.steps.find(step => step.id === 'command_line_tools').run.replace('cmdline-tools;23.0', 'cmdline-tools;22.0'); },
+    config => { const step = config.jobs.native.steps.find(step => step.id === 'command_line_tools'); step.run = step.run.replace('node scripts/inspect-android-artifact.js verify-tools23', 'true'); },
+    config => { config.jobs.native.steps.find(step => step.id === 'command_line_tools').if = 'false'; },
+    config => { const artifact = config.jobs.native.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')); artifact.with.path = artifact.with.path.replace('test-results/android-command-line-tools.json', ''); },
+  ])('bloquea decoder sin pin/verificación/evidencia o con orden incorrecto %#', mutate => {
+    const config = workflows(); mutate(config.get('android-validation.yml'));
+    expect(() => validateWorkflows(config)).toThrow();
+  });
+});
+
+describe('Decoder23 en los dos runners principales independientes', () => {
+  test.each(['android', 'pinning'])('el job principal %s verifica y exporta su propio decoder23', jobName => {
+    const config=workflows();
+    const job=config.get('api-android.yml').jobs[jobName];
+    expect(job.steps.filter(step=>step.id==='command_line_tools')).toHaveLength(1);
+    expect(job.steps.find(step=>step.id==='command_line_tools').run).toContain('verify-tools23');
+    expect(()=>validateWorkflows(config)).not.toThrow();
+  });
+  test.each(['android', 'pinning'])('no permite %s sin instalar/verificar/exportar el decoder exacto', jobName => {
+    for(const mutation of [
+      job=>{job.steps=job.steps.filter(step=>step.id!=='command_line_tools');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('cmdline-tools;23.0','cmdline-tools;22.0');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('verify-tools23','skip-verification');},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');job.steps=[...job.steps.filter(item=>item!==step),step];},
+      job=>{const step=job.steps.find(step=>step.id==='command_line_tools');step.run=step.run.replace('set -euo pipefail','set +e');},
+      job=>{const artifact=job.steps.find(step=>step.uses?.startsWith('actions/upload-artifact@'));artifact.with.path=artifact.with.path.replace('test-results/android-command-line-tools.json','');},
+    ]) {
+      const config=workflows();mutation(config.get('api-android.yml').jobs[jobName]);
+      expect(()=>validateWorkflows(config)).toThrow();
     }
   });
 });

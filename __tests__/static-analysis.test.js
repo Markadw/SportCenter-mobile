@@ -73,7 +73,7 @@ describe('Evidencia del workflow sin aprobaciones falsas', () => {
     expect(staticSummary({}, { LINT_OUTCOME: 'success' })).not.toContain('Aprobada');
   });
   test('un reporte anterior no acredita una etapa omitida', () => {
-    expect(staticSummary({ eslint: report }, { LINT_OUTCOME: 'skipped' })).toContain('Omitida: skipped');
+    expect(staticSummary({ eslint: report }, { LINT_OUTCOME: 'skipped' })).toContain('Omitida&#58; skipped');
     expect(staticSummary({ eslint: report }, { LINT_OUTCOME: 'skipped' })).not.toContain('Aprobada');
   });
   test.each([{ GITHUB_SHA: 'otro' }, { GITHUB_RUN_ID: '11' }, { GITHUB_RUN_ATTEMPT: '3' }])('rechaza un informe de otra ejecución: %j', (context) => {
@@ -81,7 +81,7 @@ describe('Evidencia del workflow sin aprobaciones falsas', () => {
   });
   test('el validador rechaza perder los informes del artefacto existente', () => {
     const root = path.resolve(__dirname, '..');
-    const workflows = new Map(['ci.yml','api-android.yml','performance.yml'].map((file) => [file, YAML.parse(fs.readFileSync(path.join(root,'.github/workflows',file),'utf8'))]));
+    const workflows = new Map(['ci.yml', 'api-android.yml', 'performance.yml', 'security.yml', 'android-validation.yml'].map((file) => [file, YAML.parse(fs.readFileSync(path.join(root,'.github/workflows',file),'utf8'))]));
     const evidence = workflows.get('ci.yml').jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     evidence.with.path = evidence.with.path.replace('test-results/static-analysis/','');
     expect(() => validateWorkflows(workflows)).toThrow('informes estáticos');
