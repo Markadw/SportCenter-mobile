@@ -9,6 +9,75 @@ const MAX_OUTPUT = 8 * 1024 * 1024;
 const CONTROL_TIMEOUT = 15000;
 const SECRET_KEYS = Object.freeze(['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD']);
 const PATH_DEFAULT = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+// Explicit publication vocabulary. Never turn arbitrary errors or child output into report fields.
+const SANDBOX_ERROR_CODES = Object.freeze([
+  'CALLER_UID_UNAVAILABLE', 'EGRESS_REJECTION_UNPROVEN', 'FIREWALL_ALLOW_FAILED',
+  'FIREWALL_CHAIN_CREATE_FAILED', 'FIREWALL_CHAIN_MISMATCH', 'FIREWALL_INCOMPLETE',
+  'FIREWALL_INSERT_FAILED', 'FIREWALL_INSPECTION_FAILED', 'FIREWALL_OUTPUT_INVALID',
+  'FIREWALL_OWNER_DUPLICATE', 'FIREWALL_OWNER_NOT_FIRST', 'FIREWALL_PLAN_INVALID',
+  'FIREWALL_REJECT_FAILED', 'FIREWALL_UNAVAILABLE', 'LINUX_SANDBOX_REQUIRED', 'NONCE_INVALID',
+  'PRIVATE_ADB_UNREACHABLE', 'PRIVATE_ARGV_INVALID', 'PRIVATE_CWD_INVALID', 'PRIVATE_DEVICE_INVALID',
+  'PRIVATE_DIRECTORIES_CREATE_FAILED', 'PRIVATE_ENV_INVALID', 'PRIVATE_ENV_KEY_REJECTED',
+  'PRIVATE_ENV_VALUE_INVALID', 'PRIVATE_EXECUTABLE_INVALID', 'PRIVATE_EXECUTABLE_UNAVAILABLE',
+  'PRIVATE_FILE_READ_FAILED', 'PRIVATE_FILE_TOO_LARGE', 'PRIVATE_FILE_WRITE_FAILED',
+  'PRIVATE_MAESTRO_ARGV_INVALID', 'PRIVATE_MAESTRO_FLOW_REQUIRED', 'PRIVATE_MAESTRO_FORMAT_INVALID',
+  'PRIVATE_OWNERSHIP_FAILED', 'PRIVATE_PATH_ESCAPED', 'PRIVATE_PATH_INVALID', 'PRIVATE_PATH_UNAVAILABLE',
+  'PRIVATE_ROOT_CHANGED', 'PRIVATE_ROOT_CREATE_FAILED', 'PRIVATE_ROOT_IDENTITY_INVALID',
+  'PRIVATE_ROOT_STAT_FAILED', 'REJECT_COUNTER_INVALID', 'REJECT_COUNTER_UNAVAILABLE',
+  'RUNNER_TEMP_INVALID', 'RUNNER_TEMP_UNAVAILABLE', 'RUN_ID_INVALID',
+  'SANDBOX_ACCOUNT_CHANGED', 'SANDBOX_ACCOUNT_CLEANUP_FAILED', 'SANDBOX_ACCOUNT_CREATE_FAILED',
+  'SANDBOX_BUSY', 'SANDBOX_CONFIG_INVALID', 'SANDBOX_FIREWALL_CLEANUP_FAILED',
+  'SANDBOX_GID_UNAVAILABLE', 'SANDBOX_NODE_PATH_INVALID', 'SANDBOX_NOT_READY',
+  'SANDBOX_PRIVATE_CLEANUP_FAILED', 'SANDBOX_PROCESSES_REMAIN', 'SANDBOX_PROCESS_INSPECTION_FAILED',
+  'SANDBOX_PROCESS_KILL_FAILED', 'SANDBOX_ROOT_INVALID', 'SANDBOX_SDK_PATH_INVALID',
+  'SANDBOX_SETUP_CLEANUP_FAILED', 'SANDBOX_SETUP_FAILED', 'SANDBOX_SUBPROCESS_FAILED',
+  'SANDBOX_TOOL_UNAVAILABLE', 'SANDBOX_UID_NOT_DISTINCT', 'SANDBOX_UID_NOT_EMPTY',
+  'SANDBOX_UID_UNAVAILABLE', 'SECRETS_BEFORE_PROBES', 'SECRET_IN_ARGV_REJECTED',
+  'SUBPROCESS_OUTPUT_LIMIT', 'SUBPROCESS_RESULT_INVALID', 'SUBPROCESS_TIMEOUT_INVALID',
+  'SUDO_UNAVAILABLE', 'UID_INVALID',
+]);
+const sandboxCodeSet = new Set(SANDBOX_ERROR_CODES);
+const sandboxDiagnostics = new WeakMap();
+function ownData(value, key) {
+  try {
+    if (!value || !['object', 'function'].includes(typeof value)) return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  } catch { return undefined; }
+}
+function fixedSandboxCode(error) {
+  const code = ownData(error, 'code');
+  return typeof code === 'string' && sandboxCodeSet.has(code) ? code : 'SANDBOX_SETUP_FAILED';
+}
+function isSafeSandboxDiagnostic(value) {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== 3 || !keys.every(key => ['sandboxCode', 'cleanupCode', 'cleanupConfirmed'].includes(key))) return false;
+    const sandboxCode = ownData(value, 'sandboxCode'), cleanupCode = ownData(value, 'cleanupCode');
+    const cleanupConfirmed = ownData(value, 'cleanupConfirmed');
+    if (!(sandboxCode === null || typeof sandboxCode === 'string' && sandboxCodeSet.has(sandboxCode))
+      || !(cleanupCode === null || typeof cleanupCode === 'string' && sandboxCodeSet.has(cleanupCode))
+      || typeof cleanupConfirmed !== 'boolean') return false;
+    if (cleanupConfirmed && cleanupCode !== null) return false;
+    if (sandboxCode === null && (cleanupCode !== null || cleanupConfirmed !== true)) return false;
+    return true;
+  } catch { return false; }
+}
+function rememberSandboxDiagnostic(error, diagnostic) {
+  // All callers construct this object from fixed codes and locally observed cleanup state.
+  if (error && ['object', 'function'].includes(typeof error) && isSafeSandboxDiagnostic(diagnostic)) {
+    sandboxDiagnostics.set(error, Object.freeze(diagnostic));
+  }
+  return error;
+}
+function safeSandboxDiagnostic(error) {
+  const diagnostic = error && ['object', 'function'].includes(typeof error) ? sandboxDiagnostics.get(error) : undefined;
+  return diagnostic ? { ...diagnostic } : {
+    sandboxCode: fixedSandboxCode(error), cleanupCode: null, cleanupConfirmed: false,
+  };
+}
 class SandboxError extends Error {
   constructor(code) { super(code); this.name = 'SandboxError'; this.code = code; }
 }
@@ -149,8 +218,35 @@ async function capturedRun(file, args, options) {
 const PROBE_IDENTITY = String.raw`if(process.getuid()!==Number(process.argv[1])||process.getgid()!==Number(process.argv[2])){process.stdout.write('PROBE_UID_MISMATCH');process.exit(1);}`;
 const NEGATIVE_PROBE = PROBE_IDENTITY + String.raw`const net=require('node:net');let done=false;const s=net.createConnection({host:'192.0.2.1',port:443});function end(code,word){if(done)return;done=true;s.destroy();process.stdout.write(word);process.exitCode=code;}s.setTimeout(4000);s.on('connect',()=>end(1,'UNEXPECTED_CONNECTION'));s.on('error',()=>end(0,'NEGATIVE_BLOCKED'));s.on('timeout',()=>end(1,'NEGATIVE_TIMEOUT'));`;
 const ADB_PROBE = PROBE_IDENTITY + String.raw`const net=require('node:net');let done=false,b=Buffer.alloc(0);const s=net.createConnection({host:'127.0.0.1',port:5037});function end(code,word){if(done)return;done=true;s.destroy();process.stdout.write(word);process.exitCode=code;}s.setTimeout(4000);s.on('connect',()=>s.write('000Chost:version'));s.on('data',v=>{b=Buffer.concat([b,v]);if(b.length>128)return end(1,'ADB_INVALID');if(b.length>=4&&b.subarray(0,4).toString()!=='OKAY')return end(1,'ADB_INVALID');if(b.length>=8){const n=parseInt(b.subarray(4,8).toString(),16);if(!Number.isInteger(n)||n<1||n>32)return end(1,'ADB_INVALID');if(b.length>=8+n)end(0,'ADB_OK');}});s.on('error',()=>end(1,'ADB_UNAVAILABLE'));s.on('timeout',()=>end(1,'ADB_TIMEOUT'));s.on('end',()=>{if(!done)end(1,'ADB_INCOMPLETE');});`;
+// Fixed program, never assembled from flow data. Arguments contain only the already
+// validated cwd, executable and command arguments; secrets remain in the allowlisted env.
+// The inherited descriptors are the outer capturedRun pipes, never the public console.
+const UID_PROCESS_WRAPPER = String.raw`'use strict';
+const {spawn}=require('node:child_process');
+const path=require('node:path');
+const signals=require('node:os').constants.signals;
+let child;
+try {
+  const [cwd,executable,...args]=process.argv.slice(1);
+  if(typeof cwd!=='string'||!path.isAbsolute(cwd)||cwd.includes('\0')
+    ||typeof executable!=='string'||!path.isAbsolute(executable)||executable.includes('\0')
+    ||args.length>128||args.some(arg=>typeof arg!=='string'||arg.includes('\0'))) {
+    process.exitCode=125;
+  } else {
+    process.chdir(cwd);
+    child=spawn(executable,args,{cwd:process.cwd(),env:process.env,shell:false,stdio:'inherit'});
+    for(const signal of ['SIGTERM','SIGINT','SIGHUP']) {
+      process.on(signal,()=>{try{child.kill(signal);}catch{process.exitCode=128+signals[signal];}});
+    }
+    child.once('error',()=>{process.exitCode=126;});
+    child.once('exit',(code,signal)=>{
+      process.exitCode=Number.isInteger(code)?code:(signal&&signals[signal]?128+signals[signal]:126);
+    });
+  }
+} catch { process.exitCode=125; }
+`;
 
-async function createSandbox({ runnerTemp, runId, run = capturedRun, env = process.env,
+async function createSandboxInternal({ runnerTemp, runId, run = capturedRun, env = process.env,
   platform = process.platform, nodePath = process.execPath } = {}) {
   need(platform === 'linux', 'LINUX_SANDBOX_REQUIRED');
   need(typeof run === 'function' && env && typeof env === 'object', 'SANDBOX_CONFIG_INVALID');
@@ -241,8 +337,9 @@ async function createSandbox({ runnerTemp, runId, run = capturedRun, env = proce
     }
     const preserve = Object.keys(childEnv).join(',');
     busy = true;
-    try { return await invoke('sudo', ['-n', '--preserve-env=' + preserve, '--chdir=' + cwd,
-      '--user=#' + uid, '--group=#' + gid, '--', executable, ...argv.slice(1)], { env: childEnv, timeout }); }
+    try { return await invoke('sudo', ['-n', '--preserve-env=' + preserve,
+      '--user=#' + uid, '--group=#' + gid, '--', nodePath, '-e', UID_PROCESS_WRAPPER,
+      '--', cwd, executable, ...argv.slice(1)], { env: childEnv, timeout }); }
     finally { busy = false; }
   };
   const cleanup = async () => {
@@ -325,9 +422,17 @@ async function createSandbox({ runnerTemp, runId, run = capturedRun, env = proce
     await assertFirewall();
     ready = true;
   } catch (error) {
+    const sandboxCode = fixedSandboxCode(error);
     try { await cleanup(); }
-    catch { throw new SandboxError('SANDBOX_SETUP_CLEANUP_FAILED'); }
-    throw error instanceof SandboxError ? error : new SandboxError('SANDBOX_SETUP_FAILED');
+    catch (cleanupError) {
+      throw rememberSandboxDiagnostic(new SandboxError('SANDBOX_SETUP_CLEANUP_FAILED'), {
+        sandboxCode, cleanupCode: fixedSandboxCode(cleanupError), cleanupConfirmed: false,
+      });
+    }
+    throw rememberSandboxDiagnostic(error instanceof SandboxError ? error : new SandboxError('SANDBOX_SETUP_FAILED'), {
+      sandboxCode, cleanupCode: null,
+      cleanupConfirmed: !rootCreated && !userCreated && installed.every(item => !item.created && !item.jump),
+    });
   }
   const createPrivateFile = async (name, content) => {
     need(ready && !closed && !busy, 'SANDBOX_NOT_READY');
@@ -376,5 +481,18 @@ async function createSandbox({ runnerTemp, runId, run = capturedRun, env = proce
       scope: 'Linux runtime probes; emulator and adb server retain their original UID' }) });
 }
 
-module.exports = { SandboxError, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
+async function createSandbox(options) {
+  try { return await createSandboxInternal(options); }
+  catch (error) {
+    if (error && ['object', 'function'].includes(typeof error) && sandboxDiagnostics.has(error)) throw error;
+    // Before the internal setup try, only argument checks and read-only realpath execute.
+    // No root, account, process or firewall resource has been created in this branch.
+    throw rememberSandboxDiagnostic(error, {
+      sandboxCode: fixedSandboxCode(error), cleanupCode: null, cleanupConfirmed: true,
+    });
+  }
+}
+
+module.exports = { SandboxError, SANDBOX_ERROR_CODES, safeSandboxDiagnostic, isSafeSandboxDiagnostic,
+  UID_PROCESS_WRAPPER, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
   parseRejectCounter, parseIdentity, privatePath, secretSubset, capturedRun, createSandbox };

@@ -553,6 +553,9 @@ jobs:
         run: node scripts/android-account.cjs kvm
         env:
           PINNING_EPHEMERAL_AVD: 'true'
+      - name: Probar aislamiento Linux sin credenciales antes de Android
+        timeout-minutes: 3
+        run: node scripts/android-account.cjs probe
       - name: Login perfil carrito resumen restauración y cierre sin pedido
         id: account_runtime
         uses: reactivecircus/android-emulator-runner@v2

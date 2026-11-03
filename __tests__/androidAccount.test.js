@@ -126,6 +126,8 @@ test('report emits only fixed stages and never arbitrary private stage text', ()
   assert.equal(account.publicReport({ stage: 'AC01-password' }).stage, 'AC01-password');
   const value = account.publicReport({ stage: 'private-person@example.com' }); assert.equal(value.stage, 'unknown');
   assert.ok(!JSON.stringify(value).includes('private-person'));
+  const diagnostic = account.publicReport({ sandboxDiagnostic: { sandboxCode: 'private-person@example.com', cleanupCode: null, cleanupConfirmed: true } });
+  assert.equal(diagnostic.sandboxDiagnostic, null); assert.ok(!JSON.stringify(diagnostic).includes('private-person'));
 });
 
 async function runtime(config = {}) {
@@ -155,7 +157,8 @@ async function runtime(config = {}) {
     else if (key.includes('sportcentermobile://account')) stage = authenticated ? 'account' : 'guest';
     return { stdout };
   };
-  const create = async () => {
+  const create = async options => {
+    assert.ok(!Object.hasOwn(options, 'run'), 'sandbox must retain capturedRun, not the strict ADB/Git executor');
     if (config.failSetupCleanup) { const error = new Error('private setup data'); error.code = 'SANDBOX_SETUP_CLEANUP_FAILED'; throw error; }
     return { root: '/private/root',
     createPrivateFile: async (name, body) => { files.set('/private/root/' + name, body); return '/private/root/' + name; },
@@ -217,4 +220,32 @@ test('setup factory cleanup failure remains explicitly unconfirmed without a san
   assert.deepEqual(value.result.failureCodes, ['ACCOUNT_SANDBOX_CLEANUP_FAILED']);
   assert.equal(value.flows.length, 0); assert.equal(value.installed, false);
   assert.ok(!JSON.stringify(value.result).includes('private setup data'));
+});
+test('credential-free probe starts only the ADB server and records coded proof after cleanup', async () => {
+  const calls = [], writes = [], reports = [];
+  const context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
+    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+  await account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    readSource: () => context, writeSource: (file, value) => writes.push({ file, value }), writeReport: (...args) => reports.push(args),
+    run: async (file, args) => { calls.push({ file, args }); return { stdout: '' }; },
+    create: async options => { assert.ok(!Object.hasOwn(options, 'run')); return { probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true }, cleanup: async () => calls.push({ cleanup: true }) }; },
+  });
+  assert.deepEqual(calls, [{ file: 'adb', args: ['start-server'] }, { cleanup: true }]);
+  assert.equal(writes.length, 1); assert.equal(writes[0].value.sandboxPreflight.cleanupConfirmed, true); assert.equal(reports.length, 0);
+});
+test('probe refuses credentials and never starts an emulator or account on failure', async () => {
+  for (const key of ['ANDROID_TEST_EMAIL', 'ANDROID_TEST_PASSWORD', 'EXPO_TOKEN', 'GITHUB_TOKEN']) {
+    await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', [key]: 'private-secret' }), /ACCOUNT_AUTOMATION_SCOPE/);
+  }
+  const reports = [], calls = [];
+  await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    readSource: () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
+      producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
+    run: async (file, args) => { calls.push({ file, args }); return { stdout: '' }; },
+    create: async () => { throw Object.assign(new Error('private-person@example.com'), { code: 'private-password' }); },
+    writeSource: () => assert.fail('cannot approve source proof on failed setup'), writeReport: (file, value) => reports.push(value),
+  }), /ACCOUNT_SANDBOX_CLEANUP_FAILED/);
+  assert.deepEqual(calls, [{ file: 'adb', args: ['start-server'] }]); assert.equal(reports.length, 1);
+  assert.ok(reports[0].cases.every(item => item.status === 'not_run')); assert.equal(reports[0].cleanup.sandbox, false);
+  assert.ok(!JSON.stringify(reports).includes('private-person') && !JSON.stringify(reports).includes('private-password'));
 });

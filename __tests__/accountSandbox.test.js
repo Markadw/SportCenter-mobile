@@ -2,7 +2,8 @@
 const test = globalThis.test || require('node:test').test;
 const assert = require('node:assert/strict');
 const { createSandbox, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
-  parseRejectCounter, privatePath, secretSubset, capturedRun } = require(require('node:path').join(process.env.ACCOUNT_PREP_DIR || require('node:path').join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
+  parseRejectCounter, privatePath, secretSubset, capturedRun, SandboxError, SANDBOX_ERROR_CODES,
+  safeSandboxDiagnostic, isSafeSandboxDiagnostic, UID_PROCESS_WRAPPER } = require(require('node:path').join(process.env.ACCOUNT_PREP_DIR || require('node:path').join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
 
 function mockRuntime(config = {}) {
   const calls = [], rules = new Map(), output = { iptables: ['-A OUTPUT -j ACCEPT'], ip6tables: ['-A OUTPUT -j ACCEPT'] };
@@ -15,6 +16,12 @@ function mockRuntime(config = {}) {
     assert.ok(Number.isInteger(options.timeout) && options.timeout > 0 && options.timeout <= 600000);
     let tool = file, a = args;
     if (file === 'sudo') { const split = args.indexOf('--'); assert.ok(split >= 0); tool = args[split + 1]; a = args.slice(split + 2); }
+    if (a[0] === '-e' && a[1] === UID_PROCESS_WRAPPER) {
+      assert.ok(!args.some(arg => arg === '-D' || arg.startsWith('--chdir')));
+      const split = a.indexOf('--', 2);
+      state.wrapperCwd = a[split + 1];
+      tool = a[split + 2]; a = a.slice(split + 3);
+    }
     if (tool === '/bin/sh') return success('/tools/' + a[a.length - 1] + '\n');
     if (tool.startsWith('/tools/')) tool = tool.slice('/tools/'.length);
     if (state.failTool === tool) return { stdout: '', stderr: 'DO_NOT_PRINT', exitCode: 2 };
@@ -76,7 +83,13 @@ function setup(mock, env = {}) {
   return createSandbox({ runnerTemp: '/runner/tmp', runId: 'private-123', run: mock.run,
     env: { PATH: '/usr/bin:/bin', ...env }, platform: 'linux', nodePath: '/usr/bin/node' });
 }
-function command(call) { const i = call.args.indexOf('--'); return (call.file === 'sudo' ? call.args[i + 1] : call.file).replace(/^\/tools\//, ''); }
+function command(call) {
+  const i = call.args.indexOf('--');
+  let tool = call.file === 'sudo' ? call.args[i + 1] : call.file;
+  const args = call.file === 'sudo' ? call.args.slice(i + 2) : call.args;
+  if (args[0] === '-e' && args[1] === UID_PROCESS_WRAPPER) tool = args[args.indexOf('--', 2) + 2];
+  return tool.replace(/^\/tools\//, '');
+}
 function failCode(code) { return error => error.code === code && error.message === code && !('cause' in error); }
 
 test('Windows fails before subprocess or network work', async () => {
@@ -124,7 +137,9 @@ test('setup probes before secrets, isolates env/cwd, and keeps all Maestro outpu
   assert.equal(result.stdout, 'private stdout'); assert.equal(result.stderr, 'private stderr');
   assert.equal(result.outputFile, sb.root + '/CASE.xml');
   const call = m.calls.find(call => command(call) === 'maestro');
-  assert.ok(call.args.includes('--chdir=' + sb.work));
+  assert.ok(call.args.includes(sb.work));
+  assert.ok(call.args.includes(UID_PROCESS_WRAPPER));
+  assert.ok(!call.args.some(arg => arg === '-D' || arg.startsWith('--chdir')));
   assert.equal(call.options.env.HOME, sb.home);
   assert.equal(call.options.env.MAESTRO_ACCOUNT_PASSWORD, password);
   assert.equal(call.options.env.MAESTRO_CLI_NO_ANALYTICS, '1');
@@ -230,4 +245,82 @@ test('captured executor buffers stdout/stderr and bounds subprocess lifetime wit
   assert.equal(result.stdout, 'out'); assert.equal(result.stderr, 'err'); assert.equal(result.exitCode, 3);
   const timed = await capturedRun(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { env: process.env, timeout: 25 });
   assert.equal(timed.timedOut, true); assert.notEqual(timed.exitCode, 0);
+});
+test('captured executor returns exit1 normally for pgrep/pkill absence semantics', async () => {
+  const result = await capturedRun(process.execPath, ['-e', 'process.exitCode=1'], { env: process.env, timeout: 3000 });
+  assert.equal(result.exitCode, 1); assert.equal(result.timedOut, false); assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
+});
+
+test('setup diagnostic preserves first failure when cleanup also fails', async () => {
+  const m = mockRuntime({ noCounterIncrement: true });
+  const originalRun = m.run;
+  m.run = async (file, args, options) => args.includes('-D')
+    ? { stdout: 'private cleanup output', stderr: 'private cleanup error', exitCode: 2 }
+    : originalRun(file, args, options);
+  let caught;
+  try { await setup(m); } catch (error) { caught = error; }
+  assert.equal(caught.code, 'SANDBOX_SETUP_CLEANUP_FAILED');
+  const diagnostic = safeSandboxDiagnostic(caught);
+  assert.deepEqual(diagnostic, { sandboxCode: 'EGRESS_REJECTION_UNPROVEN',
+    cleanupCode: 'SANDBOX_FIREWALL_CLEANUP_FAILED', cleanupConfirmed: false });
+  assert.equal(isSafeSandboxDiagnostic(diagnostic), true);
+  assert.ok(!JSON.stringify(diagnostic).includes('private cleanup'));
+  diagnostic.sandboxCode = 'changed';
+  assert.equal(safeSandboxDiagnostic(caught).sandboxCode, 'EGRESS_REJECTION_UNPROVEN');
+});
+
+test('setup diagnostics confirm cleanup only from actual cleanup or no resources created', async () => {
+  const m = mockRuntime({ noCounterIncrement: true });
+  let setupError;
+  try { await setup(m); } catch (error) { setupError = error; }
+  assert.deepEqual(safeSandboxDiagnostic(setupError), { sandboxCode: 'EGRESS_REJECTION_UNPROVEN',
+    cleanupCode: null, cleanupConfirmed: true });
+  let validationError;
+  try { await createSandbox({ platform: 'win32' }); } catch (error) { validationError = error; }
+  assert.deepEqual(safeSandboxDiagnostic(validationError), { sandboxCode: 'LINUX_SANDBOX_REQUIRED',
+    cleanupCode: null, cleanupConfirmed: true });
+});
+
+test('public diagnostic vocabulary rejects arbitrary codes, extra PII and untrusted metadata', () => {
+  const privateText = 'secret-account-password@example.invalid';
+  const error = new SandboxError(privateText);
+  error.stdout = privateText; error.stderr = privateText;
+  error.diagnostic = { sandboxCode: privateText, cleanupCode: privateText, cleanupConfirmed: true };
+  const fallback = { sandboxCode: 'SANDBOX_SETUP_FAILED', cleanupCode: null, cleanupConfirmed: false };
+  assert.deepEqual(safeSandboxDiagnostic(error), fallback);
+  assert.ok(!JSON.stringify(safeSandboxDiagnostic(error)).includes(privateText));
+  assert.deepEqual(safeSandboxDiagnostic({ code: 'PRIVATE_ADB_UNREACHABLE', message: privateText,
+    diagnostic: { sandboxCode: 'PRIVATE_ADB_UNREACHABLE', cleanupCode: null, cleanupConfirmed: true } }),
+  { sandboxCode: 'PRIVATE_ADB_UNREACHABLE', cleanupCode: null, cleanupConfirmed: false });
+  assert.equal(Object.isFrozen(SANDBOX_ERROR_CODES), true);
+  assert.equal(isSafeSandboxDiagnostic({ sandboxCode: null, cleanupCode: null, cleanupConfirmed: true }), true);
+  assert.equal(isSafeSandboxDiagnostic(fallback), true);
+  assert.equal(isSafeSandboxDiagnostic({ ...fallback, sandboxCode: privateText }), false);
+  assert.equal(isSafeSandboxDiagnostic({ ...fallback, message: privateText }), false);
+  assert.equal(isSafeSandboxDiagnostic({ ...fallback, cleanupCode: 'SUDO_UNAVAILABLE', cleanupConfirmed: true }), false);
+  assert.equal(isSafeSandboxDiagnostic({ sandboxCode: null, cleanupCode: null, cleanupConfirmed: false }), false);
+  const accessor = Object.defineProperty({}, 'code', { get() { throw new Error(privateText); } });
+  assert.deepEqual(safeSandboxDiagnostic(accessor), fallback);
+  const unsafeObject = { sandboxCode: 'SANDBOX_SETUP_FAILED', cleanupCode: null };
+  Object.defineProperty(unsafeObject, 'cleanupConfirmed', { get() { throw new Error(privateText); } });
+  assert.equal(isSafeSandboxDiagnostic(unsafeObject), false);
+});
+
+test('fixed UID wrapper changes cwd, passes literal argv and preserves child exit code without a shell', async () => {
+  const literal = 'literal; no-shell $(not-executed)';
+  const result = await capturedRun(process.execPath, ['-e', UID_PROCESS_WRAPPER, '--', process.cwd(), process.execPath,
+    '-e', 'process.stdout.write(JSON.stringify({cwd:process.cwd(),arg:process.argv[1]}));process.stderr.write("private");process.exitCode=7',
+    '--', literal], { env: process.env, timeout: 3000 });
+  assert.equal(result.exitCode, 7);
+  assert.deepEqual(JSON.parse(result.stdout), { cwd: process.cwd(), arg: literal });
+  assert.equal(result.stderr, 'private');
+});
+
+test('fixed UID wrapper rejects invalid cwd and argv without error messages', async () => {
+  for (const args of [['relative-cwd', process.execPath], [process.cwd(), 'relative-executable'], [process.cwd()]]) {
+    const result = await capturedRun(process.execPath, ['-e', UID_PROCESS_WRAPPER, '--', ...args],
+      { env: process.env, timeout: 3000 });
+    assert.equal(result.exitCode, 125);
+    assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
+  }
 });

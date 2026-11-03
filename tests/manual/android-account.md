@@ -41,6 +41,10 @@ Se ejecuta con un UID Linux efímero, HOME/XDG/tmp/cwd privados 0700 y entorno h
 
 Antes de suministrar credenciales al proceso Maestro se exigen reglas IPv4/IPv6 del UID al principio de OUTPUT: permiten exclusivamente 127.0.0.1/::1 y rechazan el resto. Se prueba una conexión no loopback rechazada con incremento del contador de la regla y una respuesta real ADB host:version por loopback. Si falta sudo, reglas, aislamiento o ADB, no se empieza el login. El adb server y el emulador conservan su UID original, por lo que la app mantiene su conexión HTTPS al backend.
 
+Primero se ejecuta `probe` sin credenciales, antes de crear una AVD: inicia sólo el servidor ADB, exige las mismas reglas y pruebas TCP, y confirma la limpieza. Si falla, el JSON conserva únicamente códigos de una lista fija, la primera causa y el resultado independiente de limpieza. No conserva mensajes ni salidas de procesos. El runtime repite las comprobaciones con su propio UID; el probe anterior no sustituye esa verificación.
+
+No se depende de la opción `sudo --chdir`: la política de sudo puede prohibirla incluso con sudo sin contraseña. Un wrapper Node fijo, ya bajo el UID destino, cambia al directorio privado validado y ejecuta la herramienta sin shell. Este ajuste elimina esa dependencia de política; no demuestra que fuera la causa de una ejecución anterior.
+
 El alcance del filtro es el tráfico IP directo del proceso con ese UID, no una garantía contra una herramienta maliciosa con control de ADB. El código y los flujos están fijados y revisados, sin ejecutar scripts recibidos del servidor. No se habilita cloud, análisis remoto ni grabación. Se desactiva analytics; no se considera ese opt-out una defensa suficiente por sí mismo.
 
 stdout/stderr, JUnit, comandos, imágenes automáticas y jerarquías permanecen en memoria o almacenamiento privado efímero. El XML Android se guarda temporalmente en un directorio 0700 y se retira tras leerlo. El helper confirma UID sin procesos antes de retirar sus reglas y borra únicamente los directorios que creó. No modifica la app, backend, certificados ni políticas TLS.
@@ -56,9 +60,10 @@ Se conserva el auxiliar `android-validation.yml`, con job aislado para `validati
 3. `view`, exclusivamente con EXPO_TOKEN; raw privado.
 4. `download`, sin credenciales de cuenta; APK/hash fijo.
 5. Maestro 2.12.0/hash ya establecido y rutas SDK existentes; `kvm` con `PINNING_EPHEMERAL_AVD=true` en runner efímero.
-6. AVD API34 x86_64 nueva, sin Metro, sin reverse ni paquete previo. Únicamente este paso recibe los dos secretos de cuenta y ejecuta `runtime`.
-7. `finish` exige siete controles y las tres limpiezas. `summary` sólo publica estados permitidos.
-8. `cleanup` siempre; upload de las dos rutas JSON exactas, retención 14 días. No carpetas ni patrones que puedan incluir raw.
+6. `probe` sin credenciales: servidor ADB, aislamiento Linux real y limpieza. No instala APK, inicia emulador, abre Maestro ni usa la cuenta. Si aprueba, agrega esa evidencia booleana al JSON de procedencia existente; si falla, publica un resultado fallido con los siete casos sin ejecutar.
+7. AVD API34 x86_64 nueva, sin Metro, sin reverse ni paquete previo. Únicamente este paso recibe los dos secretos de cuenta y ejecuta `runtime`.
+8. `finish` exige siete controles y las tres limpiezas. `summary` sólo publica estados permitidos.
+9. `cleanup` siempre; upload de las dos rutas JSON exactas, retención 14 días. No carpetas ni patrones que puedan incluir raw.
 
 No acredita dispositivo físico, pagos, creación de pedidos, publicación en Play, modificación de perfil/dirección ni registro/verificación por correo.
 

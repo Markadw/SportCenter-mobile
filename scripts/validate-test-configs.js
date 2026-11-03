@@ -146,7 +146,8 @@ function validateAccountWorkflow(workflow) {
   assert.equal(job['timeout-minutes'], 35);
   assert.deepEqual(job.env, { keep_evidence: 'true' }, 'No credenciales globales de cuenta');
   const commands = ['node scripts/android-account.cjs prepare', 'npm ci --no-audit --no-fund',
-    'node scripts/android-account.cjs view', 'node scripts/android-account.cjs download', 'node scripts/android-account.cjs kvm'];
+    'node scripts/android-account.cjs view', 'node scripts/android-account.cjs download', 'node scripts/android-account.cjs kvm',
+    'node scripts/android-account.cjs probe'];
   const order = commands.map(command => job.steps.findIndex(step => step.run === command));
   assert.ok(order.every((index, n) => index >= 0 && (!n || index > order[n - 1])));
   const prepare = job.steps[order[0]], view = job.steps[order[2]];
