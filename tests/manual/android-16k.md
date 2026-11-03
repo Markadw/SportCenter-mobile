@@ -36,7 +36,9 @@ La simulación oficial x86_64 comprueba ejecución con páginas 16KB; **no demue
 
 Maestro se fija en 2.12.0 con SHA256 verificado. Sólo se usan catálogo/detalle públicos, sin cuentas, compras ni credenciales privadas. Los tres emuladores son secuenciales y cada action cierra su emulador antes de la fase siguiente; los nombres/targets son diferentes y el runner efímero se elimina al finalizar. El agregado «Resultado de validación nativa» exige resultados reales de calidad, seguridad y pruebas nativas; es distinto del agregado de integración original.
 
-La evidencia se conserva por fallo o `keep_evidence=true` explícito en la candidata de validación: metadata compacta, inspección sin fuentes, JUnit y capturas de UI pública. No se suben APK, tokens, raw EAS JSON, logcat, CertDN ni claves. La descarga contiene el mismo APK una sola vez en `RUNNER_TEMP`.
+La evidencia futura se conserva por fallo o keep_evidence=true explícito: sólo capturas PNG de UI pública dentro de maestro/ y android16k-maestro/, junto con los informes JSON, JUnit XML y resúmenes saneados .md/.txt enumerados explícitamente. La validación exige la allowlist exacta de ambos jobs Android y rechaza directorios completos, globs amplios, logcat y commands.json. No sube APK, tokens, raw EAS JSON, CertDN ni claves. La descarga conserva el mismo APK una sola vez en RUNNER_TEMP.
+
+Las ejecuciones históricas v12/v13 configuraban la subida de directorios Maestro completos y por ello incluyeron registros crudos, incluido logcat/commands.json. No se presenta ese corte como una política de sólo PNG. Esta corrección se aplica a ejecuciones futuras; no elimina ni modifica artefactos, respaldos o evidencias históricos, ni convierte un resultado nativo fallido en aprobado.
 
 Comprobación local sin red/builds/emulador:
 

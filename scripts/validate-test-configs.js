@@ -17,6 +17,17 @@ function validateDecoder23(job, beforeIndex, afterIndex = -1) {
   assert.ok(evidence?.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
 }
 
+function validateAndroidEvidence(job, allowedPaths) {
+  const uploads = job.steps.filter(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(uploads.length, 1, 'Cada job Android conserva una sola allowlist exacta de evidencia');
+  assert.equal(typeof uploads[0].with?.path, 'string', 'La allowlist exacta de evidencia Android debe ser explícita');
+  const paths = uploads[0].with.path.trim().split(/\r?\n/).map(value => value.trim());
+  for (const png of allowedPaths.filter(value => value.endsWith('/**/*.png'))) {
+    assert.ok(paths.includes(png), 'El artefacto Android debe incluir las capturas PNG de Maestro');
+  }
+  assert.deepEqual([...paths].sort(), [...allowedPaths].sort(), 'Sólo se admite la allowlist exacta de evidencia Android; no carpetas, logs ni otros globs');
+}
+
 function validate16kMemory(step) {
   assert.equal(step.with['ram-size'], '4096M', 'API36 16KB requiere RAM guest fija de 4096M');
   assert.ok(!/(?:^|\s)-(?:memory|m)(?:\s|=|[0-9]|$)/i.test(step.with['emulator-options']), 'No sobrescribir RAM guest mediante opciones CLI');
@@ -57,6 +68,23 @@ function validateNativeWorkflow(workflow) {
   const evidence = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(evidence.with.path.includes('test-results/android-command-line-tools.json'), 'Falta evidencia versión/JAR decoder');
   assert.ok(evidence.with.path.includes('test-results/android-pinning-preflight.json'), 'Falta evidencia NSC preflight');
+  validateAndroidEvidence(job, [
+    'test-results/android-validation-source.json',
+    'test-results/android-build.json',
+    'test-results/eas-candidate.json',
+    'test-results/android-command-line-tools.json',
+    'test-results/android-inspection.json',
+    'test-results/android-inspection.txt',
+    'test-results/android34.json',
+    'test-results/maestro.xml',
+    'test-results/maestro/**/*.png',
+    'test-results/android-pinning-preflight.json',
+    'test-results/android-pinning.json',
+    'test-results/android16k.json',
+    'test-results/android16k-summary.md',
+    'test-results/android16k-maestro.xml',
+    'test-results/android16k-maestro/**/*.png',
+  ]);
   const kvm = job.steps.find(step => step.id === 'kvm');
   assert.equal(kvm?.run, 'node scripts/android-16k.js kvm');
   assert.equal(kvm['timeout-minutes'], 2);
@@ -227,11 +255,23 @@ function validateWorkflows(workflows) {
     && androidScript.indexOf('node scripts/wait-for-service.js --android') < androidScript.indexOf('maestro test'),
   'Android requiere comprobar red y API antes de Maestro');
   const androidEvidence = integration.jobs.android.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
-  assert.ok(androidEvidence?.with?.path?.split('\n').includes('test-results/maestro/'),
+  assert.ok(androidEvidence?.with?.path?.split('\n').includes('test-results/maestro/**/*.png'),
     'El artefacto Android debe incluir las capturas de Maestro');
   for (const file of ['test-results/android-inspection.json', 'test-results/android-inspection.txt']) {
     assert.ok(androidEvidence.with.path.split('\n').includes(file), 'Falta evidencia compacta de inspección APK: ' + file);
   }
+  validateAndroidEvidence(integration.jobs.android, [
+    'test-results/readiness-android.json',
+    'test-results/android-summary.md',
+    'test-results/android-build.json',
+    'test-results/api-tls-pins.json',
+    'test-results/android-command-line-tools.json',
+    'test-results/android-inspection.json',
+    'test-results/android-inspection.txt',
+    'test-results/maestro.xml',
+    'test-results/maestro/**/*.png',
+    'test-results/eas-candidate.json',
+  ]);
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');

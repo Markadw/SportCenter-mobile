@@ -166,13 +166,13 @@ jobs:
             test-results/android-inspection.txt
             test-results/android34.json
             test-results/maestro.xml
-            test-results/maestro/
+            test-results/maestro/**/*.png
             test-results/android-pinning-preflight.json
             test-results/android-pinning.json
             test-results/android16k.json
             test-results/android16k-summary.md
             test-results/android16k-maestro.xml
-            test-results/android16k-maestro/
+            test-results/android16k-maestro/**/*.png
           if-no-files-found: error
           retention-days: 14
   result:

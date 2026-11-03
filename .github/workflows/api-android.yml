@@ -249,7 +249,7 @@ jobs:
             test-results/android-inspection.json
             test-results/android-inspection.txt
             test-results/maestro.xml
-            test-results/maestro/
+            test-results/maestro/**/*.png
             test-results/eas-candidate.json
           if-no-files-found: error
           retention-days: 14
