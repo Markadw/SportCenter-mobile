@@ -17,7 +17,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   artifactSha256: 'dda9576bdc03753f5ba24600b676770592a6915aa1b42792e49b87efdafef07d',
   appVersion: '1.0.0', appBuildVersion: '1' });
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
-const STAGES = Object.freeze(['preflight', 'device-check', 'sandbox-probes', 'app-install', 'AC01-navigate', 'AC01-email',
+const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-probes', 'app-install', 'AC01-navigate', 'AC01-email',
   'AC01-password', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
@@ -172,6 +172,7 @@ function publicReport(state) {
     buildId: SOURCE.buildId, apkSha256: SOURCE.sha256, producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt,
     status: ['passed', 'failed', 'blocked'].includes(state.status) ? state.status : 'failed',
     stage: STAGES.includes(state.failureStage || state.stage) ? state.failureStage || state.stage : 'unknown',
+    sandboxAttempted: state.sandboxAttempted === true,
     sandboxDiagnostic: isSafeSandboxDiagnostic(state.sandboxDiagnostic) ? { ...state.sandboxDiagnostic } : null,
     cases: CASES.map(id => ({ id, status: ['passed', 'failed', 'blocked', 'not_run'].includes(state.cases?.[id]) ? state.cases[id] : 'not_run' })),
     cleanup: { device: state.cleanup?.device === true, sandbox: state.cleanup?.sandbox === true,
@@ -217,7 +218,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     need((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34' && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['reverse', '--list'])).trim(), 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['shell', 'pm', 'list', 'packages', SOURCE.appId])).trim(), 'ACCOUNT_PROCESS_FAILED');
-    state.stage = 'sandbox-probes'; setupAttempted = true;
+    state.stage = 'sandbox-probes'; setupAttempted = true; state.sandboxAttempted = true;
     try { box = await create({ runnerTemp: env.RUNNER_TEMP, runId: env.GITHUB_RUN_ID, env }); }
     catch (error) { state.sandboxDiagnostic = safeSandboxDiagnostic(error); throw error; }
     await adb(['shell', 'mkdir', remote]); remoteCreated = true; await adb(['shell', 'chmod', '700', remote]);
@@ -350,20 +351,22 @@ async function probe(env, { run = command, create = createSandbox,
   need(context.artifactSourceCommit === SOURCE.commit && context.automationCommit === env.GITHUB_SHA && context.producerVerified === true &&
     context.producerRun === SOURCE.producer && context.producerAttempt === SOURCE.attempt && context.apkSha256 === SOURCE.sha256 &&
     context.parentInspectionVerified === true, 'ACCOUNT_ARTIFACT_MISMATCH');
-  const state = { status: 'failed', stage: 'sandbox-probes', automationCommit: env.GITHUB_SHA, cases: {}, errors: [],
+  const state = { status: 'failed', stage: 'probe-adb-start-server', automationCommit: env.GITHUB_SHA, cases: {}, errors: [],
     cleanup: { device: true, localSession: true, sandbox: false } };
-  let box, failure;
+  let box, failure, setupAttempted = false;
   try {
-    await run('adb', ['start-server']);
+    const started = await run('adb', ['start-server']);
+    need(!started || !Object.hasOwn(started, 'exitCode') || started.exitCode === 0, 'ACCOUNT_PROCESS_FAILED');
+    state.stage = 'sandbox-probes'; setupAttempted = true; state.sandboxAttempted = true;
     box = await create({ runnerTemp: env.RUNNER_TEMP, runId: env.GITHUB_RUN_ID, env });
     need(box.probes?.ipv4RejectedWithCounter === true && box.probes?.adbLoopbackReachable === true, 'ACCOUNT_SANDBOX_FAILED');
-  } catch (error) { failure = error; state.sandboxDiagnostic = safeSandboxDiagnostic(error); }
+  } catch (error) { failure = error; if (setupAttempted) state.sandboxDiagnostic = safeSandboxDiagnostic(error); }
   if (box) {
     try { await box.cleanup(); state.cleanup.sandbox = true; }
     catch (error) { failure ||= error; state.sandboxDiagnostic ||= safeSandboxDiagnostic(error); }
-  } else state.cleanup.sandbox = state.sandboxDiagnostic?.cleanupConfirmed === true;
+  } else state.cleanup.sandbox = !setupAttempted || state.sandboxDiagnostic?.cleanupConfirmed === true;
   if (failure || !state.cleanup.sandbox) {
-    state.errors = [new AccountError(state.cleanup.sandbox ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_SANDBOX_CLEANUP_FAILED')];
+    state.errors = [new AccountError(!setupAttempted ? safeCode(failure) : state.cleanup.sandbox ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_SANDBOX_CLEANUP_FAILED')];
     writeReport(files.report, publicReport(state));
     throw new AccountError(state.errors[0].code);
   }

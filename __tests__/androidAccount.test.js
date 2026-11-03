@@ -249,3 +249,22 @@ test('probe refuses credentials and never starts an emulator or account on failu
   assert.ok(reports[0].cases.every(item => item.status === 'not_run')); assert.equal(reports[0].cleanup.sandbox, false);
   assert.ok(!JSON.stringify(reports).includes('private-person') && !JSON.stringify(reports).includes('private-password'));
 });
+test('ADB start failure preserves process code and never claims sandbox setup or cleanup failed', async () => {
+  const reports = [], calls = [];
+  const context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
+    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+  for (const throws of [true, false]) {
+    await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+      readSource: () => context,
+      run: async (file, args) => { calls.push({ file, args }); if (throws) throw new AccountError('ACCOUNT_PROCESS_FAILED'); return { stdout: '', exitCode: 1 }; },
+      create: async () => assert.fail('sandbox must not be attempted after failed ADB start'),
+      writeSource: () => assert.fail('failed ADB cannot approve source'), writeReport: (file, value) => reports.push(value),
+    }), /ACCOUNT_PROCESS_FAILED/);
+  }
+  assert.equal(calls.length, 2);
+  for (const value of reports) {
+    assert.equal(value.status, 'failed'); assert.equal(value.stage, 'probe-adb-start-server'); assert.equal(value.sandboxAttempted, false);
+    assert.equal(value.sandboxDiagnostic, null); assert.equal(value.cleanup.sandbox, true);
+    assert.deepEqual(value.failureCodes, ['ACCOUNT_PROCESS_FAILED']); assert.ok(value.cases.every(item => item.status === 'not_run'));
+  }
+});

@@ -553,6 +553,14 @@ jobs:
         run: node scripts/android-account.cjs kvm
         env:
           PINNING_EPHEMERAL_AVD: 'true'
+      - name: Exigir ADB del SDK instalado antes del chequeo previo
+        id: account_adb_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
       - name: Probar aislamiento Linux sin credenciales antes de Android
         timeout-minutes: 3
         run: node scripts/android-account.cjs probe

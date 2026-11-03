@@ -20,6 +20,7 @@ test.each([
   ['secretos globales', workflow => { workflow.jobs.account.env.ANDROID_TEST_EMAIL = '${{ secrets.ANDROID_TEST_EMAIL }}'; }],
   ['secretos en consulta EAS', workflow => { workflow.jobs.account.steps.find(step => step.run === 'node scripts/android-account.cjs view').env.ANDROID_TEST_PASSWORD = '${{ secrets.ANDROID_TEST_PASSWORD }}'; }],
   ['token Expo durante login', workflow => { workflow.jobs.account.steps.find(step => step.id === 'account_runtime').env.EXPO_TOKEN = '${{ secrets.EXPO_TOKEN }}'; }],
+  ['omite disponibilidad de ADB', workflow => { workflow.jobs.account.steps = workflow.jobs.account.steps.filter(step => step.id !== 'account_adb_tools'); }],
   ['omite prueba sin credenciales', workflow => { workflow.jobs.account.steps = workflow.jobs.account.steps.filter(step => step.run !== 'node scripts/android-account.cjs probe'); }],
   ['omite runtime', workflow => { workflow.jobs.account.steps.find(step => step.id === 'account_runtime').if = 'false'; }],
   ['oculta fallo', workflow => { workflow.jobs.account['continue-on-error'] = true; }],

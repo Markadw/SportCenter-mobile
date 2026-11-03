@@ -153,6 +153,9 @@ function validateAccountWorkflow(workflow) {
   const prepare = job.steps[order[0]], view = job.steps[order[2]];
   assert.deepEqual(prepare.env, { GITHUB_TOKEN: '${{ github.token }}' });
   assert.deepEqual(view.env, { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' });
+  const adbTools = job.steps.find(step => step.id === 'account_adb_tools');
+  assert.ok(adbTools && job.steps.indexOf(adbTools) < order.at(-1), 'ADB del SDK antes del probe sin credenciales');
+  assert.ok(adbTools.run.includes('test -x "$ANDROID_HOME/platform-tools/adb"') && adbTools.run.includes('echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"'));
   const runtime = job.steps.find(step => step.id === 'account_runtime');
   assert.ok(job.steps.indexOf(runtime) > order.at(-1));
   assert.equal(runtime.uses, 'reactivecircus/android-emulator-runner@v2');
