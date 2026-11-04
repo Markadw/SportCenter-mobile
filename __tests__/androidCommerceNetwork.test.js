@@ -71,7 +71,7 @@ test('preexisting exact chain or reference is preserved and rejected before any 
 });
 
 test('nc uses explicit connect, idle and EOF bounds with an outer margin, and sends real CRLF HTTP headers',async()=>{
- const f=fake(),guard=await network.installNetwork({adb:f.adb,runId:'12345'});await guard.cleanup();const calls=f.invocations.filter(i=>i.args.includes('nc'));assert(calls.length>=4);for(const call of calls){for(const flag of ['-w','-W','-q'])assert.equal(call.args[call.args.indexOf(flag)+1],'4');assert.equal(call.options.timeout,11000);}const requests=calls.filter(i=>['3011','8081'].includes(i.args.at(-1)));assert.equal(requests.length,2);assert(requests.every(i=>i.options.input.endsWith('\r\n\r\n')&&!i.options.input.includes('\\r')));
+ const f=fake(),guard=await network.installNetwork({adb:f.adb,runId:'12345'});await guard.cleanup();const calls=f.invocations.filter(i=>i.args.includes('nc'));assert(calls.length>=4);for(const call of calls){for(const flag of ['-w','-W','-q'])assert.equal(call.args[call.args.indexOf(flag)+1],'4');assert.equal(call.options.timeout,11000);}const requests=calls.filter(i=>['3011','8081'].includes(i.args.at(-1)));assert.equal(requests.length,2);assert(requests.every(i=>i.options.input.endsWith('\r\n\r\n')&&!i.options.input.includes('\\r')));assert(requests.every(i=>i.options.keepStdinOpen===true));assert(calls.filter(i=>i.args.at(-1)==='9').every(i=>i.options.keepStdinOpen===false));
 });
 test('timeout, nonzero exit and non-200 status remain failures with fixed header-only diagnostics',async()=>{
  for(const raw of[{stdout:'',stderr:'connection refused private@example.invalid',exitCode:1,timedOut:false},{stdout:'HTTP/1.1 200 OK\r\n\r\nPRIVATE',stderr:'',exitCode:-1,timedOut:true},{stdout:'HTTP/1.1 503 Unavailable\r\n\r\nPRIVATE',stderr:'',exitCode:0,timedOut:false}]){const f=fake({apiProbe:raw});let observed;await assert.rejects(network.installNetwork({adb:f.adb,runId:'12345'}),e=>{observed=e;return e.code==='COMMERCE_AVD_QA_UNREACHABLE';});const d=network.safeDiagnostic(observed.diagnostic);assert(d&&d.cleanupConfirmed);assert.equal(d.stage,'positive-probes');assert.equal(d.probe.target,'qa');assert.equal(d.probe.exitCode,raw.exitCode);assert.equal(d.probe.timedOut,raw.timedOut);assert.equal(d.probe.before.acceptedPackets,0);assert.equal(d.probe.after.acceptedPackets,1);assert.equal(d.probe.before.rejectedPackets,d.probe.after.rejectedPackets);assert(!JSON.stringify(d).includes('PRIVATE')&&!JSON.stringify(d).includes('@'));if(raw.stdout.startsWith('HTTP/1.1 200'))assert.equal(d.probe.httpStatus,200);}
@@ -79,4 +79,36 @@ test('timeout, nonzero exit and non-200 status remain failures with fixed header
 test('optional unparsed accept counters stay null rather than invented zero',async()=>{const f=fake({omitAcceptCounters:true,apiUnavailable:true});let error;try{await network.installNetwork({adb:f.adb,runId:'12345'});}catch(e){error=e;}const d=network.safeDiagnostic(error.diagnostic);assert.equal(d.probe.before.acceptedPackets,null);assert.equal(d.probe.after.acceptedPackets,null);assert.equal(d.probe.after.rejectedPackets,1);assert.equal(d.probe.httpStatus,null);});
 test('diagnostic projection rejects unknown keys, text-bearing fields, invalid status or unsafe counts',()=>{
  const raw={stdout:'HTTP/1.1 200 OK\r\n\r\nprivate-body',stderr:'arbitrary secret text',exitCode:1,timedOut:false},counts={acceptedPackets:1,rejectedPackets:1};const value={stage:'positive-probes',cleanupConfirmed:true,probe:network.observeProbe(raw,'qa',counts,counts)};assert.equal(network.safeDiagnostic(value).probe.stderrEnum,'other');for(const mutate of[v=>v.body='PRIVATE',v=>v.probe.target='private@example.invalid',v=>v.probe.httpStatus=999,v=>v.probe.before.acceptedPackets='secret',v=>v.probe.stderrEnum='private']){const d=structuredClone(value);mutate(d);assert.equal(network.safeDiagnostic(d),null);}
+});
+
+const TCP_BRIDGE=String.raw`const net=require('node:net');const socket=net.createConnection({host:'127.0.0.1',port:Number(process.argv[1])});process.stdin.pause();socket.on('connect',()=>process.stdin.resume());process.stdin.on('data',chunk=>socket.write(chunk));process.stdin.on('end',()=>socket.end());socket.on('data',chunk=>process.stdout.write(chunk));socket.on('end',()=>{socket.destroy();process.stdin.destroy();});socket.on('error',()=>{process.exitCode=1;socket.destroy();process.stdin.destroy();});`;
+const httpArgs=port=>['shell','-T','run-as',network.APP,'/system/bin/toybox','nc','-4','-n','-w','4','-W','4','-q','4',network.HOST,String(port)];
+const probeEnv=()=>Object.fromEntries(Object.entries({PATH:process.env.PATH,SystemRoot:process.env.SystemRoot}).filter(([,v])=>typeof v==='string'));
+test('real local TCP transport only: exact QA gateway returns zero bytes after half-close, HTTP200 when probe keeps input open',async()=>{
+ const http=require('node:http'),{spawn}=require('node:child_process'),{capturedRun}=require(path.join(__dirname,'..','scripts','account-sandbox.cjs')),{createGateway}=require(path.join(__dirname,'..','tests/environment/commerce-isolated.cjs'));
+ const previous={ISOLATED_TEST_ENV:process.env.ISOLATED_TEST_ENV,QA_COMMERCE:process.env.QA_COMMERCE};process.env.ISOLATED_TEST_ENV='true';process.env.QA_COMMERCE='true';let upstream,gateway;
+ const listen=server=>new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve(server.address().port));});
+ try{
+  upstream=http.createServer((req,res)=>{req.resume();setImmediate(()=>{res.writeHead(200,{'content-type':'application/json'});res.end('{"syntheticTransportOnly":true}');});});const port=await listen(upstream);
+  gateway=createGateway((options,callback)=>http.request({...options,hostname:'127.0.0.1',port},callback));const gatewayPort=await listen(gateway);
+  const closed=await capturedRun(process.execPath,['-e',TCP_BRIDGE,String(gatewayPort)],{timeout:2000,env:probeEnv(),input:network.httpRequest(3011)});
+  assert.equal(closed.timedOut,false);assert.equal(closed.exitCode,0);assert.equal(closed.stdout.length,0);
+  const open=await network.runHttpProbe({serial:'emulator-5554',args:httpArgs(3011),input:network.httpRequest(3011),env:probeEnv(),spawnImpl:(file,args,options)=>{assert.equal(file,'adb');assert.deepEqual(args,['-s','emulator-5554',...httpArgs(3011)]);return spawn(process.execPath,['-e',TCP_BRIDGE,String(gatewayPort)],options);}});
+  assert.equal(open.exitCode,0);assert.equal(open.timedOut,false);assert.match(open.stdout,/^HTTP\/1\.[01] 200 /);assert(open.stdout.length>0);assert.equal(gateway.httpAllowHalfOpen,false);
+ }finally{
+  for(const server of[gateway,upstream])if(server){server.closeAllConnections();await new Promise(resolve=>server.close(()=>resolve()));}
+  for(const[key,value]of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;
+ }
+});
+function fakeProbeChild(){const {EventEmitter}=require('node:events'),{PassThrough}=require('node:stream');const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kills=[];child.kill=signal=>{child.kills.push(signal);return true;};return child;}
+test('HTTP pipe keeps fixed 11s bound, kills only its own child on timeout/output cap, and handles premature close',async()=>{
+ for(const mode of['timeout','output-limit','premature-close']){const child=fakeProbeChild(),timers=[];const pending=network.runHttpProbe({serial:'emulator-5554',args:httpArgs(8081),input:network.httpRequest(8081),env:{PATH:'/fixed'},spawnImpl:()=>child,setTimer:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearTimer:()=>{}});assert.equal(timers[0].delay,11000);assert.equal(child.stdin.writableEnded,false);
+  if(mode==='timeout'){timers[0].fn();assert.equal(child.stdin.writableEnded,true);assert.deepEqual(child.kills,['SIGTERM']);assert.equal(timers[1].delay,500);timers[1].fn();}
+  else if(mode==='output-limit'){child.stdout.write(Buffer.alloc(262145));assert.deepEqual(child.kills,['SIGTERM']);timers[1].fn();}
+  else child.emit('close',1);
+  const result=await pending;assert.equal(result.exitCode,mode==='premature-close'?1:-1);assert.equal(result.timedOut,mode==='timeout');assert.equal(result.stdout,'');assert(child.stdin.destroyed);child.stdout.destroy();child.stderr.destroy();
+ }
+});
+test('open-input probe is not a generic command runner: rejects other device, endpoint, request or looser deadline before spawning',async()=>{
+ for(const change of[{serial:'physical-device'},{args:httpArgs(443)},{input:'GET /private HTTP/1.1'},{timeoutMs:11001}]){let called=false;await assert.rejects(network.runHttpProbe({serial:'emulator-5554',args:httpArgs(3011),input:network.httpRequest(3011),env:{},spawnImpl:()=>{called=true;},...change}),e=>e.code==='COMMERCE_AVD_NETWORK_SCOPE');assert.equal(called,false);}
 });

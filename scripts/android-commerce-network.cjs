@@ -1,5 +1,6 @@
 'use strict';
 // Android-only rules for the one installed Debug UID. No operations occur on require.
+const {spawn}=require('node:child_process');
 const APP='com.markadw.sportcenter',HOST='10.0.2.2';
 const NC_TIMEOUT_MS=11000,STDERR_ENUM=Object.freeze(['none','permission-denied','connection-refused','unreachable','timeout','other']);
 const CODES=Object.freeze(['COMMERCE_AVD_ROOT_REQUIRED','COMMERCE_AVD_UID_INVALID','COMMERCE_AVD_NETWORK_SCOPE','COMMERCE_AVD_RULES_UNVERIFIED','COMMERCE_AVD_REJECTION_UNPROVEN','COMMERCE_AVD_QA_UNREACHABLE','COMMERCE_AVD_METRO_UNREACHABLE','COMMERCE_AVD_NETWORK_CLEANUP_FAILED','COMMERCE_AVD_TOOL_FAILED']);
@@ -21,6 +22,32 @@ function counterSnapshot(raw,port){
 function stderrEnum(text){if(!text.trim())return'none';if(/permission denied|operation not permitted/i.test(text))return'permission-denied';if(/connection refused/i.test(text))return'connection-refused';if(/network is unreachable|no route to host|host is unreachable/i.test(text))return'unreachable';if(/timed? ?out|timeout/i.test(text))return'timeout';return'other';}
 function observeProbe(raw,target,before,after){const status=/^HTTP\/1\.[01] ([1-5][0-9]{2})(?: [^\r\n]*)?\r?\n/.exec(raw.stdout);return{target,exitCode:raw.exitCode,timedOut:raw.timedOut===true,httpStatus:status?Number(status[1]):null,responseBytes:Buffer.byteLength(raw.stdout),stderrEnum:stderrEnum(raw.stderr),before,after};}
 
+
+function httpRequest(port){
+ need(port===3011||port===8081,'COMMERCE_AVD_NETWORK_SCOPE');
+ const endpoint=port===3011?'/products/get-all-categories':'/status';
+ return['GET '+endpoint+' HTTP/1.1','Host: '+HOST+':'+port,'Connection: close','',''].join(String.fromCharCode(13,10));
+}
+// Only the two fixed, credential-free UID HTTP probes keep stdin open. Closing it
+// early makes toybox half-close TCP and Node's async gateway end before responding.
+async function runHttpProbe({serial,args,input,env,spawnImpl=spawn,setTimer=setTimeout,clearTimer=clearTimeout,timeoutMs=NC_TIMEOUT_MS}){
+ const port=Number(args?.at(-1));
+ const expected=['shell','-T','run-as',APP,'/system/bin/toybox','nc','-4','-n','-w','4','-W','4','-q','4',HOST,String(port)];
+ need(/^emulator-[0-9]+$/.test(serial||'')&&JSON.stringify(args)===JSON.stringify(expected)&&input===httpRequest(port)&&env&&typeof env==='object'&&Number.isInteger(timeoutMs)&&timeoutMs>0&&timeoutMs<=NC_TIMEOUT_MS,'COMMERCE_AVD_NETWORK_SCOPE');
+ return new Promise(resolve=>{
+  let child,timer,killTimer,settled=false,halting=false,stdout='',stderr='',size=0,timedOut=false;
+  const finish=code=>{if(settled)return;settled=true;clearTimer(timer);clearTimer(killTimer);child?.stdin?.destroy();resolve({stdout,stderr,exitCode:halting?-1:Number.isInteger(code)?code:-1,timedOut});};
+  const halt=()=>{if(halting||settled)return;halting=true;child?.stdin?.end();try{child?.kill('SIGTERM');}catch{}killTimer=setTimer(()=>{try{child?.kill('SIGKILL');}catch{}finish(-1);},500);};
+  try{
+   child=spawnImpl('adb',['-s',serial,...args],{env,shell:false,windowsHide:true,stdio:['pipe','pipe','pipe']});
+   const accept=(kind,chunk)=>{if(settled)return;size+=Buffer.byteLength(chunk);if(size>262144){stdout='';stderr='';halt();return;}if(kind==='stdout')stdout+=chunk.toString('utf8');else stderr+=chunk.toString('utf8');};
+   child.stdout.on('data',chunk=>accept('stdout',chunk));child.stderr.on('data',chunk=>accept('stderr',chunk));
+   child.stdin.on('error',()=>{});child.on('error',()=>{halt();});child.on('close',code=>finish(code));
+   timer=setTimer(()=>{timedOut=true;halt();},timeoutMs);
+   child.stdin.write(input); // Deliberately no end(): wait for remote Connection: close.
+  }catch{if(child)halt();else finish(-1);}
+ });
+}
 function normal(result){need(result&&typeof result.stdout==='string'&&typeof result.stderr==='string'&&Number.isInteger(result.exitCode)&&Buffer.byteLength(result.stdout)+Buffer.byteLength(result.stderr)<=262144,'COMMERCE_AVD_TOOL_FAILED');return result;}
 function parseUid(text){const match=new RegExp('^package:'+APP.replaceAll('.','\\.')+' uid:([1-9][0-9]*)$').exec(text.trim());need(match,'COMMERCE_AVD_UID_INVALID');const uid=Number(match[1]);need(Number.isSafeInteger(uid)&&uid>=10000&&uid<=19999,'COMMERCE_AVD_UID_INVALID');return uid;}
 function plan(uid,runId){need(Number.isSafeInteger(uid)&&uid>=10000&&uid<=19999&&typeof runId==='string'&&/^[1-9][0-9]{0,19}$/.test(runId),'COMMERCE_AVD_NETWORK_SCOPE');const suffix=runId.slice(-12),v4='SCQ4_'+suffix,v6='SCQ6_'+suffix;return{uid,v4,v6,allows:[3011,8081],host:HOST};}
@@ -59,10 +86,10 @@ async function installNetwork({adb,runId,packageName=APP}){
    await table(binary,['-A',chain,'-j','REJECT','--reject-with',ipv6?'icmp6-port-unreachable':'icmp-port-unreachable']);resource.jumpAttempted=true;await table(binary,['-I','OUTPUT','1','-m','owner','--uid-owner',String(uid),'-j',chain]);
   }
   await verify();setupStage='reject-probes';
-  const nc=async(host,port,input='',ipv6=false)=>call(['shell','-T','run-as',APP,'/system/bin/toybox','nc',ipv6?'-6':'-4','-n','-w','4','-W','4','-q','4',host,String(port)],{timeout:NC_TIMEOUT_MS,input});
+  const nc=async(host,port,input='',ipv6=false,keepStdinOpen=false)=>call(['shell','-T','run-as',APP,'/system/bin/toybox','nc',ipv6?'-6':'-4','-n','-w','4','-W','4','-q','4',host,String(port)],{timeout:NC_TIMEOUT_MS,input,keepStdinOpen});
   for(const[binary,chain,host,ipv6]of[['iptables',p.v4,'192.0.2.1',false],['ip6tables',p.v6,'::1',true]]){const before=rejectCount(await table(binary,['-n','-v','-x','-L',chain]));const result=await nc(host,9,'',ipv6);const after=rejectCount(await table(binary,['-n','-v','-x','-L',chain]));need(!result.timedOut&&result.exitCode!==0&&after>before,'COMMERCE_AVD_REJECTION_UNPROVEN');}
-  setupStage='positive-probes';for(const[port,endpoint,code]of[[3011,'/products/get-all-categories','COMMERCE_AVD_QA_UNREACHABLE'],[8081,'/status','COMMERCE_AVD_METRO_UNREACHABLE']]){const before=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port),raw=await nc(HOST,port,'GET '+endpoint+' HTTP/1.1\r\nHost: '+HOST+':'+port+'\r\nConnection: close\r\n\r\n'),after=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port);lastProbe=observeProbe(raw,port===3011?'qa':'metro',before,after);need(!raw.timedOut&&raw.exitCode===0&&lastProbe.httpStatus===200&&(port!==8081||raw.stdout.includes('packager-status:running')),code);}
+  setupStage='positive-probes';for(const[port,code]of[[3011,'COMMERCE_AVD_QA_UNREACHABLE'],[8081,'COMMERCE_AVD_METRO_UNREACHABLE']]){const before=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port),raw=await nc(HOST,port,httpRequest(port),false,true),after=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port);lastProbe=observeProbe(raw,port===3011?'qa':'metro',before,after);need(!raw.timedOut&&raw.exitCode===0&&lastProbe.httpStatus===200&&(port!==8081||raw.stdout.includes('packager-status:running')),code);}
   await verify();return Object.freeze({proof:Object.freeze({rooted:true,uidMatched:true,ipv4RulesVerified:true,ipv6RulesVerified:true,ipv4RejectedWithCounter:true,ipv6RejectedWithCounter:true,apiReachable:true,metroReachable:true,scope:'app-uid-10.0.2.2-tcp-3011-8081-only'}),verify,cleanup});
  }catch(error){let cleaned=false;try{await cleanup();cleaned=true;}catch{}const code=error instanceof NetworkError?error.code:'COMMERCE_AVD_TOOL_FAILED';throw new NetworkError(code,{stage:['root','uid','rules','reject-probes','positive-probes'].includes(setupStage)?setupStage:'unknown',cleanupConfirmed:cleaned,probe:lastProbe});}
 }
-module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,chainAbsent,NC_TIMEOUT_MS,STDERR_ENUM,safeDiagnostic,counterSnapshot,observeProbe,installNetwork};
+module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,chainAbsent,NC_TIMEOUT_MS,httpRequest,runHttpProbe,STDERR_ENUM,safeDiagnostic,counterSnapshot,observeProbe,installNetwork};
