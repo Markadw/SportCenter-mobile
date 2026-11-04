@@ -3,9 +3,9 @@
 const test=globalThis.test||require('node:test').test,assert=require('node:assert/strict'),path=require('node:path');
 const network=require(path.join(process.env.NATIVE_COMMERCE_PREP_DIR||path.join(__dirname,'..','scripts'),'android-commerce-network.cjs'));
 function fake(options={}){
- const chains={iptables:new Map(),ip6tables:new Map()},output={iptables:[],ip6tables:[]},counts={iptables:0,ip6tables:0},calls=[];const ok=stdout=>({stdout:stdout||'',stderr:'',exitCode:0,timedOut:false}),missing=()=>({stdout:'',stderr:'iptables: No chain/target/match by that name.\n',exitCode:1,timedOut:false});
+ const chains={iptables:new Map(),ip6tables:new Map()},output={iptables:[],ip6tables:[]},counts={iptables:0,ip6tables:0},accepted={3011:0,8081:0},calls=[],invocations=[];const ok=stdout=>({stdout:stdout||'',stderr:'',exitCode:0,timedOut:false}),missing=()=>({stdout:'',stderr:'iptables: No chain/target/match by that name.\n',exitCode:1,timedOut:false});
  if(options.preexistingChain)chains.iptables.set('SCQ4_12345',[]);if(options.preexistingReference)output.iptables.push('-A OUTPUT -j SCQ4_12345');
- const adb=async args=>{calls.push(args);
+ const adb=async(args,invoke={})=>{calls.push(args);invocations.push({args,options:invoke});
   if(args[0]==='root'||args[0]==='wait-for-device')return ok();
   if(args.slice(0,3).join(' ')==='shell id -u')return ok(options.rootDenied?'2000\n':'0\n');
   if(args.slice(0,3).join(' ')==='shell am get-current-user')return ok('0\n');
@@ -14,6 +14,7 @@ function fake(options={}){
   if(args[0]==='shell'&&args[1]==='-T'){
    const ipv6=args.includes('-6'),binary=ipv6?'ip6tables':'iptables',host=args.at(-2),port=args.at(-1);
    if(port==='9'){if(!options.noCounter)counts[binary]++;return{stdout:'',stderr:'connection rejected',exitCode:options.connectedNegative?0:1,timedOut:false};}
+   accepted[port]++;const endpoint=port==='3011'?'/products/get-all-categories':'/status';assert.equal(invoke.input,'GET '+endpoint+' HTTP/1.1\r\nHost: '+network.HOST+':'+port+'\r\nConnection: close\r\n\r\n');if(port==='3011'&&options.apiProbe)return options.apiProbe;
    if(port==='3011'&&options.apiUnavailable)return{stdout:'',stderr:'private transport detail',exitCode:1,timedOut:false};
    return ok('HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n'+(host===network.HOST&&port==='8081'?'packager-status:running':'[]'));
   }
@@ -31,10 +32,10 @@ function fake(options={}){
   if(a[0]==='-D'){const line='-A OUTPUT '+a.slice(2).join(' '),index=output[binary].indexOf(line);if(index<0)return missing();output[binary].splice(index,1);return ok();}
   if(a[0]==='-F'){chains[binary].set(a[1],[]);return ok();}
   if(a[0]==='-X'){if(options.cleanupFailed)return{stdout:'',stderr:'private cleanup detail',exitCode:4,timedOut:false};chains[binary].delete(a[1]);return ok();}
-  if(a.join(' ').startsWith('-n -v -x -L'))return ok('Chain '+a.at(-1)+'\n pkts bytes target prot opt in out source destination\n '+counts[binary]+' 60 REJECT all -- * * anywhere anywhere\n');
+  if(a.join(' ').startsWith('-n -v -x -L'))return ok('Chain '+a.at(-1)+'\n pkts bytes target prot opt in out source destination\n'+(options.omitAcceptCounters?'':[3011,8081].map(port=>' '+accepted[port]+' 60 ACCEPT tcp -- * * 0.0.0.0/0 10.0.2.2 tcp dpt:'+port).join('\n')+'\n')+' '+counts[binary]+' 60 REJECT all -- * * anywhere anywhere\n');
   throw Error('unexpected fake table action');
  };
- return{adb,chains,output,calls};
+ return{adb,chains,output,calls,invocations};
 }
 test('guard verifies both owner rule sets, real rejected packets and both allowed host services before returning proof',async()=>{
  const f=fake(),guard=await network.installNetwork({adb:f.adb,runId:'12345'});assert.equal(Object.values(guard.proof).filter(v=>typeof v==='boolean').every(Boolean),true);assert.equal(guard.proof.scope,'app-uid-10.0.2.2-tcp-3011-8081-only');assert.equal(await guard.verify(),true);assert.equal(await guard.cleanup(),true);assert.equal(f.chains.iptables.size,0);assert.equal(f.chains.ip6tables.size,0);assert.deepEqual(f.output,{iptables:[],ip6tables:[]});
@@ -67,4 +68,15 @@ test('failed or malformed whole-table enumeration never proves absence and never
 });
 test('preexisting exact chain or reference is preserved and rejected before any firewall mutation',async()=>{
  for(const options of[{preexistingChain:true},{preexistingReference:true}]){const f=fake(options),before=JSON.stringify({chains:[...f.chains.iptables],output:f.output});await assert.rejects(network.installNetwork({adb:f.adb,runId:'12345'}),e=>e.code==='COMMERCE_AVD_NETWORK_SCOPE'&&e.diagnostic.cleanupConfirmed===true);assert.equal(JSON.stringify({chains:[...f.chains.iptables],output:f.output}),before);assert(!f.calls.some(a=>['-N','-A','-I','-D','-F','-X'].some(flag=>a.includes(flag))));}
+});
+
+test('nc uses explicit connect, idle and EOF bounds with an outer margin, and sends real CRLF HTTP headers',async()=>{
+ const f=fake(),guard=await network.installNetwork({adb:f.adb,runId:'12345'});await guard.cleanup();const calls=f.invocations.filter(i=>i.args.includes('nc'));assert(calls.length>=4);for(const call of calls){for(const flag of ['-w','-W','-q'])assert.equal(call.args[call.args.indexOf(flag)+1],'4');assert.equal(call.options.timeout,11000);}const requests=calls.filter(i=>['3011','8081'].includes(i.args.at(-1)));assert.equal(requests.length,2);assert(requests.every(i=>i.options.input.endsWith('\r\n\r\n')&&!i.options.input.includes('\\r')));
+});
+test('timeout, nonzero exit and non-200 status remain failures with fixed header-only diagnostics',async()=>{
+ for(const raw of[{stdout:'',stderr:'connection refused private@example.invalid',exitCode:1,timedOut:false},{stdout:'HTTP/1.1 200 OK\r\n\r\nPRIVATE',stderr:'',exitCode:-1,timedOut:true},{stdout:'HTTP/1.1 503 Unavailable\r\n\r\nPRIVATE',stderr:'',exitCode:0,timedOut:false}]){const f=fake({apiProbe:raw});let observed;await assert.rejects(network.installNetwork({adb:f.adb,runId:'12345'}),e=>{observed=e;return e.code==='COMMERCE_AVD_QA_UNREACHABLE';});const d=network.safeDiagnostic(observed.diagnostic);assert(d&&d.cleanupConfirmed);assert.equal(d.stage,'positive-probes');assert.equal(d.probe.target,'qa');assert.equal(d.probe.exitCode,raw.exitCode);assert.equal(d.probe.timedOut,raw.timedOut);assert.equal(d.probe.before.acceptedPackets,0);assert.equal(d.probe.after.acceptedPackets,1);assert.equal(d.probe.before.rejectedPackets,d.probe.after.rejectedPackets);assert(!JSON.stringify(d).includes('PRIVATE')&&!JSON.stringify(d).includes('@'));if(raw.stdout.startsWith('HTTP/1.1 200'))assert.equal(d.probe.httpStatus,200);}
+});
+test('optional unparsed accept counters stay null rather than invented zero',async()=>{const f=fake({omitAcceptCounters:true,apiUnavailable:true});let error;try{await network.installNetwork({adb:f.adb,runId:'12345'});}catch(e){error=e;}const d=network.safeDiagnostic(error.diagnostic);assert.equal(d.probe.before.acceptedPackets,null);assert.equal(d.probe.after.acceptedPackets,null);assert.equal(d.probe.after.rejectedPackets,1);assert.equal(d.probe.httpStatus,null);});
+test('diagnostic projection rejects unknown keys, text-bearing fields, invalid status or unsafe counts',()=>{
+ const raw={stdout:'HTTP/1.1 200 OK\r\n\r\nprivate-body',stderr:'arbitrary secret text',exitCode:1,timedOut:false},counts={acceptedPackets:1,rejectedPackets:1};const value={stage:'positive-probes',cleanupConfirmed:true,probe:network.observeProbe(raw,'qa',counts,counts)};assert.equal(network.safeDiagnostic(value).probe.stderrEnum,'other');for(const mutate of[v=>v.body='PRIVATE',v=>v.probe.target='private@example.invalid',v=>v.probe.httpStatus=999,v=>v.probe.before.acceptedPackets='secret',v=>v.probe.stderrEnum='private']){const d=structuredClone(value);mutate(d);assert.equal(network.safeDiagnostic(d),null);}
 });

@@ -686,6 +686,9 @@ jobs:
         run: node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"
       - name: Exigir doce contratos HTTP sin consumir la publicación UI66
         run: node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"
+      - name: Preparar espacio del runner efímero antes de la AVD
+        id: commerce_disk
+        run: node scripts/prepare-android-disk.cjs
       - name: Pedidos y reseñas sintéticos en AVD API34 nuevo
         id: commerce_runtime
         uses: reactivecircus/android-emulator-runner@v2

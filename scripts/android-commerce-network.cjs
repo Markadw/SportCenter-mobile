@@ -1,9 +1,26 @@
 'use strict';
 // Android-only rules for the one installed Debug UID. No operations occur on require.
 const APP='com.markadw.sportcenter',HOST='10.0.2.2';
+const NC_TIMEOUT_MS=11000,STDERR_ENUM=Object.freeze(['none','permission-denied','connection-refused','unreachable','timeout','other']);
 const CODES=Object.freeze(['COMMERCE_AVD_ROOT_REQUIRED','COMMERCE_AVD_UID_INVALID','COMMERCE_AVD_NETWORK_SCOPE','COMMERCE_AVD_RULES_UNVERIFIED','COMMERCE_AVD_REJECTION_UNPROVEN','COMMERCE_AVD_QA_UNREACHABLE','COMMERCE_AVD_METRO_UNREACHABLE','COMMERCE_AVD_NETWORK_CLEANUP_FAILED','COMMERCE_AVD_TOOL_FAILED']);
 class NetworkError extends Error{constructor(code,diagnostic){const safe=CODES.includes(code)?code:'COMMERCE_AVD_TOOL_FAILED';super(safe);this.code=safe;if(diagnostic)this.diagnostic=diagnostic;}}
 const need=(value,code)=>{if(!value)throw new NetworkError(code);};
+function countValue(value){return value===null||Number.isSafeInteger(value)&&value>=0;}
+function safeDiagnostic(value){
+ if(!value||Object.keys(value).sort().join(',')!=='cleanupConfirmed,probe,stage'||typeof value.cleanupConfirmed!=='boolean'||!['root','uid','rules','reject-probes','positive-probes','unknown'].includes(value.stage))return null;
+ const p=value.probe;if(p!==null){if(!p||Object.keys(p).sort().join(',')!=='after,before,exitCode,httpStatus,responseBytes,stderrEnum,target,timedOut'||!['qa','metro'].includes(p.target)||!Number.isInteger(p.exitCode)||p.exitCode< -1||p.exitCode>255||typeof p.timedOut!=='boolean'||!(p.httpStatus===null||Number.isInteger(p.httpStatus)&&p.httpStatus>=100&&p.httpStatus<=599)||!Number.isInteger(p.responseBytes)||p.responseBytes<0||p.responseBytes>262144||!STDERR_ENUM.includes(p.stderrEnum))return null;
+  for(const key of ['before','after'])if(!p[key]||Object.keys(p[key]).sort().join(',')!=='acceptedPackets,rejectedPackets'||!Object.values(p[key]).every(countValue))return null;
+ }
+ return{stage:value.stage,cleanupConfirmed:value.cleanupConfirmed,probe:p===null?null:{target:p.target,exitCode:p.exitCode,timedOut:p.timedOut,httpStatus:p.httpStatus,responseBytes:p.responseBytes,stderrEnum:p.stderrEnum,before:{...p.before},after:{...p.after}}};
+}
+function counterSnapshot(raw,port){
+ let rejectedPackets=null;try{rejectedPackets=rejectCount(raw);}catch{}const lines=typeof raw==='string'?raw.split(/\r?\n/):[];
+ const rows=lines.filter(line=>new RegExp('^\\s*([0-9]+)\\s+[0-9]+\\s+ACCEPT\\s+tcp\\s').test(line)&&new RegExp('(?:^|\\s)dpt:'+port+'(?:\\s|$)').test(line));
+ const acceptedPackets=rows.length===1?Number(rows[0].trim().split(/\s+/)[0]):null;return{acceptedPackets:countValue(acceptedPackets)?acceptedPackets:null,rejectedPackets};
+}
+function stderrEnum(text){if(!text.trim())return'none';if(/permission denied|operation not permitted/i.test(text))return'permission-denied';if(/connection refused/i.test(text))return'connection-refused';if(/network is unreachable|no route to host|host is unreachable/i.test(text))return'unreachable';if(/timed? ?out|timeout/i.test(text))return'timeout';return'other';}
+function observeProbe(raw,target,before,after){const status=/^HTTP\/1\.[01] ([1-5][0-9]{2})(?: [^\r\n]*)?\r?\n/.exec(raw.stdout);return{target,exitCode:raw.exitCode,timedOut:raw.timedOut===true,httpStatus:status?Number(status[1]):null,responseBytes:Buffer.byteLength(raw.stdout),stderrEnum:stderrEnum(raw.stderr),before,after};}
+
 function normal(result){need(result&&typeof result.stdout==='string'&&typeof result.stderr==='string'&&Number.isInteger(result.exitCode)&&Buffer.byteLength(result.stdout)+Buffer.byteLength(result.stderr)<=262144,'COMMERCE_AVD_TOOL_FAILED');return result;}
 function parseUid(text){const match=new RegExp('^package:'+APP.replaceAll('.','\\.')+' uid:([1-9][0-9]*)$').exec(text.trim());need(match,'COMMERCE_AVD_UID_INVALID');const uid=Number(match[1]);need(Number.isSafeInteger(uid)&&uid>=10000&&uid<=19999,'COMMERCE_AVD_UID_INVALID');return uid;}
 function plan(uid,runId){need(Number.isSafeInteger(uid)&&uid>=10000&&uid<=19999&&typeof runId==='string'&&/^[1-9][0-9]{0,19}$/.test(runId),'COMMERCE_AVD_NETWORK_SCOPE');const suffix=runId.slice(-12),v4='SCQ4_'+suffix,v6='SCQ6_'+suffix;return{uid,v4,v6,allows:[3011,8081],host:HOST};}
@@ -25,7 +42,7 @@ function chainAbsent(raw,chain){
  need(policies.size===3&&owners.every(name=>policies.has(name)||declared.has(name)),'COMMERCE_AVD_RULES_UNVERIFIED');return !present;
 }
 async function installNetwork({adb,runId,packageName=APP}){
- need(packageName===APP&&typeof adb==='function','COMMERCE_AVD_NETWORK_SCOPE');const resources=[];let setupStage='root',uid,p,mutationUncertain=false;
+ need(packageName===APP&&typeof adb==='function','COMMERCE_AVD_NETWORK_SCOPE');const resources=[];let setupStage='root',uid,p,mutationUncertain=false,lastProbe=null;
  const call=async(args,options={})=>normal(await adb(args,{timeout:10000,...options}));
  const good=async args=>{const result=await call(args);need(result.exitCode===0&&!result.timedOut,'COMMERCE_AVD_TOOL_FAILED');return result.stdout;};
  const table=(binary,args)=>good(['shell',binary,...args]);
@@ -42,10 +59,10 @@ async function installNetwork({adb,runId,packageName=APP}){
    await table(binary,['-A',chain,'-j','REJECT','--reject-with',ipv6?'icmp6-port-unreachable':'icmp-port-unreachable']);resource.jumpAttempted=true;await table(binary,['-I','OUTPUT','1','-m','owner','--uid-owner',String(uid),'-j',chain]);
   }
   await verify();setupStage='reject-probes';
-  const nc=async(host,port,input='',ipv6=false)=>call(['shell','-T','run-as',APP,'/system/bin/toybox','nc',ipv6?'-6':'-4','-n','-w','4','-W','4',host,String(port)],{timeout:7000,input});
+  const nc=async(host,port,input='',ipv6=false)=>call(['shell','-T','run-as',APP,'/system/bin/toybox','nc',ipv6?'-6':'-4','-n','-w','4','-W','4','-q','4',host,String(port)],{timeout:NC_TIMEOUT_MS,input});
   for(const[binary,chain,host,ipv6]of[['iptables',p.v4,'192.0.2.1',false],['ip6tables',p.v6,'::1',true]]){const before=rejectCount(await table(binary,['-n','-v','-x','-L',chain]));const result=await nc(host,9,'',ipv6);const after=rejectCount(await table(binary,['-n','-v','-x','-L',chain]));need(!result.timedOut&&result.exitCode!==0&&after>before,'COMMERCE_AVD_REJECTION_UNPROVEN');}
-  setupStage='positive-probes';for(const[port,endpoint,code]of[[3011,'/products/get-all-categories','COMMERCE_AVD_QA_UNREACHABLE'],[8081,'/status','COMMERCE_AVD_METRO_UNREACHABLE']]){const raw=await nc(HOST,port,'GET '+endpoint+' HTTP/1.1\r\nHost: '+HOST+':'+port+'\r\nConnection: close\r\n\r\n');need(!raw.timedOut&&raw.exitCode===0&&/^HTTP\/1\.[01] 200\b/.test(raw.stdout)&&(port!==8081||raw.stdout.includes('packager-status:running')),code);}
+  setupStage='positive-probes';for(const[port,endpoint,code]of[[3011,'/products/get-all-categories','COMMERCE_AVD_QA_UNREACHABLE'],[8081,'/status','COMMERCE_AVD_METRO_UNREACHABLE']]){const before=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port),raw=await nc(HOST,port,'GET '+endpoint+' HTTP/1.1\r\nHost: '+HOST+':'+port+'\r\nConnection: close\r\n\r\n'),after=counterSnapshot(await table('iptables',['-n','-v','-x','-L',p.v4]),port);lastProbe=observeProbe(raw,port===3011?'qa':'metro',before,after);need(!raw.timedOut&&raw.exitCode===0&&lastProbe.httpStatus===200&&(port!==8081||raw.stdout.includes('packager-status:running')),code);}
   await verify();return Object.freeze({proof:Object.freeze({rooted:true,uidMatched:true,ipv4RulesVerified:true,ipv6RulesVerified:true,ipv4RejectedWithCounter:true,ipv6RejectedWithCounter:true,apiReachable:true,metroReachable:true,scope:'app-uid-10.0.2.2-tcp-3011-8081-only'}),verify,cleanup});
- }catch(error){let cleaned=false;try{await cleanup();cleaned=true;}catch{}const code=error instanceof NetworkError?error.code:'COMMERCE_AVD_TOOL_FAILED';throw new NetworkError(code,{stage:['root','uid','rules','reject-probes','positive-probes'].includes(setupStage)?setupStage:'unknown',cleanupConfirmed:cleaned});}
+ }catch(error){let cleaned=false;try{await cleanup();cleaned=true;}catch{}const code=error instanceof NetworkError?error.code:'COMMERCE_AVD_TOOL_FAILED';throw new NetworkError(code,{stage:['root','uid','rules','reject-probes','positive-probes'].includes(setupStage)?setupStage:'unknown',cleanupConfirmed:cleaned,probe:lastProbe});}
 }
-module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,chainAbsent,installNetwork};
+module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,chainAbsent,NC_TIMEOUT_MS,STDERR_ENUM,safeDiagnostic,counterSnapshot,observeProbe,installNetwork};

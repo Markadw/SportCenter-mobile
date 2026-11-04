@@ -208,7 +208,7 @@ function validateCommerceWorkflow(workflow) {
   assert.equal(job['runs-on'], 'ubuntu-24.04');
   assert.equal(job['timeout-minutes'], 40);
   assert.deepEqual(job.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true', keep_evidence: 'true', PINNING_EPHEMERAL_AVD: 'true' });
-  assert.equal(job.steps.length, 20, 'Comercio sólo admite sus fases revisadas, sin pasos adicionales');
+  assert.equal(job.steps.length, 21, 'Comercio sólo admite sus fases revisadas, sin pasos adicionales');
   const checkout = job.steps.find(item => item.uses === 'actions/checkout@v4');
   assert.deepEqual(checkout?.with, { 'fetch-depth': 0, 'persist-credentials': false });
   assert.equal(job.steps.find(item => item.uses === 'actions/setup-node@v4')?.with['node-version'], '22.20.0');
@@ -218,7 +218,8 @@ function validateCommerceWorkflow(workflow) {
     'node scripts/android-commerce.cjs runtime-dir', 'node scripts/android-commerce.cjs kvm',
     'node scripts/android-commerce.cjs host-probe', 'npm run env:start',
     'node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"',
-    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"'];
+    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"',
+    'node scripts/prepare-android-disk.cjs'];
   const indices = commands.map(command => {
     const matches = job.steps.filter(item => item.run === command);
     assert.equal(matches.length, 1, 'Cada fase de comercio se ejecuta una sola vez: ' + command);
