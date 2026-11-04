@@ -65,6 +65,64 @@ it("completes recovery only after the actual reset call and clears secrets", asy
   expect(result.current.form).toEqual({ email: "", token: "", psw: "", confirmation: "" });
   await unmount();
 });
+it("resumes an existing recovery code only for a valid normalized email, without sending or storing secrets", async () => {
+  const { result, unmount } = await renderHook(usePasswordRecoveryViewModel);
+  await act(() => result.current.resumeWithCode());
+  expect(result.current.stage).toBe("email"); expect(result.current.errors.email).toBeTruthy();
+  await act(() => {
+    result.current.change("email", "  ANA@EXAMPLE.COM  "); result.current.change("token", "123456");
+    result.current.change("psw", "AnteriorSegura456!"); result.current.change("confirmation", "AnteriorSegura456!");
+  });
+  await act(() => result.current.resumeWithCode());
+  expect(result.current.stage).toBe("reset"); expect(result.current.errors).toEqual({});
+  expect(result.current.form).toEqual({ email: "ana@example.com", token: "", psw: "", confirmation: "" });
+  expect(result.current.cooldown).toBe(0);
+  expect(passwordRecoveryApi.requestCode).not.toHaveBeenCalled(); expect(passwordRecoveryApi.reset).not.toHaveBeenCalled();
+  await unmount();
+});
+it("does not resume while a send is pending or let a cancelled response replace a resumed form", async () => {
+  let finish!: () => void;
+  jest.mocked(passwordRecoveryApi.requestCode).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const { result, unmount } = await renderHook(usePasswordRecoveryViewModel);
+  await act(() => result.current.change("email", "ana@example.com"));
+  await act(() => result.current.sendCode());
+  expect(result.current.pending).toBe(true);
+  await act(() => result.current.resumeWithCode());
+  expect(result.current.stage).toBe("email"); expect(result.current.pending).toBe(true);
+  expect(passwordRecoveryApi.requestCode).toHaveBeenCalledTimes(1);
+  await act(() => result.current.changeEmail());
+  await act(() => result.current.change("email", "otra@example.com"));
+  await act(() => result.current.resumeWithCode());
+  await act(() => result.current.change("token", "654321"));
+  await act(() => finish());
+  expect(result.current.stage).toBe("reset"); expect(result.current.pending).toBe(false);
+  expect(result.current.form.email).toBe("otra@example.com"); expect(result.current.form.token).toBe("654321");
+  expect(result.current.cooldown).toBe(0); expect(passwordRecoveryApi.reset).not.toHaveBeenCalled();
+  await unmount();
+});
+it("keeps the actual resend cooldown when resuming and requires a valid server reset to complete", async () => {
+  jest.mocked(passwordRecoveryApi.requestCode).mockResolvedValue();
+  jest.mocked(passwordRecoveryApi.reset).mockResolvedValue();
+  const { result, unmount } = await renderHook(usePasswordRecoveryViewModel);
+  await act(() => result.current.change("email", "ana@example.com"));
+  await act(() => result.current.sendCode());
+  await waitFor(() => expect(result.current.stage).toBe("reset"));
+  await act(() => result.current.changeEmail());
+  await act(() => result.current.resumeWithCode());
+  expect(result.current.cooldown).toBeGreaterThan(0);
+  await act(() => { result.current.sendCode(); result.current.submit(); });
+  expect(passwordRecoveryApi.requestCode).toHaveBeenCalledTimes(1); expect(passwordRecoveryApi.reset).not.toHaveBeenCalled();
+  expect(result.current.errors.token).toBeTruthy(); expect(result.current.errors.psw).toBeTruthy();
+  await act(() => {
+    result.current.change("token", "123456"); result.current.change("psw", "SeguraNueva456!"); result.current.change("confirmation", "SeguraNueva456!");
+  });
+  await act(() => result.current.submit());
+  await waitFor(() => expect(result.current.stage).toBe("done"));
+  expect(passwordRecoveryApi.reset).toHaveBeenCalledTimes(1);
+  expect(passwordRecoveryApi.reset).toHaveBeenCalledWith(expect.objectContaining({ email: "ana@example.com", token: "123456", psw: "SeguraNueva456!" }), expect.any(AbortSignal));
+  expect(result.current.form).toEqual({ email: "", token: "", psw: "", confirmation: "" });
+  await unmount();
+});
 it("does not allow publication merely from a product URL or without delivered eligibility", async () => {
   jest.mocked(reviewsApi.eligibility).mockResolvedValue({ canReview: false, hasDeliveredPurchase: false, hasReview: false });
   const { result } = await renderHook(() => useReviewsViewModel("2", "token"));
