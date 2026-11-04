@@ -679,6 +679,11 @@ jobs:
       - name: Probar aislamiento Linux sin credenciales antes de Android
         timeout-minutes: 3
         run: node scripts/android-email-forms.cjs probe
+      - name: Exigir espacio para el AVD efímero antes de arrancarlo
+        id: email_forms_disk
+        run: node scripts/prepare-android-disk.cjs
+        env:
+          PINNING_EPHEMERAL_AVD: 'true'
       - name: Registro verificación o recuperación según la fase
         id: email_forms_runtime
         uses: reactivecircus/android-emulator-runner@v2

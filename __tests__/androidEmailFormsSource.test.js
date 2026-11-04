@@ -157,6 +157,9 @@ test('actual APK bytes and byte count must match the independently pinned receip
 });
 
 test('automation derives one exact phase and stable receipt proof without accepting application changes', () => {
+  for (const filename of ['scripts/prepare-android-disk.cjs', '__tests__/androidDisk.test.js']) {
+    assert.doesNotThrow(() => guard.verifyAutomation(config(), { ...automation('register'), changed: filename + '\n' }));
+  }
   for (const phase of ['register', 'verify', 'reset']) {
     const c = config(), result = guard.verifyAutomation(c, automation(phase));
     assert.equal(result.phase, phase); assert.equal(result.receiptSha256, guard.fingerprint(c));
@@ -166,7 +169,8 @@ test('automation derives one exact phase and stable receipt proof without accept
   for (const filename of ['src/features/passwordRecovery/screens/PasswordRecoveryScreen.tsx', 'assets/icon.png',
     'app.json', 'app.config.js', 'package.json', 'package-lock.json', 'bun.lock', 'config/security-pins.json',
     'scripts/android-account.cjs', 'scripts/account-sandbox.cjs', '__tests__/androidEmailFormsUnknown.test.js',
-    '../scripts/android-email-forms.cjs', ' scripts/android-email-forms.cjs', 'scripts/unknown.cjs']) {
+    '../scripts/android-email-forms.cjs', ' scripts/android-email-forms.cjs', 'scripts/unknown.cjs',
+    'scripts/prepare-android-disk.js', '__tests__/androidDiskOther.test.js']) {
     assert.throws(() => guard.verifyAutomation(config(), { ...automation('reset'), changed: filename + '\n' }), code('EMAIL_FORMS_APP_TREE_CHANGED'));
   }
   for (const ref of ['refs/tags/validation/account-register-fixture', 'refs/tags/validation/account-forms-unknown-fixture',

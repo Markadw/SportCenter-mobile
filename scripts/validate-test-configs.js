@@ -211,6 +211,14 @@ function validateEmailFormsWorkflow(workflow) {
   assert.ok(adbTools.run.includes('test -x "$ANDROID_HOME/platform-tools/adb"') && adbTools.run.includes('echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"'));
   const runtime = job.steps.find(step => step.id === 'email_forms_runtime');
   assert.ok(job.steps.indexOf(runtime) > order.at(-1));
+  const diskSteps = job.steps.filter(step => step.id === 'email_forms_disk' || step.run === 'node scripts/prepare-android-disk.cjs');
+  assert.equal(diskSteps.length, 1, 'Un único preflight de disco para el AVD de correo');
+  const disk = diskSteps[0];
+  assert.equal(disk.id, 'email_forms_disk');
+  assert.equal(disk.run, 'node scripts/prepare-android-disk.cjs');
+  assert.ok(job.steps.indexOf(disk) > order.at(-1) && job.steps.indexOf(disk) < job.steps.indexOf(runtime), 'Comprobar disco después del preflight privado y antes de crear el AVD');
+  assert.equal(disk.if, undefined);
+  assert.equal(disk['continue-on-error'], undefined);
   assert.equal(runtime.uses, 'reactivecircus/android-emulator-runner@v2');
   assert.equal(runtime.with['api-level'], 34); assert.equal(runtime.with.arch, 'x86_64');
   assert.equal(runtime.with.target, 'google_apis'); assert.equal(runtime.with['force-avd-creation'], true);
@@ -222,7 +230,7 @@ function validateEmailFormsWorkflow(workflow) {
     if (step !== runtime) assert.ok(!/ANDROID_(?:TEST|FORMS)_/.test(JSON.stringify(step)), 'Cuenta sólo en runtime');
     const expectedEnv = step === runtime ? runtime.env : step === prepare ? { GITHUB_TOKEN: '${{ github.token }}' }
       : step === view ? { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' }
-        : step.run === 'node scripts/android-email-forms.cjs kvm' ? { PINNING_EPHEMERAL_AVD: 'true' } : undefined;
+        : step.run === 'node scripts/android-email-forms.cjs kvm' || step === disk ? { PINNING_EPHEMERAL_AVD: 'true' } : undefined;
     assert.deepEqual(step.env, expectedEnv, 'Sólo variables explícitas en cada fase de correo');
     assert.ok(!step.if || step.if === 'always()' || step.uses?.startsWith('actions/upload-artifact@'));
     if (step !== view) assert.ok(!step.env?.EXPO_TOKEN);

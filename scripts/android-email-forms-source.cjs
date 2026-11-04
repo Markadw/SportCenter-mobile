@@ -29,6 +29,7 @@ const STATIC_CHECKS = Object.freeze(['candidate', 'signature', 'manifest', 'abi'
 const AUTOMATION_FILES = Object.freeze([
   CONFIG_FILE,
   'scripts/android-email-forms.cjs', 'scripts/android-email-forms-source.cjs',
+  'scripts/prepare-android-disk.cjs', '__tests__/androidDisk.test.js',
   '__tests__/androidEmailForms.test.js', '__tests__/androidEmailFormsSource.test.js',
   '__tests__/androidEmailFormsWorkflow.test.js',
   'tests/manual/android-email-forms.md',
