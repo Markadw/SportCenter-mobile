@@ -5,10 +5,10 @@ const account=require('./android-account.cjs');
 const {createSandbox,SandboxError,safeSandboxDiagnostic,isSafeSandboxDiagnostic}=require('./account-sandbox.cjs');
 const provenance=require('./android-email-forms-source.cjs');
 const PACKAGE='com.markadw.sportcenter';
-const PHASE_CASES=Object.freeze({register:Object.freeze(['EF01','EF02']),verify:Object.freeze(['EF03','EF04','EF05']),reset:Object.freeze(['EF06','EF07','EF08','EF09'])});
+const PHASE_CASES=Object.freeze({register:Object.freeze(['EF01','EF02']),verify:Object.freeze(['EF03','EF04','EF05']),reset:Object.freeze(['EF06','EF07','EF08','EF09','EF05'])});
 const LABELS=Object.freeze({name:'Nombre',surname:'Apellido paterno',secondSurname:'Apellido materno',registrationEmail:'Correo electrónico',phone:'Teléfono',password:'Contraseña',confirmation:'Confirmar contraseña',verification:'Código de verificación',recoveryEmail:'Correo',recovery:'Código de recuperación',newPassword:'Nueva contraseña'});
 const EVIDENCE=Object.freeze(['registered','resent','invalidVerificationDidNotComplete','verified','recoveryRequested','resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut']);
-const REQUIRED_EVIDENCE=Object.freeze({register:['registered','resent'],verify:['invalidVerificationDidNotComplete','verified','recoveryRequested'],reset:['resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut']});
+const REQUIRED_EVIDENCE=Object.freeze({register:['registered','resent'],verify:['invalidVerificationDidNotComplete','verified','recoveryRequested'],reset:['resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut','recoveryRequested']});
 const CODES=Object.freeze(['FORMS_SECRETS_MISSING','FORMS_FIXTURE_INVALID','FORMS_SOURCE_INVALID','FORMS_PROCESS_FAILED','FORMS_UI_INVALID','FORMS_UI_TIMEOUT','FORMS_MAESTRO_FAILED','FORMS_INPUT_MISMATCH','FORMS_SANDBOX_FAILED','FORMS_SANDBOX_CLEANUP_FAILED','FORMS_DEVICE_CLEANUP_FAILED','FORMS_CASES_INCOMPLETE','FORMS_UNEXPECTED_FAILURE']);
 const STAGES=Object.freeze(['preflight','device-check','probe-adb-start-server','sandbox-parent','sandbox-probes','app-install','register-open','register-consent','register-submit','register-response','resend-submit','resend-response','verify-open','verify-resume','verify-invalid-submit','verify-invalid-response','verify-submit','verify-response','recovery-open','recovery-submit','recovery-response','reset-open','reset-resume','reset-invalid-submit','reset-invalid-response','reset-submit','reset-response','login-open','login-submit','login-response','logout-submit','logout-response','cleanup-device','cleanup-sandbox','completed',...Object.keys(LABELS).flatMap(k=>['field-'+k,'check-'+k])]);
 const NOTICE_RESENT='Enviamos un código nuevo a tu correo. Revisa también la carpeta de spam; el código anterior deja de servir.';
@@ -49,6 +49,21 @@ function formsYaml(name,body){
  need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&FLOW_BODIES.has(body),'FORMS_MAESTRO_FAILED');
  return 'appId: '+PACKAGE+'\nname: '+name+' private account\n---\n'+body+'\n';
 }
+async function waitForUi(predicate,{readUi,now=Date.now,wait=pause}){
+ const deadline=now()+45000;let invalidReads=0;
+ while(now()<deadline){
+  let nodes;
+  try{nodes=await readUi();}
+  catch(error){
+   if(!(error instanceof account.AccountError)||error.code!=='ACCOUNT_UI_INVALID')throw error;
+   if(++invalidReads>=3)throw new FormsError('FORMS_UI_INVALID');
+   await wait(250);continue;
+  }
+  if(predicate(nodes))return nodes;
+  await wait(250);
+ }
+ throw new FormsError('FORMS_UI_TIMEOUT');
+}
 function stage(state,value){need(STAGES.includes(value),'FORMS_UI_INVALID');state.stage=value;}
 async function executePhase(driver,secret,state){
  const mark=(id,evidence)=>{state.cases[id]='passed';state.evidence[evidence]=true;};
@@ -71,7 +86,11 @@ async function executePhase(driver,secret,state){
   await driver.fill('recovery',secret.code,{direction:'UP'});await submit('Actualizar contraseña','reset-submit','reset-response',nodes=>account.hasLabel(nodes,'Contraseña actualizada')&&account.hasLabel(nodes,'Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.'));mark('EF08','passwordUpdated');
   stage(state,'login-open');await driver.open('login');await driver.fill('registrationEmail',secret.email,{direction:'UP'});await driver.fill('password',secret.newPassword,{secure:true,login:true});
   await submit('Iniciar sesión','login-submit','login-response',nodes=>account.hasLabel(nodes,'Mi cuenta')&&account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));state.evidence.newPasswordLogin=true;
-  await submit('Cerrar sesión','logout-submit','logout-response',nodes=>account.hasLabel(nodes,'Inicia sesión con tu cuenta verificada o regístrate para comenzar.')&&!account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));state.evidence.loggedOut=true;state.cases.EF09='passed';
+  stage(state,'logout-submit');state.operationUncertain=true;await driver.tap('Cerrar sesión');stage(state,'logout-response');
+  await driver.open('account');await driver.wait(nodes=>account.hasLabel(nodes,'Inicia sesión con tu cuenta verificada o regístrate para comenzar.')&&!account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));
+  state.operationUncertain=false;state.evidence.loggedOut=true;state.cases.EF09='passed';
+  stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});
+  await submit('Enviar código','recovery-submit','recovery-response',nodes=>account.hasLabel(nodes,'Código de recuperación')&&account.hasLabel(nodes,'Actualizar contraseña'));mark('EF05','recoveryRequested');
  }else throw new FormsError('FORMS_SOURCE_INVALID');
 }
 function publicReport(state,config){
@@ -99,8 +118,8 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const measured=async(label,kind)=>account.point(await readUi(),label,kind);
  const tap=async label=>{await flow(tapBody(label));const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
-  async open(route){need(['register','forgot-password','login'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);},
-  async wait(predicate){const deadline=now()+45000;while(now()<deadline){const nodes=await readUi();if(predicate(nodes))return nodes;await wait(250);}throw new FormsError('FORMS_UI_TIMEOUT');},tap,
+  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);},
+  async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
@@ -122,7 +141,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}

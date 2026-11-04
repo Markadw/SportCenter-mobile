@@ -13,7 +13,7 @@ const env=phase=>({ANDROID_FORMS_EMAIL:'qa+forms@example.com',ANDROID_FORMS_PASS
 const node=(text,extra={})=>({package:forms.PACKAGE,text,enabled:'true',clickable:'true',...extra});
 const state=phase=>({phase,status:'failed',stage:'preflight',automationCommit:'e'.repeat(40),cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false});
 function driverFor(phase,secret,options={}){
- let screen='',notice='',checked=false;const fields={},calls=[],counters={registration:0,resend:0,recovery:0,reset:0,login:0,logout:0};
+ let screen='',notice='',checked=false,loggedIn=false;const fields={},calls=[],counters={registration:0,resend:0,recovery:0,reset:0,login:0,logout:0};
  const nodes=()=>{
   const values=Object.entries(fields).map(([key,value])=>node(value,{class:'android.widget.EditText','content-desc':forms.LABELS[key]}));
   if(screen==='register')return[...values,node('Crear cuenta'),node('',{'content-desc':'Acepto el tratamiento necesario para mi cuenta',checked:String(checked)})];
@@ -27,7 +27,7 @@ function driverFor(phase,secret,options={}){
   return[node('Inicia sesión con tu cuenta verificada o regístrate para comenzar.')];
  };
  const driver={
-  async open(route){calls.push(['open',route]);screen=route==='register'?'register':route==='forgot-password'?'email':'login';notice='';},
+  async open(route){calls.push(['open',route]);screen=route==='register'?'register':route==='forgot-password'?'email':route==='account'?(loggedIn?'account':'guest'):'login';notice='';},
   async fill(key,value){calls.push(['fill',key]);fields[key]=value;},
   async tap(label){calls.push(['tap',label]);
    if(options.failTap===label)throw new forms.FormsError('FORMS_UI_TIMEOUT');
@@ -36,11 +36,11 @@ function driverFor(phase,secret,options={}){
    else if(label==='Reenviar código'){counters.resend++;notice=forms.NOTICE_RESENT;}
    else if(label==='Ya tengo un código')screen='verify';
    else if(label==='Verificar cuenta'){if(fields.verification===secret.code||options.acceptWrongVerification)screen='verified';else notice='Código incorrecto. Intentos restantes: 2.';}
-   else if(label==='Enviar código'){counters.recovery++;screen='reset';}
+   else if(label==='Enviar código'){counters.recovery++;if(!options.recoveryUnconfirmed)screen='reset';}
    else if(label==='Ya tengo un código de recuperación')screen='reset';
    else if(label==='Actualizar contraseña'){counters.reset++;if(fields.recovery===secret.code&&!options.resetUnconfirmed)screen='done';else notice=forms.RESET_ERROR;}
-   else if(label==='Iniciar sesión'){counters.login++;if(!options.loginRejected)screen='account';}
-   else if(label==='Cerrar sesión'){counters.logout++;screen='guest';}
+   else if(label==='Iniciar sesión'){counters.login++;if(!options.loginRejected){screen='account';loggedIn=true;}}
+   else if(label==='Cerrar sesión'){counters.logout++;loggedIn=options.logoutSessionRemains===true;screen='login';}
    else throw new Error('unexpected public test action');
   },
   async wait(predicate){if(!predicate(nodes()))throw new forms.FormsError('FORMS_UI_TIMEOUT');return nodes();},
@@ -54,8 +54,35 @@ test('real registration and one resend are separate mandatory observations; no O
 test('verification uses the existing resume UI, observes incorrect code then verified account, and requests recovery once',async()=>{
  const result=await completed('verify');assert.equal(result.report.status,'passed');assert.equal(result.counters.registration,0);assert.equal(result.counters.resend,0);assert.equal(result.counters.recovery,1);assert.deepEqual(result.report.cases.map(c=>c.id),['EF03','EF04','EF05']);assert.equal(result.report.evidence.invalidVerificationDidNotComplete,true);
 });
-test('recovery resumes without another email, changes via UI, then confirms the new password by login and logout',async()=>{
- const result=await completed('reset');assert.equal(result.report.status,'passed');assert.equal(result.counters.recovery,0);assert.equal(result.counters.reset,2);assert.equal(result.counters.login,1);assert.equal(result.counters.logout,1);assert.equal(result.report.evidence.passwordUpdated,true);assert.equal(result.report.evidence.loggedOut,true);
+test('reset consumes the existing code before login, stable guest logout and exactly one new recovery request',async()=>{
+ const result=await completed('reset');assert.equal(result.report.status,'passed');assert.equal(result.counters.recovery,1);assert.equal(result.counters.reset,2);assert.equal(result.counters.login,1);assert.equal(result.counters.logout,1);assert.equal(result.report.evidence.passwordUpdated,true);assert.equal(result.report.evidence.loggedOut,true);assert.equal(result.report.evidence.recoveryRequested,true);
+ const guest=result.calls.findIndex(c=>c[0]==='open'&&c[1]==='account'),logout=result.calls.findIndex(c=>c[0]==='tap'&&c[1]==='Cerrar sesión'),request=result.calls.findIndex(c=>c[0]==='tap'&&c[1]==='Enviar código');
+ assert.ok(guest>logout&&request>guest);assert.deepEqual(result.report.cases.map(c=>c.id),['EF06','EF07','EF08','EF09','EF05']);
+});
+test('an unconfirmed recovery request after reset keeps EF05 failed and uncertain without repeating reset or mail',async()=>{
+ const s=state('reset'),secret=forms.credentials(env('reset'),'reset'),d=driverFor('reset',secret,{recoveryUnconfirmed:true});
+ await assert.rejects(forms.executePhase(d.driver,secret,s),/FORMS_UI_TIMEOUT/);assert.equal(s.cases.EF09,'passed');assert.equal(s.cases.EF05,undefined);assert.equal(s.evidence.loggedOut,true);assert.equal(s.evidence.recoveryRequested,undefined);assert.equal(s.operationUncertain,true);assert.equal(d.counters.recovery,1);assert.equal(d.counters.reset,2);
+});
+test('logout cannot pass from a login redirect while the account route still exposes a session',async()=>{
+ const s=state('reset'),secret=forms.credentials(env('reset'),'reset'),d=driverFor('reset',secret,{logoutSessionRemains:true});
+ await assert.rejects(forms.executePhase(d.driver,secret,s),/FORMS_UI_TIMEOUT/);assert.equal(s.stage,'logout-response');assert.equal(s.operationUncertain,true);assert.equal(s.evidence.loggedOut,undefined);assert.equal(s.cases.EF09,undefined);assert.equal(d.counters.logout,1);
+});
+test('response waiting rereads a transient invalid dump without relaxing the real UI parser or resubmitting an action',async()=>{
+ let reads=0,clock=0,predicates=0;const valid='<hierarchy><node package="'+forms.PACKAGE+'" text="Código de recuperación"/></hierarchy>';
+ const result=await forms.waitForUi(nodes=>{predicates++;return account.hasLabel(nodes,'Código de recuperación');},{readUi:async()=>account.parsePrivateUi(++reads===1?'<hierarchy><node':valid),now:()=>clock,wait:async duration=>{clock+=duration;}});
+ assert.equal(reads,2);assert.equal(predicates,1);assert.equal(clock,250);assert.equal(account.hasLabel(result,'Código de recuperación'),true);
+});
+test('three invalid snapshots, malformed entities and DTDs still fail closed without raw content',async()=>{
+ for(const invalid of ['<hierarchy><node','<!DOCTYPE hierarchy><hierarchy/>','<hierarchy><node text="&private;"/></hierarchy>']){
+  let reads=0,clock=0;
+  await assert.rejects(forms.waitForUi(()=>true,{readUi:async()=>{reads++;return account.parsePrivateUi(invalid);},now:()=>clock,wait:async duration=>{clock+=duration;}}),error=>error.code==='FORMS_UI_INVALID'&&!error.message.includes('private'));
+  assert.equal(reads,3);assert.equal(clock,500);
+ }
+});
+test('response waiting retains its deadline and never retries process failures as malformed UI',async()=>{
+ let clock=0,reads=0;
+ await assert.rejects(forms.waitForUi(()=>false,{readUi:async()=>[],now:()=>clock,wait:async duration=>{clock+=duration;}}),/FORMS_UI_TIMEOUT/);assert.equal(clock,45000);
+ await assert.rejects(forms.waitForUi(()=>true,{readUi:async()=>{reads++;throw new forms.FormsError('FORMS_PROCESS_FAILED');},now:()=>0,wait:async()=>{throw new Error('must not wait');}}),/FORMS_PROCESS_FAILED/);assert.equal(reads,1);
 });
 test('a pending or unconfirmed registration cannot trigger a resend or be reported as account creation',async()=>{
  const s=state('register'),secret=forms.credentials(env('register'),'register'),d=driverFor('register',secret,{registrationUnconfirmed:true});await assert.rejects(forms.executePhase(d.driver,secret,s),/FORMS_UI_TIMEOUT/);assert.equal(d.counters.registration,1);assert.equal(d.counters.resend,0);assert.equal(s.cases.EF01,undefined);assert.equal(s.operationUncertain,true);
@@ -71,6 +98,10 @@ test('failure after changing password is preserved and cannot be hidden by a suc
 });
 test('reports reject missing observations, incomplete cleanup, uncertain writes and an early stage',async()=>{
  const {s,c}=await completed('register');for(const mutate of[v=>{v.evidence.resent=false;},v=>{v.cleanup.sandbox=false;},v=>{v.operationUncertain=true;},v=>{v.stage='preflight';},v=>{v.cases.EF02='not_run';}]){const value=structuredClone(s);mutate(value);assert.equal(forms.publicReport(value,c).status,'failed');}
+});
+test('reset cannot pass without the separate post-logout recovery observation and EF05',async()=>{
+ const {s,c}=await completed('reset');
+ for(const mutate of [value=>{value.evidence.recoveryRequested=false;},value=>{value.cases.EF05='not_run';}]){const value=structuredClone(s);mutate(value);assert.equal(forms.publicReport(value,c).status,'failed');}
 });
 test('public evidence exposes no private form data, raw UI or arbitrary exception/stage content',async()=>{
  const {s,c}=await completed('reset');s.stage='private@example.com';s.extra='private-password';s.errors=[new Error('654321 private@example.com')];const text=JSON.stringify(forms.publicReport(s,c));for(const value of['private@example.com','private-password','654321','qa+forms@example.com','NuevaSegura789!'])assert.equal(text.includes(value),false);assert.equal(JSON.parse(text).stage,'unknown');assert.deepEqual(JSON.parse(text).failureCodes,['FORMS_UNEXPECTED_FAILURE']);
