@@ -140,6 +140,7 @@ function validateReleaseWorkflow(workflow) {
 
 function validateAccountWorkflow(workflow) {
   const job = workflow.jobs.account, result = workflow.jobs.account_result;
+  assert.equal(job.environment, 'android-private-qa', 'La cuenta de pruebas requiere su entorno dedicado');
   assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/account-') }}");
   assert.deepEqual(job.needs, ['quality', 'security']);
   assert.equal(job['runs-on'], 'ubuntu-24.04');

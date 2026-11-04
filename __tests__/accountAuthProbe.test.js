@@ -162,3 +162,30 @@ test('report validator rejects extra fields, forged success, unsafe codes and in
   assert.equal(validateProbeReport(null), false);
   assert.equal(validateProbeReport(new Proxy({}, { ownKeys() { throw new Error(); } })), false);
 });
+
+test('private authenticated callback runs in the original session before unconditional logout and returns no private value', async () => {
+  const events = [], transport = fake([json(201, session()), json(201, {})]);
+  const result = await probeAccountAuth({ email, password, fetchImpl: async (...args) => {
+    events.push(args[0].endsWith('logout') ? 'logout' : 'login'); return transport.fetchImpl(...args);
+  }, onAuthenticated: async token => { assert.equal(token, 'synthetic-access'); events.push('callback'); return { private: 'discard' }; } });
+  assert.deepEqual(events, ['login', 'callback', 'logout']); assert.equal(result.status, 'passed');
+  assert.deepEqual(Object.keys(result), REPORT_KEYS); assert.equal(JSON.stringify(result).includes('discard'), false);
+});
+test('callback failure has a fixed public code, still logs out, and cannot allow UI', async () => {
+  const transport = fake([json(201, session()), json(201, {})]);
+  const result = await probeAccountAuth({ email, password, fetchImpl: transport.fetchImpl,
+    onAuthenticated: async () => { throw new Error('PRIVATE_CALLBACK_CANARY'); } });
+  assert.equal(result.errorCode, 'AUTHENTICATED_TASK_FAILED'); assert.equal(result.logoutConfirmed, true);
+  assert.equal(result.uiContinueAllowed, false); assert.equal(validateProbeReport(result), true);
+  assert.equal(JSON.stringify(result).includes('PRIVATE_CALLBACK_CANARY'), false); assert.equal(transport.calls.length, 2);
+});
+test('callback failure cannot hide unconfirmed logout and rejected login never invokes callback', async () => {
+  const transport = fake([json(201, session()), json(503, {})]);
+  const result = await probeAccountAuth({ email, password, fetchImpl: transport.fetchImpl,
+    onAuthenticated: async () => { throw new Error('private'); } });
+  assert.equal(result.errorCode, 'LOGOUT_HTTP_FAILED'); assert.equal(result.logoutConfirmed, false); assert.equal(result.uiContinueAllowed, false);
+  const rejected = fake([json(400, { code: 1 })]); let invoked = false;
+  const rejectedResult = await probeAccountAuth({ email, password, fetchImpl: rejected.fetchImpl,
+    onAuthenticated: async () => { invoked = true; } });
+  assert.equal(rejectedResult.errorCode, 'CREDENTIALS_REJECTED'); assert.equal(invoked, false);
+});

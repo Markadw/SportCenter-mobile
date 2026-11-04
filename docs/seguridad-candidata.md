@@ -31,7 +31,7 @@ El inspector conserva sólo JSON y texto. No sube el APK completo, clases descom
 - La comprobación estructural de 16 KB no acredita por sí sola ejecución en un dispositivo de 16 KB.
 - JADX acotado no analiza todo el bundle JavaScript/Hermes ni demuestra que R8 impida ingeniería inversa.
 - Los IDs nativos de las librerías se clasifican por directorio ABI; la inspección de segmentos no sustituye una ejecución real por arquitectura.
-- La aceptación actual con Maestro cubre recorridos públicos. La persona responsable eligió validar cuenta y compra manualmente en su teléfono; no se requieren secretos de cuenta en CI.
+- La CI ordinaria no recibe credenciales de cliente. La etiqueta explícita `validation/account-*` reutiliza un APK identificado por su fuente y huella y recibe los secretos de la cuenta reservada únicamente durante el runtime privado. F2 aprobó siete controles de sesión y cuatro de lectura; la ampliación de edición de perfil y carrito exige otra candidata y su propia evidencia. Ningún resultado acredita pedido, pago o prueba física.
 - La aprobación local de scripts y sus pruebas no significa que ya se haya generado o inspeccionado el APK final.
 
 No se publica en Google Play ni se modifica el backend desde este flujo. La medición de carga sigue limitada a una copia aislada; no se envía estrés al servicio compartido.

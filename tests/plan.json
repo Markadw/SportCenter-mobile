@@ -1055,5 +1055,360 @@
       }
     },
     "scope": "Procedencia, inspección, aceptación pública y siete controles de cuenta del Preview F2 verificados; edición, pedidos/pagos, aceptación física completa y publicación en Play pendientes."
+  },
+  "cartReloadRegression": {
+    "pr": "https://github.com/Markadw/SportCenter-mobile/pull/60",
+    "issue": 59,
+    "sourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+    "developMerge": "42cc14a46608ac81b1fca34894721a5ceb4bb458",
+    "status": "passed_local_and_github",
+    "scope": "Recarga al volver durante peticion; una lectura posterior sin repetir mutaciones; cancelacion al desmontar. La aceptacion nativa RC5 se registra por separado."
+  },
+  "realEmailAcceptance": {
+    "version": 1,
+    "scope": "isolated-registration-mail-recovery-real-http",
+    "status": "partial",
+    "httpSequenceCompleted": true,
+    "nativeAcceptance": false,
+    "ordersCreated": false,
+    "paymentsAttempted": false,
+    "accountDeletionConfirmed": false,
+    "accountVerified": true,
+    "passwordChangedConfirmed": true,
+    "phaseCount": 6,
+    "phases": [
+      {
+        "phase": "register",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "wrongverify",
+        "status": "passed",
+        "httpStatus": 400,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "resend",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "verify",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": true,
+        "logoutConfirmed": true,
+        "authReport": {
+          "status": "passed",
+          "loginHttpStatus": 201,
+          "logoutHttpStatus": 201,
+          "sessionValid": true,
+          "accessTokenReceived": true,
+          "logoutAttempted": true,
+          "logoutConfirmed": true,
+          "uiContinueAllowed": true,
+          "errorCode": "NONE"
+        }
+      },
+      {
+        "phase": "request-reset",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "reset",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": true,
+        "logoutConfirmed": true,
+        "authReport": {
+          "status": "passed",
+          "loginHttpStatus": 201,
+          "logoutHttpStatus": 201,
+          "sessionValid": true,
+          "accessTokenReceived": true,
+          "logoutAttempted": true,
+          "logoutConfirmed": true,
+          "uiContinueAllowed": true,
+          "errorCode": "NONE"
+        }
+      }
+    ],
+    "realInboxEvidence": {
+      "recoverySubjectConfirmed": true,
+      "initialEmailReceived": true,
+      "resendSubjectConfirmed": true,
+      "resendNewMessageReceived": true,
+      "codesFromBackendResponseUsed": false,
+      "codesReadFromOwnMailbox": true,
+      "recoveryNewMessageReceived": true
+    }
+  },
+  "accountMutationAcceptance": {
+    "status": "passed_for_executed_scope",
+    "source": {
+      "repository": "Markadw/SportCenter-mobile",
+      "commit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+      "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
+      "appId": "com.markadw.sportcenter",
+      "api": "https://back-sport-ghxk.onrender.com",
+      "buildId": "65ec0aec-31df-4305-adfe-03cab1461e0f",
+      "sha256": "895f51818410574da55c29eca493910af19a87e47ffcc7177c20c46776659542",
+      "fingerprint": "0cfb627c02154da92e1d19f466723a9ca5a1b0621f38e74d652493014d59fb8f",
+      "producer": 41810909053,
+      "attempt": 1,
+      "tag": "candidate/android-rc5",
+      "artifact": 13313681074,
+      "artifactBytes": 178005,
+      "artifactSha256": "84a1976a6af896b1efbcfafb2afdeee8f92cd7348586b00c267b5815a2176128",
+      "appVersion": "1.0.0",
+      "appBuildVersion": "1"
+    },
+    "cases": [
+      "AC01",
+      "AC02",
+      "AC03",
+      "AC04",
+      "AC05",
+      "AC06",
+      "AC07",
+      "RO01",
+      "RO02",
+      "RO03",
+      "RO04",
+      "MU01",
+      "MU02",
+      "MU03",
+      "MU04",
+      "MU05"
+    ],
+    "restorationRequired": true,
+    "scope": "Sesion, lecturas y cambios reversibles de Nombre y una linea del carrito en API34. Sin direccion persistida, pedido, pago, publicacion de resena ni dispositivo fisico.",
+    "environment": "android-private-qa",
+    "repositorySecretsPreserved": true,
+    "firstRun": {
+      "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41814484621",
+      "status": "blocked",
+      "stage": "api-auth-probe",
+      "code": "FIXTURE_STOCK",
+      "uiStarted": false,
+      "mutationAttempted": false,
+      "artifactId": 13313947749,
+      "artifactSha256": "7200726c81739edc24b75149543838445bf741c32eaafd8d063776ff17b4675b"
+    },
+    "secondRun": {
+      "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41817509395",
+      "status": "failed",
+      "stage": "MU01-profile-save",
+      "code": "ACCOUNT_UI_TIMEOUT",
+      "passed": [
+        "AC01",
+        "AC02"
+      ],
+      "profileSaveAttempted": false,
+      "cleanupConfirmed": true,
+      "artifactId": 13315214147,
+      "artifactSha256": "97dbdbb8f6c5c768bb7cc1586938a5c9620b595724f7b5f9f929be0a9ed8f289",
+      "scope": "Fallo de localizacion del ejecutor antes de guardar; los demas casos no se acreditan."
+    },
+    "nativeEvidence": {
+      "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397",
+      "attempt": 1,
+      "automationCommit": "625ab15b48cbe2906b16e92949a20775135b753b",
+      "artifactId": 13316764661,
+      "artifactBytes": 1709,
+      "artifactSha256": "79715632da771ad516d32a2f41f66dd1b9e29aeb567cad87d6223dd23ead963e",
+      "results": [
+        {
+          "id": "AC01",
+          "status": "passed"
+        },
+        {
+          "id": "AC02",
+          "status": "passed"
+        },
+        {
+          "id": "AC03",
+          "status": "passed"
+        },
+        {
+          "id": "AC04",
+          "status": "passed"
+        },
+        {
+          "id": "AC05",
+          "status": "passed"
+        },
+        {
+          "id": "AC06",
+          "status": "passed"
+        },
+        {
+          "id": "AC07",
+          "status": "passed"
+        },
+        {
+          "id": "RO01",
+          "status": "passed"
+        },
+        {
+          "id": "RO02",
+          "status": "passed"
+        },
+        {
+          "id": "RO03",
+          "status": "passed"
+        },
+        {
+          "id": "RO04",
+          "status": "passed"
+        },
+        {
+          "id": "MU01",
+          "status": "passed"
+        },
+        {
+          "id": "MU02",
+          "status": "passed"
+        },
+        {
+          "id": "MU03",
+          "status": "passed"
+        },
+        {
+          "id": "MU04",
+          "status": "passed"
+        },
+        {
+          "id": "MU05",
+          "status": "passed"
+        }
+      ],
+      "mutationEvidence": {
+        "profileSaved": true,
+        "profilePersisted": true,
+        "profileUiRestored": true,
+        "cartIncreased": true,
+        "cartPersisted": true,
+        "cartUiRestored": true,
+        "cartRemoved": true,
+        "cartReadded": true,
+        "uiStopped": true,
+        "profileRestored": true,
+        "cartRestored": true,
+        "otherProfileFieldsUnchanged": true,
+        "otherCartLinesUnchanged": true,
+        "baselineRestored": true,
+        "mutationUncertain": false,
+        "concurrentChangeObserved": false
+      },
+      "cleanup": {
+        "device": true,
+        "sandbox": true,
+        "localSession": true,
+        "fixtureRestoration": true,
+        "serverRevocation": "not-independently-observed"
+      },
+      "orderListState": "empty",
+      "physicalDevice": "not-run",
+      "payment": "not-run"
+    }
+  },
+  "webAccountAcceptance": {
+    "version": 1,
+    "scope": "real-web-ui-with-real-http",
+    "status": "partial",
+    "nativeAcceptance": false,
+    "physicalAndroidAcceptance": false,
+    "currentExecutedWebChecksPassed": true,
+    "testOrigin": "http://localhost:4200",
+    "historicalOriginFailure": {
+      "status": "failed",
+      "httpStatus": null,
+      "requestFailed": true,
+      "requestCount": 1,
+      "cause": "CORS_ORIGIN_8084_NOT_ALLOWED",
+      "mailDeliveryConfirmedByRoot": true,
+      "report": "web-recovery-request-origin8084.json",
+      "preserved": true
+    },
+    "allowedOriginRequest": {
+      "status": "passed",
+      "httpStatus": 201,
+      "emailMatched": true,
+      "resetFormVisible": true,
+      "requestCount": 1,
+      "report": "web-recovery-origin-retry.json"
+    },
+    "recoveryLoginLogout": {
+      "status": "passed",
+      "resetHttpStatus": 201,
+      "loginHttpStatus": 201,
+      "logoutHttpStatus": 201,
+      "passwordUpdated": true,
+      "loginConfirmed": true,
+      "logoutConfirmed": true,
+      "guestVisible": true,
+      "inputMatched": true,
+      "resetRequests": 1,
+      "loginRequests": 1,
+      "logoutRequests": 1,
+      "finalRoute": "/login",
+      "report": "web-recovery-finish.json",
+      "serverRevocationIndependentlyObserved": false
+    },
+    "reviews": {
+      "status": "passed",
+      "httpStatus": 200,
+      "listRead": true,
+      "empty": true,
+      "guestOnly": true,
+      "localHideAttempted": false,
+      "localHidden": false,
+      "localRestored": false,
+      "localPreferenceStatus": "not_run_no_review_fixture",
+      "serverMutationRequests": 0,
+      "blockedMutationRequests": 0,
+      "productSource": "repository variable API_TEST_PRODUCT_ID",
+      "report": "web-reviews-read-only.json"
+    },
+    "limits": [
+      "web is not native Android or full physical QA",
+      "no review publication or report",
+      "no order or payment operation",
+      "local hiding not tested because the selected product has no reviews"
+    ],
+    "cleanup": {
+      "privateBrowserClosed": true,
+      "ownedMetroStopped": true,
+      "temporaryCredentialCodeAbsent": true,
+      "fixtureRetained": true,
+      "browserPersistentProfileSaved": false,
+      "rawAccountArtifactsPublished": false
+    }
   }
 }
