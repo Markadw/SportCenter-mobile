@@ -34,6 +34,18 @@ const READ_ONLY_CHECKS = Object.freeze(['RO01', 'RO02', 'RO03', 'RO04']);
 const MUTATION_CHECKS = Object.freeze(['MU01', 'MU02', 'MU03', 'MU04', 'MU05']);
 const MUTATION_FLAGS = Object.freeze(['profileSaved', 'profilePersisted', 'profileUiRestored', 'cartIncreased', 'cartPersisted',
   'cartUiRestored', 'cartRemoved', 'cartReadded', 'uiStopped', ...RESTORATION_KEYS]);
+const PROFILE_CONTROLS = Object.freeze({
+  nombre: { label: 'Nombre', kind: 'input', direction: 'UP' },
+  aPaterno: { label: 'Apellido paterno', kind: 'input', direction: 'DOWN' },
+  aMaterno: { label: 'Apellido materno', kind: 'input', direction: 'DOWN' },
+  email: { label: 'Correo', kind: 'input', direction: 'DOWN' },
+  telefono: { label: 'Teléfono', kind: 'input', direction: 'DOWN' },
+  guardar: { label: 'Guardar cambios', kind: 'button', direction: 'DOWN' },
+});
+const PROFILE_STAGES = Object.freeze(['MU01', 'MU02'].flatMap(id => [
+  ...['nombre', 'aPaterno', 'aMaterno', 'email', 'telefono'].map(key => id + '-profile-preimage-' + key),
+  ...['name-control', 'name-input', 'save-control', 'save-response', 'name-verify'].map(key => id + '-profile-' + key),
+]));
 const READ_ONLY_URLS = Object.freeze({ orders: 'sportcentermobile://orders', account: 'sportcentermobile://account',
   profile: 'sportcentermobile://profile', cart: 'sportcentermobile://cart', checkout: 'sportcentermobile://checkout', privacy: 'sportcentermobile://privacy' });
 const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'sandbox-file-roundtrip', 'app-install', 'AC01-navigate', 'AC01-email',
@@ -41,7 +53,7 @@ const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-serv
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'RO01-orders', 'RO01-return',
   'RO02-profile-guard', 'RO03-checkout-guard', 'RO04-privacy', 'MU01-profile-save', 'MU02-profile-persist', 'MU02-profile-restore',
   'MU03-cart-increase', 'MU03-cart-persist', 'MU03-cart-restore', 'MU04-target-preflight', 'MU04-cart-remove', 'MU04-cart-readd',
-  'MU05-baseline', 'cleanup-stop-ui', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
+  'MU05-baseline', 'cleanup-stop-ui', ...PROFILE_STAGES, 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
   'tests/manual/android-release.md', 'scripts/android-profiles.js', '__tests__/androidProfiles.test.js',
   '.github/workflows/android-validation.yml', '.github/workflows/ci.yml', 'scripts/validate-test-configs.js',
@@ -257,6 +269,11 @@ function mutationsPassed(value) {
   return MUTATION_FLAGS.filter(key => !['mutationUncertain', 'concurrentChangeObserved'].includes(key)).every(key => value?.[key] === true) &&
     value?.mutationUncertain === false && value?.concurrentChangeObserved === false;
 }
+function profileScrollBody(key) {
+  need(Object.hasOwn(PROFILE_CONTROLS, key), 'ACCOUNT_MUTATION_UI_INVALID');
+  const control = PROFILE_CONTROLS[key], selector = '^' + control.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$';
+  return '- scrollUntilVisible:\n    element:\n      text: ' + JSON.stringify(selector) + '\n    direction: ' + control.direction + '\n    timeout: 30000\n    centerElement: true';
+}
 function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|RO04|MU0[1-5]|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
 const FLOWS = Object.freeze({
   navigate: '- launchApp:\n    clearState: true\n- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- tapOn: "^Iniciar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
@@ -371,17 +388,32 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     mutationState[flag] = true; state.mutationEvidence.mutationUncertain = true;
     await adb(['shell', 'input', 'tap', ...coordinate.map(String)]);
   };
+  const profileControl = async key => {
+    await flow(caseId, profileScrollBody(key));
+    const control = PROFILE_CONTROLS[key], nodes = await readUi();
+    const found = labelled(nodes, control.label).filter(node => control.kind === 'input' ? node.class === 'android.widget.EditText' : node.clickable === 'true');
+    need(found.length === 1 && rectangle(found[0]), 'ACCOUNT_MUTATION_UI_INVALID');
+    return nodes;
+  };
   const saveName = async (name, value) => {
-    const nodes = await scrollFor('Nombre', 'input'); point(nodes, 'Nombre', 'input'); await tap('Nombre', 'input');
+    state.stage = name + '-profile-name-control';
+    const coordinate = point(await profileControl('nombre'), 'Nombre', 'input'); await adb(['shell', 'input', 'tap', ...coordinate.map(String)]);
+    state.stage = name + '-profile-name-input';
     await flow(name, '- eraseText: 100\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard', { MAESTRO_ACCOUNT_FIELD_VALUE: value });
     need(fieldMatches(await readUi(), 'Nombre', value), 'ACCOUNT_MUTATION_UI_INVALID');
-    await mutationTap('Guardar cambios', 'profileNameAttempted');
+    state.stage = name + '-profile-save-control';
+    const save = point(await profileControl('guardar'), 'Guardar cambios', 'button');
+    mutationState.profileNameAttempted = true; state.mutationEvidence.mutationUncertain = true;
+    await adb(['shell', 'input', 'tap', ...save.map(String)]);
+    state.stage = name + '-profile-save-response';
     await waitUi(items => hasLabel(items, 'Tu perfil se actualizó correctamente.'));
-    need(fieldMatches(await scrollFor('Nombre', 'input'), 'Nombre', value), 'ACCOUNT_MUTATION_UI_INVALID');
+    state.stage = name + '-profile-name-verify';
+    need(fieldMatches(await profileControl('nombre'), 'Nombre', value), 'ACCOUNT_MUTATION_UI_INVALID');
   };
   const verifyProfilePreimage = async expectedName => {
-    for (const [label, key] of [['Nombre', 'nombre'], ['Apellido paterno', 'aPaterno'], ['Apellido materno', 'aMaterno'], ['Correo', 'email'], ['Teléfono', 'telefono']]) {
-      need(fieldMatches(await scrollFor(label, 'input'), label, key === 'nombre' ? expectedName : fixture.profile[key]), 'FIXTURE_CONFLICT');
+    for (const key of ['nombre', 'aPaterno', 'aMaterno', 'email', 'telefono']) {
+      state.stage = caseId + '-profile-preimage-' + key;
+      need(fieldMatches(await profileControl(key), PROFILE_CONTROLS[key].label, key === 'nombre' ? expectedName : fixture.profile[key]), 'FIXTURE_CONFLICT');
     }
   };
   const cartQuantity = async quantity => {
@@ -454,7 +486,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     caseId = 'MU01'; state.stage = 'MU01-profile-save'; await verifyProfilePreimage(fixture.profile.nombre); await saveName('MU01', TEST_NAME);
     state.mutationEvidence.profileSaved = true; state.mutationChecks.MU01 = 'passed';
     caseId = 'MU02'; state.stage = 'MU02-profile-persist'; await cold(); await flow('MU02', FLOWS.restored); await flow('MU02', FLOWS.profile);
-    need(fieldMatches(await scrollFor('Nombre', 'input'), 'Nombre', TEST_NAME), 'ACCOUNT_MUTATION_UI_INVALID'); state.mutationEvidence.profilePersisted = true;
+    need(fieldMatches(await profileControl('nombre'), 'Nombre', TEST_NAME), 'ACCOUNT_MUTATION_UI_INVALID'); state.mutationEvidence.profilePersisted = true;
     state.stage = 'MU02-profile-restore'; await verifyProfilePreimage(TEST_NAME); await saveName('MU02', fixture.profile.nombre);
     await cold(); await flow('MU02', FLOWS.restored); await flow('MU02', FLOWS.profile); await verifyProfilePreimage(fixture.profile.nombre);
     state.mutationEvidence.profileUiRestored = true; state.mutationChecks.MU02 = 'passed';
@@ -792,7 +824,7 @@ async function main(mode, env = process.env) {
   }
   throw new AccountError('ACCOUNT_AUTOMATION_SCOPE');
 }
-module.exports = { SOURCE, CASES, READ_ONLY_CHECKS, MUTATION_CHECKS, MUTATION_FLAGS, READ_ONLY_URLS, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
+module.exports = { SOURCE, CASES, READ_ONLY_CHECKS, MUTATION_CHECKS, MUTATION_FLAGS, PROFILE_CONTROLS, PROFILE_STAGES, profileScrollBody, READ_ONLY_URLS, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
   credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, orderListStatus, guestGuardStatus, privacyVisible,
   fieldMatches, cartQuantityMatches, targetVisible, productQuantity, mutationEvidence, mutationsPassed, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
   locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };

@@ -58,3 +58,5 @@ Es una comprobación HTTP real con correo real. No se presenta como recorrido na
 ## Datos de la primera ejecución RC5
 
 La [ejecución v1](https://github.com/Markadw/SportCenter-mobile/actions/runs/41814484621) se detuvo en el chequeo previo con `FIXTURE_STOCK`: el carrito no ofrecía margen para aumentar una unidad. El login y logout auxiliar recibieron 201; no se abrió la interfaz ni se intentaron cambios. No se acredita ninguno de los casos no ejecutados. La cuenta QA aislada prepara una única variante con al menos tres existencias y mantiene una unidad como línea base reservada. La siguiente ejecución debe demostrar sus propios resultados.
+
+La [ejecución v2](https://github.com/Markadw/SportCenter-mobile/actions/runs/41817509395) aprobó login y lectura del perfil. El desplazamiento del ejecutor agotó la búsqueda antes de pulsar Guardar; no envió cambios de perfil ni carrito y confirmó la limpieza. La localización de los controles de perfil utiliza ahora `scrollUntilVisible` de Maestro, dirección explícita y validación posterior estricta del XML. Se mantienen todas las comparaciones y requisitos de aceptación.

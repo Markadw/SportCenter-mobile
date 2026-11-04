@@ -169,7 +169,8 @@ test('report emits only fixed stages and never arbitrary private stage text', ()
 async function runtime(config = {}) {
   const calls = [], flows = [], files = new Map(); let installed = false, authenticated = false, stage = 'login', cleaned = false,
     typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0, clock = 0, restoreCalls = 0,
-    profileName = 'Original SC', draftName = 'Original SC', savedName = false, cartQty = 1, productQty = 1, selected = false, processRunning = false, restoredState = null;
+    profileName = 'Original SC', draftName = 'Original SC', savedName = false, cartQty = 1, productQty = 1, selected = false, processRunning = false, restoredState = null,
+    profileVisible = 'email';
   const email = 'private+fixture@example.com', password = 'Private *&%s 漢字', sha = 'a'.repeat(40);
   const captured = config.apiReport ? { authReport: config.apiReport, fixture: null, errorCode: config.apiReport.logoutConfirmed ? 'FIXTURE_AUTH_FAILED' : 'FIXTURE_AUTH_CLEANUP_FAILED' } : await capturedFixture(email, password);
   const nodes = () => {
@@ -181,7 +182,11 @@ async function runtime(config = {}) {
       { text: '5551234567', 'content-desc': 'Teléfono', class: 'android.widget.EditText', bounds: '[10,285][200,305]' },
       { text: 'Guardar cambios', clickable: 'true', bounds: '[10,320][200,380]' },
       ...(savedName ? [{ text: 'Tu perfil se actualizó correctamente.' }] : []),
-    ];
+    ].map(node => {
+      if (!config.profileViewport || !['Nombre', 'Apellido paterno', 'Apellido materno', 'Correo', 'Teléfono', 'Guardar cambios'].includes(node['content-desc'] || node.text)) return node;
+      const control = Object.entries(account.PROFILE_CONTROLS).find(([, value]) => value.label === (node['content-desc'] || node.text));
+      return control && control[0] === profileVisible && config.unmeasuredProfileField !== control[0] ? node : { ...node, bounds: '[0,0][0,0]' };
+    }).concat(config.unmeasuredProfileField ? [{ text: account.PROFILE_CONTROLS[config.unmeasuredProfileField].label }] : []);
     if (stage === 'cart') return [{ text: 'Tu carrito' }, ...(config.empty || cartQty === 0 ? [{ text: 'Tu carrito está vacío' }] : [
       { text: 'Subtotal' }, { text: cartQty + ' artículos' }, { text: String(cartQty), 'content-desc': 'Cantidad de Producto Uno: ' + cartQty, bounds: '[10,120][200,180]' },
       { text: 'Agregar una unidad de Producto Uno', clickable: 'true', bounds: '[250,120][400,180]' },
@@ -286,8 +291,13 @@ async function runtime(config = {}) {
         else if (body.includes('tapOn: "^Mi perfil$"')) { stage = 'profile'; draftName = profileName; savedName = false; }
       }
       if (Object.hasOwn(options.secretEnv, 'MAESTRO_ACCOUNT_FIELD_VALUE')) draftName = config.corruptMutationInput ? 'different' : options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;
+      if (stage === 'profile' && body.includes('scrollUntilVisible:') && body.includes('direction:')) {
+        const control = Object.entries(account.PROFILE_CONTROLS).find(([, value]) => body.includes('text: ' + JSON.stringify('^' + value.label + '$')));
+        assert.ok(control); assert.ok(body.includes('direction: ' + control[1].direction)); assert.ok(body.includes('centerElement: true'));
+        profileVisible = control[0];
+      }
       const output = argv[argv.indexOf('--output') + 1]; files.set(output, junit(name));
-      return { exitCode: config.failPhase === name || config.rejectLoginUI && name === 'AC01' ? 1 : 0, stdout: password, stderr: email };
+      return { exitCode: config.failPhase === name || config.rejectLoginUI && name === 'AC01' || config.failProfileScroll && body.includes('direction:') ? 1 : 0, stdout: password, stderr: email };
     },
     readPrivateFile: async name => files.get('/private/root/' + name),
     cleanup: async () => { cleaned = true; if (config.failCleanup) throw new Error(password); },
@@ -568,13 +578,13 @@ test('all seven base controls cannot approve a report without every required rea
 
 test('profile input corruption fails before save and never starts a restorative API session unnecessarily', async () => {
   const value = await runtime({ corruptMutationInput: true });
-  assert.equal(value.result.stage, 'MU01-profile-save'); assert.equal(value.result.mutationChecks[0].status, 'failed');
+  assert.equal(value.result.stage, 'MU01-profile-name-input'); assert.equal(value.result.mutationChecks[0].status, 'failed');
   assert.equal(value.profileName, 'Original SC'); assert.equal(value.restoreCalls, 0);
   assert.equal(value.result.cleanup.fixtureRestoration, true); assert.equal(value.result.status, 'failed');
 });
 test('a changed profile preimage blocks before editing or saving any field', async () => {
   const value = await runtime({ changedPreimage: true });
-  assert.equal(value.result.status, 'blocked'); assert.equal(value.result.stage, 'MU01-profile-save');
+  assert.equal(value.result.status, 'blocked'); assert.equal(value.result.stage, 'MU01-profile-preimage-nombre');
   assert.equal(value.restoreCalls, 0); assert.equal(value.profileName, 'Original SC');
   assert.ok(!value.flows.some(flow => Object.hasOwn(flow.env, 'MAESTRO_ACCOUNT_FIELD_VALUE')));
   assert.deepEqual(value.result.failureCodes, ['FIXTURE_CONFLICT']);
@@ -587,7 +597,7 @@ test('a lost profile change after cold start is not rescued into a passing UI ca
 });
 test('API fallback cannot certify restoration UI when the original name did not persist after a cold start', async () => {
   const value = await runtime({ lostOriginalPersist: true });
-  assert.equal(value.result.stage, 'MU02-profile-restore'); assert.equal(value.result.mutationChecks[1].status, 'failed');
+  assert.equal(value.result.stage, 'MU02-profile-preimage-nombre'); assert.equal(value.result.mutationChecks[1].status, 'failed');
   assert.equal(value.result.mutationEvidence.profileUiRestored, false); assert.equal(value.result.cleanup.fixtureRestoration, true);
   assert.equal(value.result.mutationChecks.at(-1).status, 'not_run'); assert.equal(value.result.status, 'failed');
 });
@@ -637,4 +647,27 @@ test('product quantity is accepted only for one numeric TextView between its lab
   assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, quantity]))), 2);
   assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, quantity, quantity]))), null);
   assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, { ...quantity, bounds: '[300,230][350,270]' }]))), null);
+});
+
+test('profile locator brings Nombre above Correo and Telefono below into view through bounded Maestro commands', async () => {
+  const value = await runtime({ profileViewport: true }); assert.equal(value.result.status, 'passed');
+  const scrolls = value.flows.filter(flow => flow.body.includes('direction:'));
+  assert.ok(scrolls.some(flow => flow.body.includes('text: "^Nombre$"') && flow.body.includes('direction: UP')));
+  assert.ok(scrolls.some(flow => flow.body.includes('text: "^Teléfono$"') && flow.body.includes('direction: DOWN')));
+  assert.ok(scrolls.some(flow => flow.body.includes('text: "^Guardar cambios$"') && flow.body.includes('direction: DOWN')));
+  assert.ok(scrolls.every(flow => flow.body.includes('timeout: 30000') && flow.body.includes('centerElement: true')));
+  assert.ok(!value.calls.some(call => call.args.slice(2, 5).join(' ') === 'shell input swipe'));
+});
+test('a successful locator with visible label but unmeasurable EditText never permits a profile write', async () => {
+  const value = await runtime({ profileViewport: true, unmeasuredProfileField: 'nombre' });
+  assert.equal(value.result.status, 'failed'); assert.equal(value.result.stage, 'MU01-profile-preimage-nombre');
+  assert.deepEqual(value.result.failureCodes, ['ACCOUNT_MUTATION_UI_INVALID']); assert.equal(value.restoreCalls, 0);
+  assert.equal(value.profileName, 'Original SC'); assert.equal(value.result.cleanup.fixtureRestoration, true);
+});
+test('failed Maestro profile scrolling is mandatory and cannot fall back to a blind tap or save', async () => {
+  const value = await runtime({ failProfileScroll: true }); assert.equal(value.result.status, 'failed');
+  assert.equal(value.result.stage, 'MU01-profile-preimage-nombre'); assert.deepEqual(value.result.failureCodes, ['ACCOUNT_MAESTRO_FAILED']);
+  assert.equal(value.restoreCalls, 0); assert.equal(value.profileName, 'Original SC');
+  assert.ok(!value.flows.some(flow => Object.hasOwn(flow.env, 'MAESTRO_ACCOUNT_FIELD_VALUE')));
+  assert.throws(() => account.profileScrollBody('${PRIVATE_INPUT}'), /ACCOUNT_MUTATION_UI_INVALID/);
 });

@@ -1219,6 +1219,21 @@
       "mutationAttempted": false,
       "artifactId": 13313947749,
       "artifactSha256": "7200726c81739edc24b75149543838445bf741c32eaafd8d063776ff17b4675b"
+    },
+    "secondRun": {
+      "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41817509395",
+      "status": "failed",
+      "stage": "MU01-profile-save",
+      "code": "ACCOUNT_UI_TIMEOUT",
+      "passed": [
+        "AC01",
+        "AC02"
+      ],
+      "profileSaveAttempted": false,
+      "cleanupConfirmed": true,
+      "artifactId": 13315214147,
+      "artifactSha256": "97dbdbb8f6c5c768bb7cc1586938a5c9620b595724f7b5f9f929be0a9ed8f289",
+      "scope": "Fallo de localizacion del ejecutor antes de guardar; los demas casos no se acreditan."
     }
   },
   "webAccountAcceptance": {
