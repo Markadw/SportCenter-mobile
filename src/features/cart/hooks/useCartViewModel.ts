@@ -12,29 +12,43 @@ export function useCartViewModel(token: string) {
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const locked = useRef(false);
+  const reloadPending = useRef(false), currentToken = useRef(token);
+  useEffect(() => { currentToken.current = token; }, [token]);
   const run = useCallback(async (action: (signal: AbortSignal) => Promise<Cart>, initial = false) => {
-    if (locked.current) return;
-    locked.current = true;
-    controller.current?.abort();
-    const request = new AbortController();
-    controller.current = request;
-    if (initial) setLoading(true); else setBusy(true);
-    setError(null);
-    try {
-      const next = await action(request.signal);
-      if (mounted.current && !request.signal.aborted) setCart(next);
-    } catch (error) {
-      if (mounted.current && !request.signal.aborted) setError(purchaseError(error, "No pudimos actualizar el carrito. Revisa su estado antes de intentarlo de nuevo."));
-    } finally {
-      if (controller.current === request) locked.current = false;
-      if (mounted.current && !request.signal.aborted) { setLoading(false); setBusy(false); }
+    if (locked.current || !mounted.current) return;
+    let nextAction = action, fullReload = initial;
+    while (mounted.current) {
+      locked.current = true;
+      const request = new AbortController(); controller.current = request;
+      if (fullReload) setLoading(true); else setBusy(true);
+      setError(null);
+      let ownsRequest = false;
+      try {
+        const next = await nextAction(request.signal);
+        if (mounted.current && controller.current === request && !request.signal.aborted) setCart(next);
+      } catch (error) {
+        if (mounted.current && controller.current === request && !request.signal.aborted) setError(purchaseError(error, "No pudimos actualizar el carrito. Revisa su estado antes de intentarlo de nuevo."));
+      } finally {
+        ownsRequest = controller.current === request;
+        if (ownsRequest) {
+          controller.current = null; locked.current = false;
+          if (mounted.current && !request.signal.aborted) { setLoading(false); setBusy(false); }
+        }
+      }
+      if (!ownsRequest || !mounted.current || request.signal.aborted || !reloadPending.current) return;
+      // Reenfocar durante una petición conserva una sola lectura posterior, nunca otra mutación.
+      reloadPending.current = false;
+      nextAction = signal => cartApi.get(currentToken.current, signal); fullReload = true;
     }
   }, []);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; controller.current?.abort(); };
+    return () => { mounted.current = false; reloadPending.current = false; controller.current?.abort(); controller.current = null; locked.current = false; };
   }, []);
-  const reload = useCallback(() => run(signal => cartApi.get(token, signal), true), [run, token]);
+  const reload = useCallback(() => {
+    if (locked.current) { if (mounted.current) reloadPending.current = true; return Promise.resolve(); }
+    return run(signal => cartApi.get(token, signal), true);
+  }, [run, token]);
   useFocusEffect(useCallback(() => { void reload(); }, [reload]));
   return { cart, loading, busy, error, reload,
     update: (id: number, quantity: number) => run(signal => cartApi.update(token, id, quantity, signal)),
