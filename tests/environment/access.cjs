@@ -30,5 +30,12 @@ function createGateway(requestUpstream = http.request) {
   });
 }
 // Compose publishes this container port only on host 127.0.0.1:3011.
-if (require.main === module) createGateway().listen(3000, '0.0.0.0');
+if (require.main === module) {
+  if (process.env.ISOLATED_TEST_ENV === 'true' && process.env.QA_COMMERCE === 'true') {
+    // Sólo QA sintética: no amplía el gateway GET/HEAD por defecto.
+    require('./commerce-isolated.cjs').createGateway().listen(3000, '0.0.0.0');
+  } else {
+    createGateway().listen(3000, '0.0.0.0');
+  }
+}
 module.exports = { forwardedHeaders, createGateway };
