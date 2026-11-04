@@ -12,7 +12,7 @@ const ERROR_CODES = Object.freeze(['NONE', 'CREDENTIALS_MISSING', 'CREDENTIALS_I
   'LOGIN_NETWORK_ERROR', 'LOGIN_TIMEOUT', 'LOGIN_REDIRECT', 'LOGIN_HTTP_UNEXPECTED',
   'LOGIN_BODY_INVALID', 'LOGIN_BODY_TOO_LARGE', 'LOGIN_SESSION_INVALID',
   'LOGOUT_HTTP_FAILED', 'LOGOUT_NETWORK_ERROR', 'LOGOUT_TIMEOUT', 'LOGOUT_REDIRECT',
-  'LOGOUT_BODY_TOO_LARGE', 'PROBE_INTERNAL_ERROR']);
+  'LOGOUT_BODY_TOO_LARGE', 'AUTHENTICATED_TASK_FAILED', 'PROBE_INTERNAL_ERROR']);
 const BLOCKED = new Set(['CREDENTIALS_MISSING', 'CREDENTIALS_INVALID',
   'ACCOUNT_UNVERIFIED', 'CREDENTIALS_REJECTED', 'RATE_LIMITED']);
 const HTTP = value => value === null || Number.isInteger(value) && value >= 100 && value <= 599;
@@ -128,6 +128,14 @@ async function probeAccountAuth(options = {}) {
         else if (bodyError) report.errorCode = 'LOGIN_BODY_INVALID';
         else if (!report.sessionValid) report.errorCode = 'LOGIN_SESSION_INVALID';
         else report.errorCode = 'NONE';
+        // Private, in-process fixture work only. Its value is never returned in the public report.
+        // Keep this inside the same session and before the unconditional logout finally.
+        if (report.errorCode === 'NONE' && options.onAuthenticated !== undefined) {
+          try {
+            if (typeof options.onAuthenticated !== 'function') throw new Error();
+            await options.onAuthenticated(accessToken);
+          } catch { report.errorCode = 'AUTHENTICATED_TASK_FAILED'; }
+        }
       } catch (error) {
         report.errorCode = timedOut(error, signal) ? 'LOGIN_TIMEOUT' : 'LOGIN_NETWORK_ERROR';
       } finally {

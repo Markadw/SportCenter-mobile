@@ -14,6 +14,8 @@ test('la comprobación de cuenta sólo usa APK existente, secretos en runtime y 
   expect(() => validateWorkflows(workflows())).not.toThrow();
 });
 test.each([
+  ['sin entorno QA', workflow => { delete workflow.jobs.account.environment; }],
+  ['otro entorno QA', workflow => { workflow.jobs.account.environment = 'production'; }],
   ['sin calidad', workflow => { workflow.jobs.account.needs = ['security']; }],
   ['sin seguridad', workflow => { workflow.jobs.account.needs = ['quality']; }],
   ['etiqueta amplia', workflow => { workflow.on.push.tags.push('*'); }],
