@@ -245,6 +245,54 @@ try {
   }
 } catch { process.exitCode=125; }
 `;
+// Read the inherited fd 0 stream directly: reopening /dev/stdin is not valid for
+// every Unix socket used by child_process. No file content appears in argv/output.
+const PRIVATE_FILE_WRITER = String.raw`'use strict';
+const fs=require('node:fs');
+const path=require('node:path');
+(async()=>{
+  let fd,created=false,target;
+  try {
+    const args=process.argv.slice(1);
+    const root=args[0];target=args[1];
+    if(args.length!==4||typeof root!=='string'||!path.isAbsolute(root)||path.normalize(root)!==root
+      ||/[\r\n\0]/.test(root)||!/^account-sandbox-[A-Za-z0-9][A-Za-z0-9_.-]{0,31}-[a-f0-9]{16}$/.test(path.basename(root))
+      ||typeof target!=='string'||!path.isAbsolute(target)||path.normalize(target)!==target
+      ||/[\r\n\0]/.test(target)||path.dirname(target)!==root
+      ||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/.test(path.basename(target))
+      ||!args.slice(2).every(value=>/^[1-9]\d{0,9}$/.test(value)&&Number(value)<=2147483647)) throw 0;
+    const uid=Number(args[2]),gid=Number(args[3]),chunks=[];
+    let size=0;
+    for await(const chunk of process.stdin) {
+      const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);
+      size+=bytes.length;
+      if(size>1024*1024) throw 0;
+      chunks.push(bytes);
+    }
+    const flags=fs.constants;
+    if(!Number.isInteger(flags.O_NOFOLLOW)||flags.O_NOFOLLOW===0) throw 0;
+    fd=fs.openSync(target,flags.O_WRONLY|flags.O_CREAT|flags.O_EXCL|flags.O_NOFOLLOW,0o600);
+    created=true;
+    fs.fchmodSync(fd,0o600);
+    fs.fchownSync(fd,uid,gid);
+    const info=fs.fstatSync(fd);
+    if(!info.isFile()||info.uid!==uid||info.gid!==gid||(info.mode&0o777)!==0o600) throw 0;
+    const content=Buffer.concat(chunks,size);
+    let offset=0;
+    while(offset<content.length) {
+      const count=fs.writeSync(fd,content,offset,content.length-offset);
+      if(!Number.isInteger(count)||count<=0) throw 0;
+      offset+=count;
+    }
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);fd=undefined;
+  } catch {
+    if(fd!==undefined) try{fs.closeSync(fd);}catch{}
+    if(created) try{fs.unlinkSync(target);}catch{}
+    process.exitCode=125;
+  }
+})();
+`;
 
 async function createSandboxInternal({ runnerTemp, runId, run = capturedRun, env = process.env,
   platform = process.platform, nodePath = process.execPath } = {}) {
@@ -383,7 +431,7 @@ async function createSandboxInternal({ runnerTemp, runId, run = capturedRun, env
   try {
     await sudo(['true'], 'SUDO_UNAVAILABLE');
     // Missing cleanup or firewall tools must fail before an account or secrets exist.
-    for (const tool of ['useradd', 'userdel', 'pkill', 'pgrep', 'getent', 'mkdir', 'chown', 'stat', 'install', 'cat', 'rm', 'realpath']) {
+    for (const tool of ['useradd', 'userdel', 'pkill', 'pgrep', 'getent', 'mkdir', 'chown', 'stat', 'cat', 'rm', 'realpath']) {
       await sudo([tool, '--help'], 'SANDBOX_TOOL_UNAVAILABLE');
     }
     for (const tool of ['iptables', 'ip6tables']) await sudo([tool, '-w', '5', '--version'], 'FIREWALL_UNAVAILABLE');
@@ -436,12 +484,13 @@ async function createSandboxInternal({ runnerTemp, runId, run = capturedRun, env
   }
   const createPrivateFile = async (name, content) => {
     need(ready && !closed && !busy, 'SANDBOX_NOT_READY');
+    need(typeof name === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/.test(name), 'PRIVATE_PATH_INVALID');
     need(typeof content === 'string' && Buffer.byteLength(content) <= 1024 * 1024, 'PRIVATE_FILE_TOO_LARGE');
     const target = await contained(privatePath(plan.root, name), false);
-    // Existing parents only; no recursive mkdir or writes through paths outside this root.
-    if (path.dirname(target) === plan.root) await rootIdentity();
-    else await contained(path.dirname(target), true);
-    await sudo(['install', '-m', '0600', '-o', String(uid), '-g', String(gid), '--', '/dev/stdin', target],
+    // A single leaf under the verified root; never traverse UID-owned child directories as root.
+    need(path.dirname(target) === plan.root, 'PRIVATE_PATH_INVALID');
+    await rootIdentity();
+    await sudo([nodePath, '-e', PRIVATE_FILE_WRITER, '--', plan.root, target, String(uid), String(gid)],
       'PRIVATE_FILE_WRITE_FAILED', { input: content });
     return target;
   };
@@ -494,5 +543,5 @@ async function createSandbox(options) {
 }
 
 module.exports = { SandboxError, SANDBOX_ERROR_CODES, safeSandboxDiagnostic, isSafeSandboxDiagnostic,
-  UID_PROCESS_WRAPPER, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
+  UID_PROCESS_WRAPPER, PRIVATE_FILE_WRITER, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
   parseRejectCounter, parseIdentity, privatePath, secretSubset, capturedRun, createSandbox };

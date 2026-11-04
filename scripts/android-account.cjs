@@ -6,7 +6,7 @@ const { createHash } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { setTimeout: pause } = require('node:timers/promises');
-const { createSandbox, safeSandboxDiagnostic, isSafeSandboxDiagnostic } = require('./account-sandbox.cjs');
+const { createSandbox, SandboxError, SANDBOX_ERROR_CODES, safeSandboxDiagnostic, isSafeSandboxDiagnostic } = require('./account-sandbox.cjs');
 
 const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   commit: 'e15671b17615621b29f4bc4bb9c0ccfdf167e657', projectId: 'c608a591-dfad-47d6-98cf-e714e821c269',
@@ -17,7 +17,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   artifactSha256: 'dda9576bdc03753f5ba24600b676770592a6915aa1b42792e49b87efdafef07d',
   appVersion: '1.0.0', appBuildVersion: '1' });
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
-const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'app-install', 'AC01-navigate', 'AC01-email',
+const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'sandbox-file-roundtrip', 'app-install', 'AC01-navigate', 'AC01-email',
   'AC01-password', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
@@ -35,9 +35,11 @@ const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID
   'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE']);
 const PARENT_ERROR = 'ACCOUNT_SANDBOX_PARENT_INVALID';
 const TOOL_ERROR = 'ACCOUNT_SANDBOX_TOOL_INVALID';
+const PREFLIGHT_FILE = 'Sport Center · comprobación privada\n';
 class AccountError extends Error { constructor(code) { super(code); this.code = code; } }
 function need(value, code) { if (!value) throw new AccountError(code); }
-function safeCode(error) { return [...CODES, PARENT_ERROR, TOOL_ERROR].includes(error?.code) ? error.code : 'ACCOUNT_UNEXPECTED_FAILURE'; }
+function trustedSandboxError(error) { return error instanceof SandboxError && SANDBOX_ERROR_CODES.includes(error.code); }
+function safeCode(error) { return [...CODES, PARENT_ERROR, TOOL_ERROR].includes(error?.code) ? error.code : trustedSandboxError(error) ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_UNEXPECTED_FAILURE'; }
 function verifyProducer(run, jobs, candidate, inspection) {
   need(run?.id === SOURCE.producer && run.run_attempt === SOURCE.attempt && run.head_sha === SOURCE.commit &&
     run.head_branch === 'candidate/android-rc4' && run.event === 'push' && run.path === '.github/workflows/api-android.yml' &&
@@ -98,7 +100,7 @@ function decodeAttribute(value) {
 // Dedicated bounded UI parser: only Android's hierarchy/node shape and built-in entities.
 function parsePrivateUi(source) {
   need(typeof source === 'string' && source.length > 0 && source.length <= 512 * 1024 && !source.includes('<!'), 'ACCOUNT_UI_INVALID');
-  const input = source.replace(/^<\?xml version=['"]1\.0['"](?: encoding=['"]UTF-8['"])?(?: standalone=['"]yes['"])?\?>/, '');
+  const input = source.replace(/^<\?xml version=['"]1\.0['"](?: encoding=['"]UTF-8['"])?(?: standalone=['"]yes['"])?\s*\?>/, '');
   need(!input.includes('<?'), 'ACCOUNT_UI_INVALID');
   const root = { name: '#root', attrs: {}, children: [] }, stack = [root]; let offset = 0, count = 0;
   for (const match of input.matchAll(/<[^>]+>|[^<]+/g)) {
@@ -249,6 +251,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     await flow('AC07', FLOWS.guard); state.cases.AC07 = 'passed'; state.status = 'passed'; state.stage = 'completed';
   } catch (error) {
     const code = error?.code === 'SANDBOX_SETUP_CLEANUP_FAILED' ? 'ACCOUNT_SANDBOX_CLEANUP_FAILED' : safeCode(error);
+    if (trustedSandboxError(error)) state.sandboxDiagnostic = safeSandboxDiagnostic(error);
     state.errors.push(new AccountError(code)); state.failureStage = state.stage;
     const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK'].includes(code); state.cases[caseId] = blocked ? 'blocked' : 'failed'; state.status = blocked ? 'blocked' : 'failed';
   } finally {
@@ -268,12 +271,14 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     } catch { state.errors.push(new AccountError('ACCOUNT_DEVICE_CLEANUP_FAILED')); state.failureStage ||= 'cleanup-device'; }
     try {
       if (box) { await box.cleanup(); state.cleanup.sandbox = true;
-        state.sandboxDiagnostic = { sandboxCode: null, cleanupCode: null, cleanupConfirmed: true }; }
+        state.sandboxDiagnostic = { sandboxCode: state.sandboxDiagnostic?.sandboxCode ?? null, cleanupCode: null, cleanupConfirmed: true }; }
       else { state.cleanup.sandbox = !setupAttempted || state.sandboxDiagnostic?.cleanupConfirmed === true;
         need(state.cleanup.sandbox, 'ACCOUNT_SANDBOX_CLEANUP_FAILED'); }
     }
     catch (error) { state.errors.push(new AccountError('ACCOUNT_SANDBOX_CLEANUP_FAILED')); state.failureStage ||= 'cleanup-sandbox';
-      state.sandboxDiagnostic ||= safeSandboxDiagnostic(error); }
+      const cleanupDiagnostic = safeSandboxDiagnostic(error);
+      state.sandboxDiagnostic = state.sandboxDiagnostic?.sandboxCode ? { sandboxCode: state.sandboxDiagnostic.sandboxCode,
+        cleanupCode: cleanupDiagnostic.sandboxCode, cleanupConfirmed: false } : cleanupDiagnostic; }
     try { if (parentContext && state.cleanup.sandbox === true) parentContext.confirm(true); }
     catch { state.errors.push(new AccountError(PARENT_ERROR)); state.failureStage ||= 'cleanup-sandbox'; }
   }
@@ -424,10 +429,15 @@ async function probe(env, { run = command, create = createSandbox,
     need(box.probes?.ipv4RejectedWithCounter === true && box.probes?.adbLoopbackReachable === true, 'ACCOUNT_SANDBOX_FAILED');
     state.stage = 'sandbox-tool-version'; const version = await box.runAs(['maestro', '--version'], {}, 30000);
     need(version.exitCode === 0 && version.timedOut !== true && version.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) === '2.12.0', TOOL_ERROR);
+    state.stage = 'sandbox-file-roundtrip'; await box.createPrivateFile('public-roundtrip.txt', PREFLIGHT_FILE);
+    need(await box.readPrivateFile('public-roundtrip.txt') === PREFLIGHT_FILE, 'ACCOUNT_SANDBOX_FAILED');
   } catch (error) { failure = error; if (setupAttempted) state.sandboxDiagnostic = safeSandboxDiagnostic(error); }
   if (box) {
-    try { await box.cleanup(); state.cleanup.sandbox = true; }
-    catch (error) { failure ||= error; state.sandboxDiagnostic ||= safeSandboxDiagnostic(error); }
+    try { await box.cleanup(); state.cleanup.sandbox = true;
+      if (state.sandboxDiagnostic) state.sandboxDiagnostic = { sandboxCode: state.sandboxDiagnostic.sandboxCode, cleanupCode: null, cleanupConfirmed: true }; }
+    catch (error) { failure ||= error; const secondary = safeSandboxDiagnostic(error);
+      state.sandboxDiagnostic = state.sandboxDiagnostic?.sandboxCode ? { sandboxCode: state.sandboxDiagnostic.sandboxCode,
+        cleanupCode: secondary.sandboxCode, cleanupConfirmed: false } : secondary; }
   } else state.cleanup.sandbox = !setupAttempted || state.sandboxDiagnostic?.cleanupConfirmed === true;
   try { if (parentContext && state.cleanup.sandbox === true) parentContext.confirm(true); }
   catch (error) { failure ||= error; state.cleanup.sandbox = false; }
@@ -438,7 +448,7 @@ async function probe(env, { run = command, create = createSandbox,
     throw new AccountError(state.errors[0].code);
   }
   writeSource(files.proof, { ...context, sandboxPreflight: { status: 'passed', ipv4RejectedWithCounter: true,
-    ipv6RulesVerified: true, adbLoopbackReachable: true, maestroVersionVerified: true, cleanupConfirmed: true,
+    ipv6RulesVerified: true, adbLoopbackReachable: true, maestroVersionVerified: true, privateFileRoundtripVerified: true, cleanupConfirmed: true,
     scope: 'no-emulator-no-account-Maestro-version-only' } });
 }
 async function main(mode, env = process.env) {
@@ -494,7 +504,7 @@ async function main(mode, env = process.env) {
   }
   throw new AccountError('ACCOUNT_AUTOMATION_SCOPE');
 }
-module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
+module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
   credentials, parsePrivateUi, hasLabel, point, profileMatches, fixtureStatus, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
   locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };
 if (require.main === module) main(process.argv[2]).catch(error => { process.stderr.write(safeCode(error) + '\n'); process.exitCode = 1; });

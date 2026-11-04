@@ -3,7 +3,7 @@ const test = globalThis.test || require('node:test').test;
 const assert = require('node:assert/strict');
 const { createSandbox, planSandbox, firewallPlan, assertFirstOwnerRule, assertChainRules,
   parseRejectCounter, privatePath, secretSubset, capturedRun, SandboxError, SANDBOX_ERROR_CODES,
-  safeSandboxDiagnostic, isSafeSandboxDiagnostic, UID_PROCESS_WRAPPER } = require(require('node:path').join(process.env.ACCOUNT_PREP_DIR || require('node:path').join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
+  safeSandboxDiagnostic, isSafeSandboxDiagnostic, UID_PROCESS_WRAPPER, PRIVATE_FILE_WRITER } = require(require('node:path').join(process.env.ACCOUNT_PREP_DIR || require('node:path').join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
 
 function mockRuntime(config = {}) {
   const calls = [], rules = new Map(), output = { iptables: ['-A OUTPUT -j ACCEPT'], ip6tables: ['-A OUTPUT -j ACCEPT'] };
@@ -43,7 +43,14 @@ function mockRuntime(config = {}) {
     if (tool === 'pkill') return { stdout: '', stderr: '', exitCode: 1 };
     if (tool === 'pgrep') return state.processesRemain ? success('9001\n') : { stdout: '', stderr: '', exitCode: 1 };
     if (tool === 'rm' || tool === 'userdel') return success();
-    if (tool === 'install') { files.set(a[a.length - 1], options.input); return success(); }
+    if (a[0] === '-e' && a[1] === PRIVATE_FILE_WRITER) {
+      const split = a.indexOf('--', 2), root = a[split + 1], target = a[split + 2];
+      if (state.writerFails || files.has(target)) return { stdout: '', stderr: '', exitCode: 125 };
+      assert.equal(root, state.root);
+      assert.equal(require('node:path').posix.dirname(target), root);
+      assert.deepEqual(a.slice(split + 3), ['200001', '200002']);
+      files.set(target, options.input); return success();
+    }
     if (tool === 'cat') return success(files.get(a[a.length - 1]) ?? '<testsuites/>');
     if (tool === 'iptables' || tool === 'ip6tables') {
       const action = a[2], chain = a[3];
@@ -130,8 +137,13 @@ test('setup probes before secrets, isolates env/cwd, and keeps all Maestro outpu
   assert.equal(sb.uid, 200001); assert.equal(sb.gid, 200002);
   assert.deepEqual(sb.probes.ipv4RejectedWithCounter, true);
   assert.ok(m.calls.every(call => !Object.values(call.options.env).includes(password)));
-  const flow = await sb.createPrivateFile('work/login.yaml', 'appId: example\n---\n- inputText: ${MAESTRO_ACCOUNT_PASSWORD}\n');
-  assert.equal(flow, sb.work + '/login.yaml');
+  const flow = await sb.createPrivateFile('login.yaml', 'appId: example\n---\n- inputText: ${MAESTRO_ACCOUNT_PASSWORD}\n');
+  assert.equal(flow, sb.root + '/login.yaml');
+  const writer = m.calls.find(call => call.args.includes(PRIVATE_FILE_WRITER));
+  assert.ok(writer);
+  assert.equal(writer.options.input, m.files.get(flow));
+  assert.ok(!writer.args.includes(writer.options.input));
+  assert.ok(!m.calls.some(call => call.args.includes('/dev/stdin') || command(call) === 'install'));
   const result = await sb.runMaestro('emulator-5554', ['test', '--format', 'junit', '--output', sb.root + '/CASE.xml', flow],
     { secretEnv: { MAESTRO_ACCOUNT_PASSWORD: password } });
   assert.equal(result.stdout, 'private stdout'); assert.equal(result.stderr, 'private stderr');
@@ -201,7 +213,7 @@ test('invalid Android SDK environment fails before subprocess work', async () =>
 
 test('caller cannot pass arbitrary env, unsafe cwd, secrets in argv or public output paths', async () => {
   const m = mockRuntime(), sb = await setup(m);
-  const flow = await sb.createPrivateFile('work/check.yaml', 'appId: example\n---\n- launchApp\n');
+  const flow = await sb.createPrivateFile('check.yaml', 'appId: example\n---\n- launchApp\n');
   await assert.rejects(sb.runAs(['fixture-command'], { HTTP_PROXY: 'bad' }), failCode('PRIVATE_ENV_KEY_REJECTED'));
   await assert.rejects(sb.runAs(['fixture-command', 'password-value'], { MAESTRO_ACCOUNT_PASSWORD: 'password-value' }), failCode('SECRET_IN_ARGV_REJECTED'));
   await assert.rejects(sb.runMaestro('emulator-5554', ['test', flow], { cwd: '/outside' }), failCode('PRIVATE_CWD_INVALID'));
@@ -323,4 +335,30 @@ test('fixed UID wrapper rejects invalid cwd and argv without error messages', as
     assert.equal(result.exitCode, 125);
     assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
   }
+});
+
+test('captured stdin direct stream roundtrips bytes; private writer failures expose only a fixed code', async () => {
+  const content = 'stdin socket transport\nUnicode ñ 🔐\n${MAESTRO_ACCOUNT_PASSWORD}\n';
+  const directReader = 'const chunks=[];process.stdin.on("data",chunk=>chunks.push(chunk));process.stdin.on("end",()=>process.stdout.write(Buffer.concat(chunks)));';
+  const roundtrip = await capturedRun(process.execPath, ['-e', directReader],
+    { env: process.env, timeout: 3000, input: content });
+  assert.equal(roundtrip.exitCode, 0); assert.equal(roundtrip.stdout, content); assert.equal(roundtrip.stderr, '');
+
+  const m = mockRuntime(), sb = await setup(m);
+  const file = await sb.createPrivateFile('writer.yaml', content);
+  assert.equal(await sb.readPrivateFile(file), content);
+  await assert.rejects(sb.createPrivateFile('writer.yaml', 'replacement'), failCode('PRIVATE_FILE_WRITE_FAILED'));
+  assert.equal(m.files.get(file), content);
+  await assert.rejects(sb.createPrivateFile('../outside', content), failCode('PRIVATE_PATH_INVALID'));
+  await assert.rejects(sb.createPrivateFile('work/nested.yaml', content), failCode('PRIVATE_PATH_INVALID'));
+  await assert.rejects(sb.createPrivateFile('work\\nested.yaml', content), failCode('PRIVATE_PATH_INVALID'));
+  await assert.rejects(sb.createPrivateFile(sb.root + '/absolute.yaml', content), failCode('PRIVATE_PATH_INVALID'));
+  await assert.rejects(sb.createPrivateFile('missing.yaml'), failCode('PRIVATE_FILE_TOO_LARGE'));
+  await assert.rejects(sb.createPrivateFile('oversized.yaml', 'x'.repeat(1024 * 1024 + 1)), failCode('PRIVATE_FILE_TOO_LARGE'));
+  m.state.writerFails = true;
+  await assert.rejects(sb.createPrivateFile('failure.yaml', content), failCode('PRIVATE_FILE_WRITE_FAILED'));
+  const invalidWriter = await capturedRun(process.execPath, ['-e', PRIVATE_FILE_WRITER, '--', sb.root, 'relative-target', '200001', '200002'],
+    { env: process.env, timeout: 3000, input: content });
+  assert.equal(invalidWriter.exitCode, 125); assert.equal(invalidWriter.stdout, ''); assert.equal(invalidWriter.stderr, '');
+  await sb.cleanup();
 });

@@ -3,6 +3,7 @@ const test = globalThis.test || require('node:test').test;
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const account = require(path.join(process.env.ACCOUNT_PREP_DIR || path.join(__dirname, '..', 'scripts'), 'android-account.cjs'));
+const { SandboxError } = require(path.join(process.env.ACCOUNT_PREP_DIR || path.join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
 const REPO = process.env.ACCOUNT_REPO_ROOT || path.join(__dirname, '..');
 const { xmlTree } = require(path.join(REPO, 'scripts/android-pinning.js'));
 const { SOURCE, AccountError } = account;
@@ -77,6 +78,12 @@ test('UI parser decodes only safe builtin/numeric entities and keeps PII private
   assert.equal(nodes[0].text, 'Ropa & "equipo"');
   const parsed = account.parsePrivateUi('<hierarchy><node package="' + SOURCE.appId + '" text="a&#64;b.com"/></hierarchy>');
   assert.equal(parsed[0].text, 'a@b.com');
+});
+test('UI parser accepts the exact AOSP serializer declaration with whitespace before closing PI', () => {
+  const xml = ui([{ text: 'Public login' }]).replace('<?xml version="1.0" encoding="UTF-8"?>', "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>");
+  assert.equal(account.parsePrivateUi(xml)[0].text, 'Public login');
+  assert.throws(() => account.parsePrivateUi(xml.replace(' ?>', ' ?')), /ACCOUNT_UI_INVALID/);
+  assert.throws(() => account.parsePrivateUi(xml.replace('<hierarchy', '<!DOCTYPE hierarchy><hierarchy')), /ACCOUNT_UI_INVALID/);
 });
 for (const text of ['<!DOCTYPE hierarchy><hierarchy/>', '<hierarchy><node/></oops>', '<hierarchy><node>', '<hierarchy><node text="&secret;"/></hierarchy>',
   '<hierarchy><node text="x" text="y"/></hierarchy>', '<wrong/>', '<hierarchy><node text="&#0;"/></hierarchy>']) {
@@ -163,7 +170,10 @@ async function runtime(config = {}) {
     assert.equal(options.runnerTemp, '/tmp/sportcenter-account-AbC123');
     if (config.failSetupCleanup) { const error = new Error('private setup data'); error.code = 'SANDBOX_SETUP_CLEANUP_FAILED'; throw error; }
     return { root: '/private/root',
-    createPrivateFile: async (name, body) => { files.set('/private/root/' + name, body); return '/private/root/' + name; },
+    createPrivateFile: async (name, body) => {
+      if (config.failWrite) throw new SandboxError('PRIVATE_FILE_WRITE_FAILED');
+      files.set('/private/root/' + name, body); return '/private/root/' + name;
+    },
     runMaestro: async (_serial, argv, options) => {
       const flowPath = argv.at(-1), body = files.get(flowPath), name = body.match(/\nname: ([^\n]+) private account\n/)[1];
       flows.push({ name, body, env: options.secretEnv, argv });
@@ -215,6 +225,14 @@ test('cleanup failure prevents a passing account result', async () => {
   const value = await runtime({ failCleanup: true }); assert.equal(value.result.status, 'failed');
   assert.ok(value.result.failureCodes.includes('ACCOUNT_SANDBOX_CLEANUP_FAILED')); assert.equal(value.result.cleanup.sandbox, false);
 });
+test('trusted runtime file-write failure retains a whitelisted cause and confirmed cleanup', async () => {
+  const value = await runtime({ failWrite: true });
+  assert.equal(value.result.status, 'failed'); assert.equal(value.result.stage, 'AC01-navigate');
+  assert.deepEqual(value.result.failureCodes, ['ACCOUNT_SANDBOX_FAILED']);
+  assert.deepEqual(value.result.sandboxDiagnostic, { sandboxCode: 'PRIVATE_FILE_WRITE_FAILED', cleanupCode: null, cleanupConfirmed: true });
+  assert.equal(value.result.cleanup.sandbox, true); assert.equal(value.cleaned, true);
+  assert.equal(account.safeCode({ code: 'PRIVATE_FILE_WRITE_FAILED' }), 'ACCOUNT_UNEXPECTED_FAILURE');
+});
 test('setup factory cleanup failure remains explicitly unconfirmed without a sandbox instance', async () => {
   const value = await runtime({ failSetupCleanup: true });
   assert.equal(value.result.status, 'failed'); assert.equal(value.result.stage, 'sandbox-probes');
@@ -235,11 +253,13 @@ test('credential-free probe starts only the ADB server and records coded proof a
       probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true }, runAs: async (args, secretEnv) => {
         assert.deepEqual(args, ['maestro', '--version']); assert.deepEqual(secretEnv, {});
         return { exitCode: 0, timedOut: false, stdout: 'Public fixed banner\n\n2.12.0\n' };
-      }, cleanup: async () => calls.push({ cleanup: true }) }; },
+      }, createPrivateFile: async () => {}, readPrivateFile: async () => account.PREFLIGHT_FILE,
+      cleanup: async () => calls.push({ cleanup: true }) }; },
   });
   assert.deepEqual(calls, [{ file: 'adb', args: ['start-server'] }, { cleanup: true }]);
   assert.equal(writes.length, 1); assert.equal(writes[0].value.sandboxPreflight.cleanupConfirmed, true); assert.equal(reports.length, 0);
   assert.equal(writes[0].value.sandboxPreflight.maestroVersionVerified, true);
+  assert.equal(writes[0].value.sandboxPreflight.privateFileRoundtripVerified, true);
 });
 test('probe refuses credentials and never starts an emulator or account on failure', async () => {
   for (const key of ['ANDROID_TEST_EMAIL', 'ANDROID_TEST_PASSWORD', 'EXPO_TOKEN', 'GITHUB_TOKEN']) {
@@ -280,9 +300,26 @@ test('probe marks parent active before sandbox creation and confirms only after 
     readSource: () => context, writeSource: () => calls.push('source-pass'), writeReport: (file, value) => reports.push(value),
     run: async () => { calls.push('adb'); return { exitCode: 0, stdout: '' }; },
     create: async () => { calls.push('create'); return { probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true },
-      runAs: async () => { calls.push('tool-version'); return { exitCode: 0, stdout: '2.12.0\n' }; }, cleanup: async () => calls.push('cleanup') }; },
+      runAs: async () => { calls.push('tool-version'); return { exitCode: 0, stdout: '2.12.0\n' }; },
+      createPrivateFile: async () => calls.push('write'), readPrivateFile: async () => { calls.push('read'); return account.PREFLIGHT_FILE; },
+      cleanup: async () => calls.push('cleanup') }; },
   });
-  assert.deepEqual(calls, ['adb', 'verify-tool', 'confirmed:false', 'create', 'tool-version', 'cleanup', 'confirmed:true', 'source-pass']); assert.equal(reports.length, 0);
+  assert.deepEqual(calls, ['adb', 'verify-tool', 'confirmed:false', 'create', 'tool-version', 'write', 'read', 'cleanup', 'confirmed:true', 'source-pass']); assert.equal(reports.length, 0);
+});
+test('preflight file mismatch fails before AVD/account and still records confirmed cleanup', async () => {
+  const reports = [];
+  await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
+    parent: parentFixture,
+    readSource: () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
+      producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
+    run: async () => ({ exitCode: 0, stdout: '' }),
+    create: async () => ({ probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true },
+      runAs: async () => ({ exitCode: 0, stdout: '2.12.0\n' }), createPrivateFile: async () => {},
+      readPrivateFile: async () => 'different', cleanup: async () => {} }),
+    writeSource: () => assert.fail('roundtrip mismatch cannot approve proof'), writeReport: (file, value) => reports.push(value),
+  }), /ACCOUNT_SANDBOX_FAILED/);
+  assert.equal(reports[0].stage, 'sandbox-file-roundtrip'); assert.equal(reports[0].cleanup.sandbox, true);
+  assert.ok(reports[0].cases.every(item => item.status === 'not_run'));
 });
 test('ADB start failure preserves process code and never claims sandbox setup or cleanup failed', async () => {
   const reports = [], calls = [];
