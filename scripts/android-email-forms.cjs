@@ -33,20 +33,12 @@ function credentials(env,phase){
  return{email,password,phone:phase==='register'?phone:null,code:phase==='register'?null:code,newPassword:phase==='reset'?newPassword:null};
 }
 function wrongCode(value){need(/^\d{6}$/.test(value),'FORMS_FIXTURE_INVALID');return value.slice(0,5)+(Number(value[5])+1)%10;}
-function scrollBody(key,direction='DOWN'){
- need(Object.hasOwn(LABELS,key)&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
- return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+LABELS[key].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+'\n    direction: '+direction+'\n    timeout: 30000\n    visibilityPercentage: 100\n    centerElement: false';
-}
 const FIELD_BODY='- eraseText: 256\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard';
 const BUTTONS=Object.freeze(['Acepto el tratamiento necesario para mi cuenta','Crear cuenta','Reenviar código','Ya tengo un código','Verificar cuenta','Enviar código','Ya tengo un código de recuperación','Actualizar contraseña','Iniciar sesión','Cerrar sesión']);
-function tapBody(label){
- need(BUTTONS.includes(label),'FORMS_UI_INVALID');
- const below=label==='Crear cuenta'?'Leer privacidad y términos':label==='Iniciar sesión'?'Contraseña':null;
- return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+(below?'\n      below:\n        text: '+JSON.stringify('^'+below+'$'):'')+'\n    direction: DOWN\n    timeout: 30000\n    visibilityPercentage: 100\n    centerElement: false';
-}
-const FLOW_BODIES=new Set([FIELD_BODY,...Object.keys(LABELS).flatMap(key=>['UP','DOWN'].map(direction=>scrollBody(key,direction))),...BUTTONS.map(tapBody)]);
+const BUTTON_TARGETS=Object.freeze(['consent','register-submit','resend-code','verify-resume','verify-submit','request-recovery','reset-resume','reset-submit','login-submit','logout']);
+const SCROLL_TARGETS=Object.freeze(Object.fromEntries([...Object.entries(LABELS).map(([key,label])=>['input-'+key,Object.freeze({label,kind:'input'})]),...BUTTONS.map((label,i)=>[BUTTON_TARGETS[i],Object.freeze({label,kind:'button'})])]));
 function formsYaml(name,body){
- need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&FLOW_BODIES.has(body),'FORMS_MAESTRO_FAILED');
+ need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&body===FIELD_BODY,'FORMS_MAESTRO_FAILED');
  return 'appId: '+PACKAGE+'\nname: '+name+' private account\n---\n'+body+'\n';
 }
 function landingReady(route,nodes){
@@ -69,6 +61,57 @@ function visiblePoint(nodes,label,kind,viewport){
  const bounds=/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/.exec(found[0].bounds||'');
  if(!bounds||Number(bounds[3])>viewport.width||Number(bounds[4])>viewport.height)return null;
  try{const point=account.point(nodes,label,kind);return point[0]>=0&&point[0]<viewport.width&&point[1]>=0&&point[1]<viewport.height?point:null;}catch{return null;}
+}
+function rectangle(value){
+ const match=/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/.exec(value||'');if(!match)return null;
+ const [left,top,right,bottom]=match.slice(1).map(Number);return right>left&&bottom>top&&right<=8192&&bottom<=8192?{left,top,right,bottom}:null;
+}
+function scrollGeometry(nodes,viewport){
+ const regions=nodes.filter(node=>node.package===PACKAGE&&node.class==='android.widget.ScrollView');
+ const fail=(result,regionValid=false)=>({regionFound:regions.length>0,regionValid,laneFound:false,result});
+ if(!regions.length)return fail('missing-region');if(regions.length!==1)return fail('multiple-regions');
+ const region=rectangle(regions[0].bounds);
+ if(!region||regions[0].enabled==='false'||region.right>viewport.width||region.bottom>viewport.height||region.right-region.left<96||region.bottom-region.top<160)return fail('invalid-region');
+ const controls=[];
+ for(const node of nodes){
+  if(node===regions[0]||node.package!==PACKAGE||!(node.class==='android.widget.EditText'||node.clickable==='true'))continue;
+  const box=rectangle(node.bounds);if(!box)return fail('invalid-controls',true);
+  if(box.right<=region.left||box.left>=region.right||box.bottom<=region.top||box.top>=region.bottom)continue;
+  controls.push({left:Math.max(region.left,box.left),right:Math.min(region.right,box.right)});
+ }
+ if(!controls.length)return fail('no-padding-lane',true);
+ const leftEnd=Math.min(...controls.map(box=>box.left)),rightStart=Math.max(...controls.map(box=>box.right));
+ const x=leftEnd-region.left>=12?Math.floor((region.left+leftEnd)/2):region.right-rightStart>=12?Math.floor((rightStart+region.right)/2):null;
+ if(x===null)return fail('no-padding-lane',true);
+ const inset=Math.max(8,Math.min(24,Math.floor((region.bottom-region.top)*0.08))),top=region.top+inset,bottom=region.bottom-inset;
+ const upperY=Math.floor(top+(bottom-top)*0.2),lowerY=Math.floor(top+(bottom-top)*0.8);
+ if(lowerY-upperY<80||x<=region.left+3||x>=region.right-3)return fail('invalid-region');
+ return{regionFound:true,regionValid:true,laneFound:true,result:'valid',x,upperY,lowerY};
+}
+const SCROLL_RESULTS=Object.freeze(['searching','already-visible','found','missing-region','multiple-regions','invalid-region','invalid-controls','no-padding-lane','target-invalid','gesture-limit','deadline','read-error','swipe-error']);
+function safeScrollDiagnostic(value){
+ const keys=['target','direction','attempts','regionFound','regionValid','laneFound','result'];
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||!keys.every(key=>Object.hasOwn(value,key))||!Object.hasOwn(SCROLL_TARGETS,value.target)||!['UP','DOWN'].includes(value.direction)||!Number.isInteger(value.attempts)||value.attempts<0||value.attempts>10||!['regionFound','regionValid','laneFound'].every(key=>typeof value[key]==='boolean')||!SCROLL_RESULTS.includes(value.result))return null;
+ return Object.fromEntries(keys.map(key=>[key,value[key]]));
+}
+async function scrollControl({readUi,swipe,viewport,label,kind,direction,target,now=Date.now,onDiagnostic=()=>{}}){
+ need(Object.hasOwn(SCROLL_TARGETS,target)&&SCROLL_TARGETS[target].label===label&&SCROLL_TARGETS[target].kind===kind&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
+ const deadline=now()+30000,diagnostic={target,direction,attempts:0,regionFound:false,regionValid:false,laneFound:false,result:'searching'};
+ const publish=()=>onDiagnostic({...diagnostic});
+ const stop=(result,code='FORMS_UI_INVALID')=>{diagnostic.result=result;publish();throw new FormsError(code);};
+ for(;;){
+  if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
+  let nodes;try{nodes=await readUi(deadline);}catch(error){diagnostic.result='read-error';publish();throw error;}
+  if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
+  let point;try{point=visiblePoint(nodes,label,kind,viewport);}catch(error){diagnostic.result='target-invalid';publish();throw error;}
+  if(point){diagnostic.result=diagnostic.attempts?'found':'already-visible';publish();return point;}
+  if(diagnostic.attempts>=10)stop('gesture-limit','FORMS_UI_TIMEOUT');
+  const geometry=scrollGeometry(nodes,viewport);diagnostic.regionFound=geometry.regionFound;diagnostic.regionValid=geometry.regionValid;diagnostic.laneFound=geometry.laneFound;
+  if(geometry.result!=='valid')stop(geometry.result);
+  if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
+  diagnostic.attempts++;publish();
+  try{await swipe(geometry,direction,deadline);}catch(error){diagnostic.result='swipe-error';publish();throw error;}
+ }
 }
 const MAESTRO_KEYS=Object.freeze(['action','resultObserved','exitCode','timedOut','junitRead','junitValid','errorEnum','exceptionEnum']);
 const EXCEPTIONS=Object.freeze({'io.grpc.StatusRuntimeException':'grpc-status','java.net.ConnectException':'java-connect','java.net.SocketTimeoutException':'java-socket-timeout','java.io.IOException':'java-io','java.lang.IllegalStateException':'java-illegal-state','java.lang.IllegalArgumentException':'java-illegal-argument','java.util.concurrent.TimeoutException':'java-timeout','java.lang.OutOfMemoryError':'java-out-of-memory'});
@@ -152,11 +195,13 @@ function publicReport(state,config){
   cases:(phase?PHASE_CASES[phase]:[]).map(id=>({id,status:['passed','failed','not_run'].includes(state.cases?.[id])?state.cases[id]:'not_run'})),evidence:Object.fromEntries(EVIDENCE.map(k=>[k,state.evidence?.[k]===true])),operationUncertain:state.operationUncertain===true,
   recoveryUi:Object.fromEntries(['codeObserved','updateButtonObserved','lastCodeVisible','lastUpdateButtonVisible'].map(key=>[key,state.recoveryUi?.[key]===true])),
   maestroDiagnostic:safeMaestroDiagnostic(state.maestroDiagnostic),
+  scrollDiagnostic:safeScrollDiagnostic(state.scrollDiagnostic),
   cleanup:{device:state.cleanup?.device===true,sandbox:state.cleanup?.sandbox===true,localSession:state.cleanup?.localSession===true},sandboxDiagnostic:isSafeSandboxDiagnostic(state.sandboxDiagnostic)?state.sandboxDiagnostic:null,failureCodes:[...new Set((state.errors||[]).map(safeCode))],
   gmailDelivery:'not-observed-by-runner',serverRevocation:'not-independently-observed',physicalDevice:'not-run',payment:'not-run'};
  if(report.status==='passed'&&(!phase||report.stage!=='completed'||!report.cases.length||!report.cases.every(c=>c.status==='passed')||!REQUIRED_EVIDENCE[phase].every(key=>report.evidence[key])||!Object.values(report.cleanup).every(Boolean)||report.operationUncertain||report.failureCodes.length))report.status='failed';
  if(report.status==='passed'&&phase!=='register'&&(!report.recoveryUi.codeObserved||!report.recoveryUi.updateButtonObserved))report.status='failed';
  if(report.status==='passed'&&report.maestroDiagnostic!==null)report.status='failed';
+ if(report.status==='passed'&&report.scrollDiagnostic&&!['found','already-visible'].includes(report.scrollDiagnostic.result))report.status='failed';
  return report;
 }
 async function strictRun(file,args,options={}){try{return(await promisify(execFile)(file,args,{encoding:'utf8',timeout:45000,maxBuffer:1024*1024,windowsHide:true,...options})).stdout;}catch{throw new FormsError('FORMS_PROCESS_FAILED');}}
@@ -168,10 +213,10 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const phase=context.phase,secret=credentials(env,phase),state={phase,status:'failed',stage:'device-check',automationCommit:context.automationCommit,cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false};
  let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,viewport,sequence=0;
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
- const adb=async args=>stdout(await run('adb',['-s',serial,...args],{}));
- const readUi=async()=>{try{await adb(['shell','uiautomator','dump',remote+'/ui.xml']);return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml']));}finally{await adb(['shell','rm','-f',remote+'/ui.xml']);}};
+ const adb=async(args,options={})=>stdout(await run('adb',['-s',serial,...args],options));
+ const readUi=async deadline=>{const options=()=>{if(deadline===undefined)return{};const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');return{timeout:Math.min(10000,remaining)};};try{await adb(['shell','uiautomator','dump',remote+'/ui.xml'],options());return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml'],options()));}finally{await adb(['shell','rm','-f',remote+'/ui.xml'],{timeout:5000});}};
  const flow=async(body,value)=>{
-  const diagnostic={action:body===FIELD_BODY?'input':'scroll',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error',exceptionEnum:'none'};
+  const diagnostic={action:'input',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error',exceptionEnum:'none'};
   try{
    const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');
    const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});
@@ -181,12 +226,13 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
   }catch(error){if(!diagnostic.resultObserved)diagnostic.exceptionEnum=maestroExceptionEnum(error);state.maestroDiagnostic=diagnostic;throw error;}
  };
  const measured=async(label,kind)=>{const point=visiblePoint(await readUi(),label,kind,viewport);need(point,'FORMS_UI_INVALID');return point;};
- const reveal=async label=>{if(visiblePoint(await readUi(),label,'button',viewport))return;await flow(tapBody(label));await measured(label,'button');};
+ const revealControl=async(label,kind,direction,target)=>scrollControl({readUi,viewport,label,kind,direction,target,now,onDiagnostic:value=>{state.scrollDiagnostic=value;},swipe:async(geometry,way,deadline)=>{const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');const [from,to]=way==='DOWN'?[geometry.lowerY,geometry.upperY]:[geometry.upperY,geometry.lowerY];await adb(['shell','input','swipe',String(geometry.x),String(from),String(geometry.x),String(to),'400'],{timeout:Math.min(5000,remaining)});}});
+ const reveal=async label=>{const i=BUTTONS.indexOf(label);need(i>=0,'FORMS_UI_INVALID');await revealControl(label,'button','DOWN',BUTTON_TARGETS[i]);};
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
   async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
   async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
-  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);if(!visiblePoint(await readUi(),LABELS[key],'input',viewport))await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
+  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await revealControl(LABELS[key],'input',direction,'input-'+key);const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
    try{const p=await measured(show,'button');await adb(['shell','input','tap',...p.map(String)]);shown=true;need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');}
@@ -207,7 +253,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,landingReady,screenSize,visiblePoint,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,formsYaml,landingReady,screenSize,visiblePoint,scrollGeometry,scrollControl,safeScrollDiagnostic,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}
@@ -238,7 +284,7 @@ async function probeForms(config,env,{run=strictRun,create=createSandbox,parent=
 }
 function verifyFinished(config,env,report){
  const currentPhase=/^refs\/tags\/validation\/account-forms-(register|verify|reset)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(currentPhase&&report.phase===currentPhase[1],'FORMS_SOURCE_INVALID');
- const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,maestroDiagnostic:report.maestroDiagnostic,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
+ const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,maestroDiagnostic:report.maestroDiagnostic,scrollDiagnostic:report.scrollDiagnostic,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
  need(clean.status==='passed'&&report.artifactSourceCommit===config.sourceCommit&&report.automationCommit===env.GITHUB_SHA&&report.apkSha256===config.sha256&&report.buildId===config.buildId&&report.producerRun===config.producerRun&&report.producerAttempt===config.producerAttempt&&JSON.stringify(clean)===JSON.stringify(report),'FORMS_CASES_INCOMPLETE');return clean;
 }
 async function main(mode,env=process.env){
