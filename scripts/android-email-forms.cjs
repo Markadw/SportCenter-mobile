@@ -68,6 +68,18 @@ function stage(state,value){need(STAGES.includes(value),'FORMS_UI_INVALID');stat
 async function executePhase(driver,secret,state){
  const mark=(id,evidence)=>{state.cases[id]='passed';state.evidence[evidence]=true;};
  const submit=async(label,before,after,predicate)=>{stage(state,before);state.operationUncertain=true;await driver.tap(label);stage(state,after);await driver.wait(predicate);state.operationUncertain=false;};
+ const recoveryForm=async()=>{
+  state.recoveryUi={codeObserved:false,updateButtonObserved:false,lastCodeVisible:false,lastUpdateButtonVisible:false};
+  const observe=nodes=>{const code=account.hasLabel(nodes,'Código de recuperación'),button=account.hasLabel(nodes,'Actualizar contraseña');state.recoveryUi={codeObserved:state.recoveryUi.codeObserved||code,updateButtonObserved:state.recoveryUi.updateButtonObserved||button,lastCodeVisible:code,lastUpdateButtonVisible:button};return{code,button};};
+  await driver.wait(nodes=>observe(nodes).code);
+  await driver.reveal('Actualizar contraseña');
+  await driver.wait(nodes=>observe(nodes).button);
+ };
+ const requestRecovery=async()=>{
+  stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});
+  stage(state,'recovery-submit');state.operationUncertain=true;await driver.tap('Enviar código');stage(state,'recovery-response');
+  await recoveryForm();state.operationUncertain=false;mark('EF05','recoveryRequested');
+ };
  if(state.phase==='register'){
   stage(state,'register-open');await driver.open('register');await driver.wait(nodes=>account.hasLabel(nodes,'Crear cuenta'));
   for(const[key,value]of[['name','Prueba Formulario'],['surname','Sport'],['secondSurname','Center'],['registrationEmail',secret.email],['phone',secret.phone],['password',secret.password],['confirmation',secret.password]])await driver.fill(key,value,{secure:['password','confirmation'].includes(key)});
@@ -78,10 +90,10 @@ async function executePhase(driver,secret,state){
   stage(state,'verify-open');await driver.open('register');await driver.fill('registrationEmail',secret.email);stage(state,'verify-resume');await driver.tap('Ya tengo un código');await driver.wait(nodes=>account.hasLabel(nodes,'Verificar correo')&&account.fieldMatches(nodes,'Correo electrónico',secret.email));
   await driver.fill('verification',wrongCode(secret.code));await submit('Verificar cuenta','verify-invalid-submit','verify-invalid-response',nodes=>account.hasLabel(nodes,'Código incorrecto. Intentos restantes: 2.')&&!account.hasLabel(nodes,'Cuenta verificada'));mark('EF03','invalidVerificationDidNotComplete');
   await driver.fill('verification',secret.code);await submit('Verificar cuenta','verify-submit','verify-response',nodes=>account.hasLabel(nodes,'Cuenta verificada')&&account.hasLabel(nodes,'Tu correo quedó confirmado. Ya puedes iniciar sesión en Sport Center.'));mark('EF04','verified');
-  stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});await submit('Enviar código','recovery-submit','recovery-response',nodes=>account.hasLabel(nodes,'Código de recuperación')&&account.hasLabel(nodes,'Actualizar contraseña'));mark('EF05','recoveryRequested');
+  await requestRecovery();
  }else if(state.phase==='reset'){
-  stage(state,'reset-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});stage(state,'reset-resume');await driver.tap('Ya tengo un código de recuperación');await driver.wait(nodes=>account.hasLabel(nodes,'Código de recuperación')&&account.hasLabel(nodes,'Actualizar contraseña'));mark('EF06','resumedWithoutRequest');
-  await driver.fill('recovery',wrongCode(secret.code));await driver.fill('newPassword',secret.newPassword,{secure:true});await driver.fill('confirmation',secret.newPassword,{secure:true});
+  stage(state,'reset-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});stage(state,'reset-resume');await driver.tap('Ya tengo un código de recuperación');await recoveryForm();mark('EF06','resumedWithoutRequest');
+  await driver.fill('recovery',wrongCode(secret.code),{direction:'UP'});await driver.fill('newPassword',secret.newPassword,{secure:true});await driver.fill('confirmation',secret.newPassword,{secure:true});
   await submit('Actualizar contraseña','reset-invalid-submit','reset-invalid-response',nodes=>account.hasLabel(nodes,RESET_ERROR)&&!account.hasLabel(nodes,'Contraseña actualizada'));mark('EF07','invalidResetDidNotComplete');
   await driver.fill('recovery',secret.code,{direction:'UP'});await submit('Actualizar contraseña','reset-submit','reset-response',nodes=>account.hasLabel(nodes,'Contraseña actualizada')&&account.hasLabel(nodes,'Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.'));mark('EF08','passwordUpdated');
   stage(state,'login-open');await driver.open('login');await driver.fill('registrationEmail',secret.email,{direction:'UP'});await driver.fill('password',secret.newPassword,{secure:true,login:true});
@@ -89,8 +101,7 @@ async function executePhase(driver,secret,state){
   stage(state,'logout-submit');state.operationUncertain=true;await driver.tap('Cerrar sesión');stage(state,'logout-response');
   await driver.open('account');await driver.wait(nodes=>account.hasLabel(nodes,'Inicia sesión con tu cuenta verificada o regístrate para comenzar.')&&!account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));
   state.operationUncertain=false;state.evidence.loggedOut=true;state.cases.EF09='passed';
-  stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});
-  await submit('Enviar código','recovery-submit','recovery-response',nodes=>account.hasLabel(nodes,'Código de recuperación')&&account.hasLabel(nodes,'Actualizar contraseña'));mark('EF05','recoveryRequested');
+  await requestRecovery();
  }else throw new FormsError('FORMS_SOURCE_INVALID');
 }
 function publicReport(state,config){
@@ -98,9 +109,11 @@ function publicReport(state,config){
  const report={version:1,scope:'owned-account-email-forms-android-api34',phase,artifactSourceCommit:config.sourceCommit,automationCommit:/^[a-f0-9]{40}$/.test(state.automationCommit||'')?state.automationCommit:null,buildId:config.buildId,apkSha256:config.sha256,
   producerRun:config.producerRun,producerAttempt:config.producerAttempt,status:state.status==='passed'?'passed':'failed',stage:STAGES.includes(state.failureStage||state.stage)?state.failureStage||state.stage:'unknown',
   cases:(phase?PHASE_CASES[phase]:[]).map(id=>({id,status:['passed','failed','not_run'].includes(state.cases?.[id])?state.cases[id]:'not_run'})),evidence:Object.fromEntries(EVIDENCE.map(k=>[k,state.evidence?.[k]===true])),operationUncertain:state.operationUncertain===true,
+  recoveryUi:Object.fromEntries(['codeObserved','updateButtonObserved','lastCodeVisible','lastUpdateButtonVisible'].map(key=>[key,state.recoveryUi?.[key]===true])),
   cleanup:{device:state.cleanup?.device===true,sandbox:state.cleanup?.sandbox===true,localSession:state.cleanup?.localSession===true},sandboxDiagnostic:isSafeSandboxDiagnostic(state.sandboxDiagnostic)?state.sandboxDiagnostic:null,failureCodes:[...new Set((state.errors||[]).map(safeCode))],
   gmailDelivery:'not-observed-by-runner',serverRevocation:'not-independently-observed',physicalDevice:'not-run',payment:'not-run'};
  if(report.status==='passed'&&(!phase||report.stage!=='completed'||!report.cases.length||!report.cases.every(c=>c.status==='passed')||!REQUIRED_EVIDENCE[phase].every(key=>report.evidence[key])||!Object.values(report.cleanup).every(Boolean)||report.operationUncertain||report.failureCodes.length))report.status='failed';
+ if(report.status==='passed'&&phase!=='register'&&(!report.recoveryUi.codeObserved||!report.recoveryUi.updateButtonObserved))report.status='failed';
  return report;
 }
 async function strictRun(file,args,options={}){try{return(await promisify(execFile)(file,args,{encoding:'utf8',timeout:45000,maxBuffer:1024*1024,windowsHide:true,...options})).stdout;}catch{throw new FormsError('FORMS_PROCESS_FAILED');}}
@@ -116,10 +129,11 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const readUi=async()=>{try{await adb(['shell','uiautomator','dump',remote+'/ui.xml']);return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml']));}finally{await adb(['shell','rm','-f',remote+'/ui.xml']);}};
  const flow=async(body,value)=>{const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});need(result.exitCode===0,'FORMS_MAESTRO_FAILED');account.verifyJUnit(await box.readPrivateFile(name+'.xml'),name,xmlTree);};
  const measured=async(label,kind)=>account.point(await readUi(),label,kind);
- const tap=async label=>{await flow(tapBody(label));const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
+ const reveal=async label=>flow(tapBody(label));
+ const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
   async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);},
-  async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,
+  async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
@@ -172,7 +186,7 @@ async function probeForms(config,env,{run=strictRun,create=createSandbox,parent=
 }
 function verifyFinished(config,env,report){
  const currentPhase=/^refs\/tags\/validation\/account-forms-(register|verify|reset)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(currentPhase&&report.phase===currentPhase[1],'FORMS_SOURCE_INVALID');
- const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
+ const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
  need(clean.status==='passed'&&report.artifactSourceCommit===config.sourceCommit&&report.automationCommit===env.GITHUB_SHA&&report.apkSha256===config.sha256&&report.buildId===config.buildId&&report.producerRun===config.producerRun&&report.producerAttempt===config.producerAttempt&&JSON.stringify(clean)===JSON.stringify(report),'FORMS_CASES_INCOMPLETE');return clean;
 }
 async function main(mode,env=process.env){

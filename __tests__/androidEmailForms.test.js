@@ -13,14 +13,14 @@ const env=phase=>({ANDROID_FORMS_EMAIL:'qa+forms@example.com',ANDROID_FORMS_PASS
 const node=(text,extra={})=>({package:forms.PACKAGE,text,enabled:'true',clickable:'true',...extra});
 const state=phase=>({phase,status:'failed',stage:'preflight',automationCommit:'e'.repeat(40),cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false});
 function driverFor(phase,secret,options={}){
- let screen='',notice='',checked=false,loggedIn=false;const fields={},calls=[],counters={registration:0,resend:0,recovery:0,reset:0,login:0,logout:0};
+ let screen='',notice='',checked=false,loggedIn=false,resetViewport='code';const fields={},calls=[],counters={registration:0,resend:0,recovery:0,reset:0,login:0,logout:0};
  const nodes=()=>{
   const values=Object.entries(fields).map(([key,value])=>node(value,{class:'android.widget.EditText','content-desc':forms.LABELS[key]}));
   if(screen==='register')return[...values,node('Crear cuenta'),node('',{'content-desc':'Acepto el tratamiento necesario para mi cuenta',checked:String(checked)})];
   if(screen==='verify')return[...values,node('Verificar correo'),node('Código de verificación'),...(notice?[node(notice)]:[])];
   if(screen==='verified')return[node('Cuenta verificada'),node('Tu correo quedó confirmado. Ya puedes iniciar sesión en Sport Center.')];
   if(screen==='email')return[...values,node('Recuperar contraseña'),node('Enviar código')];
-  if(screen==='reset')return[...values,node('Código de recuperación'),node('Actualizar contraseña'),...(notice?[node(notice)]:[])];
+  if(screen==='reset')return[...(resetViewport==='code'?[node('Código de recuperación')]:options.missingUpdateButton?[]:[node('Actualizar contraseña')]),...(notice?[node(notice)]:[])];
   if(screen==='done')return[node('Contraseña actualizada'),node('Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.')];
   if(screen==='login')return[...values,node('Iniciar sesión')];
   if(screen==='account')return[node('Mi cuenta'),node('Has iniciado sesión en Sport Center.')];
@@ -28,7 +28,8 @@ function driverFor(phase,secret,options={}){
  };
  const driver={
   async open(route){calls.push(['open',route]);screen=route==='register'?'register':route==='forgot-password'?'email':route==='account'?(loggedIn?'account':'guest'):'login';notice='';},
-  async fill(key,value){calls.push(['fill',key]);fields[key]=value;},
+  async fill(key,value){calls.push(['fill',key]);fields[key]=value;if(key==='recovery')resetViewport='code';if(['newPassword','confirmation'].includes(key))resetViewport='button';},
+  async reveal(label){calls.push(['reveal',label]);assert.equal(label,'Actualizar contraseña');resetViewport='button';},
   async tap(label){calls.push(['tap',label]);
    if(options.failTap===label)throw new forms.FormsError('FORMS_UI_TIMEOUT');
    if(label==='Acepto el tratamiento necesario para mi cuenta')checked=true;
@@ -36,8 +37,8 @@ function driverFor(phase,secret,options={}){
    else if(label==='Reenviar código'){counters.resend++;notice=forms.NOTICE_RESENT;}
    else if(label==='Ya tengo un código')screen='verify';
    else if(label==='Verificar cuenta'){if(fields.verification===secret.code||options.acceptWrongVerification)screen='verified';else notice='Código incorrecto. Intentos restantes: 2.';}
-   else if(label==='Enviar código'){counters.recovery++;if(!options.recoveryUnconfirmed)screen='reset';}
-   else if(label==='Ya tengo un código de recuperación')screen='reset';
+   else if(label==='Enviar código'){counters.recovery++;if(!options.recoveryUnconfirmed){screen='reset';resetViewport='code';}}
+   else if(label==='Ya tengo un código de recuperación'){screen='reset';resetViewport='code';}
    else if(label==='Actualizar contraseña'){counters.reset++;if(fields.recovery===secret.code&&!options.resetUnconfirmed)screen='done';else notice=forms.RESET_ERROR;}
    else if(label==='Iniciar sesión'){counters.login++;if(!options.loginRejected){screen='account';loggedIn=true;}}
    else if(label==='Cerrar sesión'){counters.logout++;loggedIn=options.logoutSessionRemains===true;screen='login';}
@@ -58,6 +59,12 @@ test('reset consumes the existing code before login, stable guest logout and exa
  const result=await completed('reset');assert.equal(result.report.status,'passed');assert.equal(result.counters.recovery,1);assert.equal(result.counters.reset,2);assert.equal(result.counters.login,1);assert.equal(result.counters.logout,1);assert.equal(result.report.evidence.passwordUpdated,true);assert.equal(result.report.evidence.loggedOut,true);assert.equal(result.report.evidence.recoveryRequested,true);
  const guest=result.calls.findIndex(c=>c[0]==='open'&&c[1]==='account'),logout=result.calls.findIndex(c=>c[0]==='tap'&&c[1]==='Cerrar sesión'),request=result.calls.findIndex(c=>c[0]==='tap'&&c[1]==='Enviar código');
  assert.ok(guest>logout&&request>guest);assert.deepEqual(result.report.cases.map(c=>c.id),['EF06','EF07','EF08','EF09','EF05']);
+ assert.deepEqual(result.report.recoveryUi,{codeObserved:true,updateButtonObserved:true,lastCodeVisible:false,lastUpdateButtonVisible:true});
+});
+test('recovery requires both real labels in successive viewports and missing the button cannot pass or submit reset',async()=>{
+ const s=state('reset'),secret=forms.credentials(env('reset'),'reset'),d=driverFor('reset',secret,{missingUpdateButton:true});
+ await assert.rejects(forms.executePhase(d.driver,secret,s),/FORMS_UI_TIMEOUT/);assert.equal(s.stage,'reset-resume');assert.equal(s.operationUncertain,false);assert.equal(d.counters.reset,0);assert.equal(d.counters.recovery,0);
+ assert.deepEqual(s.recoveryUi,{codeObserved:true,updateButtonObserved:false,lastCodeVisible:false,lastUpdateButtonVisible:false});assert.equal(s.cases.EF06,undefined);
 });
 test('an unconfirmed recovery request after reset keeps EF05 failed and uncertain without repeating reset or mail',async()=>{
  const s=state('reset'),secret=forms.credentials(env('reset'),'reset'),d=driverFor('reset',secret,{recoveryUnconfirmed:true});
@@ -101,7 +108,7 @@ test('reports reject missing observations, incomplete cleanup, uncertain writes 
 });
 test('reset cannot pass without the separate post-logout recovery observation and EF05',async()=>{
  const {s,c}=await completed('reset');
- for(const mutate of [value=>{value.evidence.recoveryRequested=false;},value=>{value.cases.EF05='not_run';}]){const value=structuredClone(s);mutate(value);assert.equal(forms.publicReport(value,c).status,'failed');}
+ for(const mutate of [value=>{value.evidence.recoveryRequested=false;},value=>{value.cases.EF05='not_run';},value=>{value.recoveryUi.codeObserved=false;},value=>{value.recoveryUi.updateButtonObserved=false;}]){const value=structuredClone(s);mutate(value);assert.equal(forms.publicReport(value,c).status,'failed');}
 });
 test('public evidence exposes no private form data, raw UI or arbitrary exception/stage content',async()=>{
  const {s,c}=await completed('reset');s.stage='private@example.com';s.extra='private-password';s.errors=[new Error('654321 private@example.com')];const text=JSON.stringify(forms.publicReport(s,c));for(const value of['private@example.com','private-password','654321','qa+forms@example.com','NuevaSegura789!'])assert.equal(text.includes(value),false);assert.equal(JSON.parse(text).stage,'unknown');assert.deepEqual(JSON.parse(text).failureCodes,['FORMS_UNEXPECTED_FAILURE']);
