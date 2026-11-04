@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "repository": "Markadw/SportCenter-mobile",
+  "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+  "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
+  "appId": "com.markadw.sportcenter",
+  "api": "https://back-sport-ghxk.onrender.com",
+  "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+  "sha256": "de4cd77adb11812d221ff9c688ec67158154a3eaadbf722af6ebe369a489ea03",
+  "bytes": 96156661,
+  "fingerprint": "10e00c0bce8c4ceb0e767388455fad214c4a474db574d7b8c47b703fbb3f9c79",
+  "producerRun": 41860689069,
+  "producerAttempt": 2,
+  "producerTag": "candidate/android-rc6",
+  "artifactId": 13345177867,
+  "artifactBytes": 177731,
+  "artifactSha256": "758574e02449eb81738e28f460c303ae9555d8774c6a3d21484197eb6920b70e",
+  "appVersion": "1.0.0",
+  "appBuildVersion": "1",
+  "easCliVersion": "27.4.0",
+  "maestroVersion": "2.12.0"
+}

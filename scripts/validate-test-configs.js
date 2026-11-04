@@ -141,7 +141,7 @@ function validateReleaseWorkflow(workflow) {
 function validateAccountWorkflow(workflow) {
   const job = workflow.jobs.account, result = workflow.jobs.account_result;
   assert.equal(job.environment, 'android-private-qa', 'La cuenta de pruebas requiere su entorno dedicado');
-  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/account-') }}");
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/account-') && !startsWith(github.ref, 'refs/tags/validation/account-forms-') }}");
   assert.deepEqual(job.needs, ['quality', 'security']);
   assert.equal(job['runs-on'], 'ubuntu-24.04');
   assert.equal(job['timeout-minutes'], 35);
@@ -179,10 +179,65 @@ function validateAccountWorkflow(workflow) {
   assert.ok(job.steps.findIndex(step => step.run === 'node scripts/android-account.cjs finish') > job.steps.indexOf(runtime));
   assert.equal(job.steps.find(step => step.run === 'node scripts/android-account.cjs cleanup')?.if, 'always()');
   validateAndroidEvidence(job, ['test-results/android-account-source.json', 'test-results/android-account.json']);
-  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/account-') }}");
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/account-') && !startsWith(github.ref, 'refs/tags/validation/account-forms-') }}");
   assert.deepEqual(result.needs, ['quality', 'security', 'account']);
   const gate = result.steps[0];
   for (const id of ['quality', 'security', 'account']) {
+    assert.equal(gate.env['RESULT_' + id.toUpperCase()], '${{ needs.' + id + '.result }}');
+    assert.ok(gate.run.includes('test "$RESULT_' + id.toUpperCase() + '" = success'));
+  }
+}
+
+
+function validateEmailFormsWorkflow(workflow) {
+  const job = workflow.jobs.email_forms, result = workflow.jobs.email_forms_result;
+  assert.equal(job.environment, 'android-private-qa', 'La cuenta de pruebas requiere su entorno dedicado');
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/account-forms-') }}");
+  assert.deepEqual(job.needs, ['quality', 'security']);
+  assert.equal(job['runs-on'], 'ubuntu-24.04');
+  assert.equal(job['timeout-minutes'], 35);
+  assert.deepEqual(job.env, { keep_evidence: 'true' }, 'No credenciales globales de cuenta');
+  const commands = ['node scripts/android-email-forms.cjs prepare', 'npm ci --no-audit --no-fund',
+    'node scripts/android-email-forms.cjs view', 'node scripts/android-email-forms.cjs download', 'node scripts/android-email-forms.cjs runtime-dir',
+    'node scripts/android-email-forms.cjs kvm',
+    'node scripts/android-email-forms.cjs probe'];
+  const order = commands.map(command => job.steps.findIndex(step => step.run === command));
+  assert.ok(order.every((index, n) => index >= 0 && (!n || index > order[n - 1])));
+  const prepare = job.steps[order[0]], view = job.steps[order[2]];
+  assert.deepEqual(prepare.env, { GITHUB_TOKEN: '${{ github.token }}' });
+  assert.deepEqual(view.env, { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' });
+  const adbTools = job.steps.find(step => step.id === 'email_forms_adb_tools');
+  assert.ok(adbTools && job.steps.indexOf(adbTools) < order.at(-1), 'ADB del SDK antes del probe sin credenciales');
+  assert.ok(adbTools.run.includes('test -x "$ANDROID_HOME/platform-tools/adb"') && adbTools.run.includes('echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"'));
+  const runtime = job.steps.find(step => step.id === 'email_forms_runtime');
+  assert.ok(job.steps.indexOf(runtime) > order.at(-1));
+  assert.equal(runtime.uses, 'reactivecircus/android-emulator-runner@v2');
+  assert.equal(runtime.with['api-level'], 34); assert.equal(runtime.with.arch, 'x86_64');
+  assert.equal(runtime.with.target, 'google_apis'); assert.equal(runtime.with['force-avd-creation'], true);
+  assert.equal(runtime.with['disable-linux-hw-accel'], false);
+  assert.ok(runtime.with['emulator-options'].includes('-no-snapshot') && runtime.with['emulator-options'].includes('-accel on'));
+  assert.equal(runtime.with.script, 'node scripts/android-email-forms.cjs runtime');
+  assert.deepEqual(runtime.env, { ANDROID_FORMS_EMAIL: '${{ secrets.ANDROID_FORMS_EMAIL }}', ANDROID_FORMS_PASSWORD: '${{ secrets.ANDROID_FORMS_PASSWORD }}', ANDROID_FORMS_PHONE: '${{ secrets.ANDROID_FORMS_PHONE }}', ANDROID_FORMS_CODE: '${{ secrets.ANDROID_FORMS_CODE }}', ANDROID_FORMS_NEW_PASSWORD: '${{ secrets.ANDROID_FORMS_NEW_PASSWORD }}' });
+  for (const step of job.steps) {
+    if (step !== runtime) assert.ok(!/ANDROID_(?:TEST|FORMS)_/.test(JSON.stringify(step)), 'Cuenta sólo en runtime');
+    const expectedEnv = step === runtime ? runtime.env : step === prepare ? { GITHUB_TOKEN: '${{ github.token }}' }
+      : step === view ? { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' }
+        : step.run === 'node scripts/android-email-forms.cjs kvm' ? { PINNING_EPHEMERAL_AVD: 'true' } : undefined;
+    assert.deepEqual(step.env, expectedEnv, 'Sólo variables explícitas en cada fase de correo');
+    assert.ok(!step.if || step.if === 'always()' || step.uses?.startsWith('actions/upload-artifact@'));
+    if (step !== view) assert.ok(!step.env?.EXPO_TOKEN);
+    if (step !== prepare) assert.ok(!step.env?.GITHUB_TOKEN);
+  }
+  const install = job.steps.find(step => step.name?.startsWith('Instalar Maestro'));
+  assert.ok(install.run.includes('cli-2.12.0/maestro.zip') && install.run.includes('a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e') && install.run.includes('sha256sum --check --strict'));
+  assert.ok(install.run.includes('umask 022') && install.run.includes('$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin') && !install.run.includes('chmod'), 'Herramientas públicas sólo en la base exclusiva, sin abrir carpetas existentes');
+  assert.ok(job.steps.findIndex(step => step.run === 'node scripts/android-email-forms.cjs finish') > job.steps.indexOf(runtime));
+  assert.equal(job.steps.find(step => step.run === 'node scripts/android-email-forms.cjs cleanup')?.if, 'always()');
+  validateAndroidEvidence(job, ['test-results/android-email-forms-source.json', 'test-results/android-email-forms.json']);
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/account-forms-') }}");
+  assert.deepEqual(result.needs, ['quality', 'security', 'email_forms']);
+  const gate = result.steps[0];
+  for (const id of ['quality', 'security', 'email_forms']) {
     assert.equal(gate.env['RESULT_' + id.toUpperCase()], '${{ needs.' + id + '.result }}');
     assert.ok(gate.run.includes('test "$RESULT_' + id.toUpperCase() + '" = success'));
   }
@@ -473,6 +528,7 @@ function validateWorkflows(workflows) {
   validateProfilesWorkflow(workflows.get('android-validation.yml'));
   validateReleaseWorkflow(workflows.get('android-validation.yml'));
   validateAccountWorkflow(workflows.get('android-validation.yml'));
+  validateEmailFormsWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
