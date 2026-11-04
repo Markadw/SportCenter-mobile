@@ -17,13 +17,15 @@ El preflight verifica por API GitHub el productor, sus ocho trabajos obligatorio
 - Carrito previamente poblado con al menos un artículo activo y con existencias suficientes. Si está vacío, la prueba se registra bloqueada. No agrega ni elimina productos automáticamente.
 - No hace falta dirección guardada: `GET /products/checkout/summary` permite mostrar el resumen y el formulario vacío. La dirección sólo se guarda al confirmar un pedido, acción excluida.
 
-No se realiza un login auxiliar por API. El servicio de sesiones observado puede reutilizar una sesión activa y rotar su refresh token; hacerlo durante la prueba introduciría interferencia en la restauración.
+Antes de instalar la app y abrir la interfaz, un chequeo secuencial hace login por API con esa misma cuenta y cierra su sesión. Sólo consulta los endpoints HTTPS fijos de login/logout, sin redirecciones, y limita tiempo y tamaño de respuesta. La interfaz comienza únicamente si el contrato de sesión es válido y el logout recibió confirmación 2xx. Un rechazo de credenciales o cuenta sin verificar se registra como fixture bloqueada; una falla de red o servidor tiene su código independiente. No se muestran cuerpos, tokens ni mensajes del backend.
+
+El servicio de sesiones observado puede reutilizar una sesión activa y rotar su refresh token. Por eso el chequeo espera a terminar su logout antes de cualquier login de la app; nunca se ejecuta durante la restauración ni junto a una sesión UI viva. La cuenta permanece reservada durante toda la comprobación.
 
 ## Siete comprobaciones
 
 | ID | Resultado que se exige |
 |---|---|
-| AC01 | Inicio de sesión real y pantalla Mi cuenta. Un solo envío del formulario. |
+| AC01 | Inicio de sesión real y pantalla Mi cuenta. Antes del único envío se comparan los campos en memoria: correo y contraseña introducidos deben coincidir; Mostrar/Ocultar vuelve a ocultar la contraseña antes de continuar. Se publican sólo booleanos. |
 | AC02 | Perfil cargado mediante lectura; el campo Correo coincide en memoria con la cuenta esperada. No se escribe ni pulsa Guardar cambios. |
 | AC03 | Carrito cargado y no vacío; no se cambia ninguna cantidad. |
 | AC04 | Resumen con dirección, envío y totales. Se observa «Continuar a Mercado Pago» y se detiene antes de pulsarlo. |
@@ -31,7 +33,9 @@ No se realiza un login auxiliar por API. El servicio de sesiones observado puede
 | AC06 | Cierre de sesión desde la app y retorno al formulario de acceso. |
 | AC07 | Otra apertura sin borrar datos muestra invitado; entrada a carrito exige iniciar sesión y oculta subtotal privado. |
 
-Una falla mantiene el resultado global fallido y los pasos posteriores quedan sin ejecutar. El ejecutor intenta cerrar localmente cualquier sesión iniciada antes de desinstalar su paquete y destruir el entorno. No confunde el cierre local con una prueba independiente de revocación del token en el servidor: la app borra el estado local antes de terminar su petición logout. Un fallo de limpieza no acredita aceptación.
+Una falla mantiene el resultado global fallido y los pasos posteriores quedan sin ejecutar. Si el formulario no llega a la cuenta, se observa inmediatamente la UI antes de cambiar de ruta: únicamente mensajes conocidos de validación/autenticación se convierten en códigos fijos, junto a booleanos de formulario/cuenta/ocupado. Los textos desconocidos se descartan. No se atribuye un fallo al backend ni a las credenciales sin esas observaciones y el contrato API.
+
+El ejecutor intenta cerrar localmente cualquier sesión iniciada antes de desinstalar su paquete y destruir el entorno. No confunde el cierre local con una prueba independiente de revocación del token en el servidor: la app borra el estado local antes de terminar su petición logout. La sesión auxiliar tiene su confirmación HTTP separada; si recibe un token pero no confirma logout, no se abre la UI y la limpieza queda fallida. Un fallo de limpieza no acredita aceptación.
 
 ## Privacidad de Maestro 2.12
 
@@ -55,7 +59,7 @@ El alcance del filtro es el tráfico IP directo del proceso con ese UID, no una 
 
 stdout/stderr, JUnit, comandos, imágenes automáticas y jerarquías permanecen en memoria o almacenamiento privado efímero. El XML Android se guarda temporalmente en un directorio 0700 y se retira tras leerlo. El helper confirma UID sin procesos antes de retirar sus reglas y borra únicamente los directorios que creó. No modifica la app, backend, certificados ni políticas TLS.
 
-El artifact público contiene **únicamente** `android-account-source.json` y `android-account.json`: IDs, SHA, estados, códigos fijos y limpieza. No lleva capturas, XML, JUnit, logcat, mensajes de excepciones, datos de perfil, nombres de productos, direcciones, correo, contraseña, tokens ni URLs firmadas.
+El artifact público contiene **únicamente** `android-account-source.json` y `android-account.json`: IDs, SHA, estados, códigos fijos, booleanos de comparación/estado UI, contrato API con estados HTTP y limpieza. No lleva capturas, XML, JUnit, logcat, mensajes de excepciones, datos de perfil, nombres de productos, direcciones, correo, contraseña, tokens ni URLs firmadas.
 
 ## Contrato del workflow auxiliar
 
@@ -67,7 +71,7 @@ Se conserva el auxiliar `android-validation.yml`, con job aislado para `validati
 4. `download`, sin credenciales de cuenta; APK/hash fijo. `runtime-dir` crea y registra su padre dedicado, publicando sólo ACCOUNT_SANDBOX_PARENT para los pasos siguientes.
 5. Maestro 2.12.0/hash ya establecido se extrae únicamente bajo ACCOUNT_SANDBOX_PARENT/maestro-account y su bin se añade al PATH; los metadatos y ZIP pueden permanecer en el control privado. Se exige el ADB del SDK existente. `kvm` usa `PINNING_EPHEMERAL_AVD=true` en runner efímero.
 6. `probe` sin credenciales: servidor ADB, aislamiento Linux real, versión fijada del CLI bajo el UID y limpieza. No instala APK, inicia emulador, ejecuta flujos de Maestro ni usa la cuenta. Si aprueba, agrega esa evidencia booleana al JSON de procedencia existente; si falla, publica un resultado fallido con los siete casos sin ejecutar.
-7. AVD API34 x86_64 nueva, sin Metro, sin reverse ni paquete previo. Únicamente este paso recibe los dos secretos de cuenta y ejecuta `runtime`.
+7. AVD API34 x86_64 nueva, sin Metro, sin reverse ni paquete previo. Únicamente este paso recibe los dos secretos de cuenta y ejecuta `runtime`: primero contrato API/login/logout secuencial; después UID, instalación y una única sesión UI. Si la fixture es rechazada, no se crea un sandbox ni se instala la app.
 8. `finish` exige siete controles y las tres limpiezas. `summary` sólo publica estados permitidos.
 9. `cleanup` siempre; upload de las dos rutas JSON exactas, retención 14 días. No carpetas ni patrones que puedan incluir raw.
 

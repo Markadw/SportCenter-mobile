@@ -29,6 +29,8 @@ function ui(nodes) { return '<?xml version="1.0" encoding="UTF-8"?><hierarchy ro
 }).map(([key, value]) => key + '="' + attr(value) + '"').join(' ') + '/>').join('') + '</hierarchy>'; }
 function junit(name = 'AC01', extras = '') { const n = name + ' private account'; return '<testsuites><testsuite tests="1" failures="0"><testcase id="' + n + '" name="' + n + '" classname="' + n + '" status="SUCCESS">' + extras + '</testcase></testsuite></testsuites>'; }
 function parentFixture() { return { path: '/tmp/sportcenter-account-AbC123', confirm: () => {}, verifyMaestro: async () => {} }; }
+function apiPass() { return { status: 'passed', loginHttpStatus: 201, logoutHttpStatus: 201, sessionValid: true,
+  accessTokenReceived: true, logoutAttempted: true, logoutConfirmed: true, uiContinueAllowed: true, errorCode: 'NONE' }; }
 
 test('exact approved attempt2 plus immutable APK evidence is accepted', () => assert.equal(account.verifyProducer(producer(), jobs(), candidate(), inspection()).producerVerified, true));
 for (const [label, mutate] of [
@@ -139,16 +141,19 @@ test('report emits only fixed stages and never arbitrary private stage text', ()
 });
 
 async function runtime(config = {}) {
-  const calls = [], flows = [], files = new Map(); let installed = false, authenticated = false, stage = 'login', cleaned = false;
+  const calls = [], flows = [], files = new Map(); let installed = false, authenticated = false, stage = 'login', cleaned = false,
+    typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0;
   const email = 'private+fixture@example.com', password = 'Private *&%s 漢字', sha = 'a'.repeat(40);
   const nodes = () => {
     if (stage === 'profile') return [{ text: config.wrongProfile ? 'other@example.com' : email, 'content-desc': 'Correo', class: 'android.widget.EditText' }];
     if (stage === 'cart') return [{ text: config.empty ? 'Tu carrito está vacío' : 'Subtotal' }];
     if (stage === 'account') return [{ text: 'Has iniciado sesión en Sport Center.' }, { text: 'Cerrar sesión', clickable: 'true' }];
     if (stage === 'guest') return [{ text: 'Tu cuenta Sport Center' }];
-    return [{ 'content-desc': 'Correo electrónico', class: 'android.widget.EditText', bounds: '[10,20][200,80]' },
-      { 'content-desc': 'Contraseña', class: 'android.widget.EditText', bounds: '[10,120][200,180]' },
-      { 'content-desc': 'Iniciar sesión', clickable: 'true', bounds: '[10,220][200,280]' }];
+    return [{ 'content-desc': 'Correo electrónico', text: typedEmail, class: 'android.widget.EditText', bounds: '[10,20][200,80]' },
+      { 'content-desc': 'Contraseña', text: passwordVisible ? typedPassword : '••••', password: passwordVisible ? 'false' : 'true', class: 'android.widget.EditText', bounds: '[10,120][200,180]' },
+      { 'content-desc': passwordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña', clickable: 'true', bounds: '[250,120][400,180]' },
+      { 'content-desc': 'Iniciar sesión', clickable: 'true', bounds: '[10,220][200,280]' },
+      ...(config.rejectLoginUI ? [{ text: 'Accede a tu cuenta de Sport Center.' }, { text: 'El correo o la contraseña no son correctos. Revisa tus datos.' }] : [])];
   };
   const run = async (file, args) => {
     calls.push({ file, args }); assert.equal(file, 'adb');
@@ -161,7 +166,8 @@ async function runtime(config = {}) {
     else if (a[0] === 'install') installed = true;
     else if (a[0] === 'uninstall') installed = false;
     else if (key.startsWith('exec-out cat')) stdout = ui(nodes());
-    else if (key.startsWith('shell input tap') && a.at(-1) === '250') { authenticated = true; stage = 'account'; }
+    else if (key.startsWith('shell input tap') && a.at(-2) === '325' && a.at(-1) === '150') passwordVisible = !passwordVisible;
+    else if (key.startsWith('shell input tap') && a.at(-1) === '250') { authenticated = !config.rejectLoginUI; stage = authenticated ? 'account' : 'login'; }
     else if (key.includes('sportcentermobile://account')) stage = authenticated ? 'account' : 'guest';
     return { stdout };
   };
@@ -181,13 +187,15 @@ async function runtime(config = {}) {
       assert.ok(keys.every(key => ['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD'].includes(key)));
       assert.ok(!argv.some(arg => arg.includes(email) || arg.includes(password)));
       if (name === 'AC01-navigate') stage = 'login';
+      else if (name === 'AC01-email') typedEmail = email;
+      else if (name === 'AC01-password') typedPassword = config.corruptInput ? 'changed' : password;
       else if (name === 'AC02') stage = 'profile';
       else if (name === 'AC03') stage = 'cart';
       else if (name === 'AC05') { assert.equal(authenticated, true); stage = 'account'; }
       else if (name === 'AC06' || name === 'cleanup') { authenticated = false; stage = 'guest'; }
       else if (name === 'AC07') { assert.equal(authenticated, false); stage = 'guest'; }
       const output = argv[argv.indexOf('--output') + 1]; files.set(output, junit(name));
-      return { exitCode: config.failPhase === name ? 1 : 0, stdout: password, stderr: email };
+      return { exitCode: config.failPhase === name || config.rejectLoginUI && name === 'AC01' ? 1 : 0, stdout: password, stderr: email };
     },
     readPrivateFile: async name => files.get('/private/root/' + name),
     cleanup: async () => { cleaned = true; if (config.failCleanup) throw new Error(password); },
@@ -196,9 +204,11 @@ async function runtime(config = {}) {
   const result = await account.runAcceptance({ env: { ACCOUNT_UNIT_TEST: true, GITHUB_RUN_ID: '123', GITHUB_SHA: sha, RUNNER_TEMP: '/tmp',
     ANDROID_TEST_EMAIL: email, ANDROID_TEST_PASSWORD: password }, context: { artifactSourceCommit: SOURCE.commit, automationCommit: sha,
     producerVerified: true, producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true },
-    apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create, parent: parentFixture, xmlTree });
+    apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create,
+    authProbe: async value => { assert.deepEqual(value, { email, password }); apiCalls++; return config.apiReport || apiPass(); },
+    parent: () => { parentCalls++; return parentFixture(); }, xmlTree });
   assert.ok(!JSON.stringify(result).includes(email) && !JSON.stringify(result).includes(password));
-  return { result, calls, flows, cleaned, installed, authenticated };
+  return { result, calls, flows, cleaned, installed, authenticated, apiCalls, parentCalls, passwordVisible };
 }
 test('runtime uses one login, preserves state for cold restore, and removes only its installed app', async () => {
   const value = await runtime(); assert.equal(value.result.status, 'passed'); assert.equal(value.cleaned, true);
@@ -208,6 +218,44 @@ test('runtime uses one login, preserves state for cold restore, and removes only
   assert.ok(value.calls.every(item => !item.args.includes('clear') && !item.args.includes('curl')));
   assert.equal(value.calls.filter(item => item.args[2] === 'install').length, 1);
   assert.equal(value.calls.filter(item => item.args.join(' ').includes('am force-stop')).length, 3);
+  assert.equal(value.apiCalls, 1); assert.deepEqual(value.result.inputObservation, { emailMatches: true, passwordMatches: true, passwordHidden: true });
+});
+test('corrupted typed password is hidden again and prevents the single UI submit', async () => {
+  const value = await runtime({ corruptInput: true });
+  assert.equal(value.result.stage, 'AC01-input-check'); assert.equal(value.result.status, 'failed');
+  assert.deepEqual(value.result.inputObservation, { emailMatches: true, passwordMatches: false, passwordHidden: true });
+  assert.ok(value.result.failureCodes.includes('ACCOUNT_INPUT_MISMATCH')); assert.equal(value.passwordVisible, false);
+  assert.equal(value.calls.filter(item => item.args.slice(-2).join(' ') === '105 250').length, 0);
+});
+test('server-rejected fixture is blocked before sandbox, app install or UI', async () => {
+  const value = await runtime({ apiReport: { status: 'blocked', loginHttpStatus: 400, logoutHttpStatus: null,
+    sessionValid: false, accessTokenReceived: false, logoutAttempted: false, logoutConfirmed: false, uiContinueAllowed: false, errorCode: 'CREDENTIALS_REJECTED' } });
+  assert.equal(value.result.status, 'blocked'); assert.equal(value.result.stage, 'api-auth-probe');
+  assert.equal(value.result.cases[0].status, 'blocked'); assert.equal(value.parentCalls, 0); assert.equal(value.flows.length, 0);
+  assert.equal(value.calls.filter(item => item.args[2] === 'install').length, 0); assert.equal(value.result.cleanup.sandbox, true);
+  assert.equal(value.result.apiContract.errorCode, 'CREDENTIALS_REJECTED');
+});
+test('API session without confirmed logout prevents UI and fails cleanup', async () => {
+  const value = await runtime({ apiReport: { ...apiPass(), status: 'failed', logoutHttpStatus: 500,
+    logoutConfirmed: false, uiContinueAllowed: false, errorCode: 'LOGOUT_HTTP_FAILED' } });
+  assert.equal(value.result.status, 'failed'); assert.equal(value.parentCalls, 0); assert.equal(value.flows.length, 0);
+  assert.equal(value.result.cleanup.localSession, false); assert.ok(value.result.failureCodes.includes('ACCOUNT_API_AUTH_CLEANUP_FAILED'));
+});
+test('failed login snapshots fixed UI diagnosis before finally changes the route', async () => {
+  const value = await runtime({ rejectLoginUI: true });
+  assert.equal(value.result.stage, 'AC01-await-account');
+  assert.deepEqual(value.result.loginUi, { observed: true, hasLogin: true, hasAccount: false, busy: false, errorCodes: ['CREDENTIALS_REJECTED'] });
+  assert.equal(value.result.cleanup.localSession, true); assert.equal(value.passwordVisible, false);
+});
+test('UI classifier ignores all unknown personal text and report refuses arbitrary payload fields', () => {
+  const nodes = account.parsePrivateUi(ui([{ text: 'Accede a tu cuenta de Sport Center.' }, { text: 'personal@example.com private-pass' },
+    { text: 'Has realizado demasiados intentos. Espera un minuto antes de volver a intentarlo.' }, { text: 'Ingresando…' }]));
+  const value = account.classifyLoginUi(nodes);
+  assert.deepEqual(value, { observed: true, hasLogin: true, hasAccount: false, busy: true, errorCodes: ['RATE_LIMITED'] });
+  assert.ok(!JSON.stringify(value).includes('personal'));
+  const report = account.publicReport({ loginUi: { ...value, extra: 'personal@example.com' }, inputObservation: { emailMatches: 'personal@example.com' }, apiContract: { email: 'personal@example.com' } });
+  assert.equal(report.loginUi, null); assert.equal(report.inputObservation, null); assert.equal(report.apiContract, null);
+  assert.ok(!JSON.stringify(report).includes('personal'));
 });
 test('empty fixture remains blocked with no add/delete and still signs out/cleans', async () => {
   const value = await runtime({ empty: true }); assert.equal(value.result.status, 'blocked');

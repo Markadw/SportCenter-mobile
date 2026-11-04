@@ -7,6 +7,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { setTimeout: pause } = require('node:timers/promises');
 const { createSandbox, SandboxError, SANDBOX_ERROR_CODES, safeSandboxDiagnostic, isSafeSandboxDiagnostic } = require('./account-sandbox.cjs');
+const { probeAccountAuth, validateProbeReport, REPORT_KEYS: API_REPORT_KEYS } = require('./account-auth-probe.cjs');
 
 const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   commit: 'e15671b17615621b29f4bc4bb9c0ccfdf167e657', projectId: 'c608a591-dfad-47d6-98cf-e714e821c269',
@@ -18,7 +19,7 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   appVersion: '1.0.0', appBuildVersion: '1' });
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
 const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'sandbox-file-roundtrip', 'app-install', 'AC01-navigate', 'AC01-email',
-  'AC01-password', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
+  'api-auth-probe', 'AC01-password', 'AC01-input-check', 'AC01-password-hide', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
   'tests/manual/android-release.md', 'scripts/android-profiles.js', '__tests__/androidProfiles.test.js',
@@ -26,16 +27,30 @@ const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json'
   '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js', '__tests__/android16k.test.js',
   'docs/seguridad-candidata.md', 'tests/plan.json', 'README.md',
   'scripts/android-account.cjs', 'scripts/account-sandbox.cjs', '__tests__/androidAccount.test.js',
-  '__tests__/accountSandbox.test.js', '__tests__/androidAccountWorkflow.test.js', 'tests/manual/android-account.md']);
+  '__tests__/accountSandbox.test.js', '__tests__/androidAccountWorkflow.test.js', 'tests/manual/android-account.md',
+  'scripts/account-auth-probe.cjs', '__tests__/accountAuthProbe.test.js']);
 const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID', 'ACCOUNT_FIXTURE_EMPTY',
   'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_PRODUCER_NOT_APPROVED', 'ACCOUNT_ARTIFACT_MISMATCH', 'ACCOUNT_BUILD_MISMATCH',
   'ACCOUNT_AUTOMATION_SCOPE', 'ACCOUNT_APP_TREE_CHANGED', 'ACCOUNT_UI_INVALID', 'ACCOUNT_UI_TIMEOUT',
   'ACCOUNT_UI_ACTION_AMBIGUOUS', 'ACCOUNT_PROFILE_MISMATCH', 'ACCOUNT_MAESTRO_FAILED', 'ACCOUNT_JUNIT_INVALID',
   'ACCOUNT_PROCESS_FAILED', 'ACCOUNT_SESSION_CLEANUP_UNCONFIRMED', 'ACCOUNT_DEVICE_CLEANUP_FAILED',
-  'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE']);
+  'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE', 'ACCOUNT_INPUT_MISMATCH',
+  'ACCOUNT_API_AUTH_BLOCKED', 'ACCOUNT_API_AUTH_FAILED', 'ACCOUNT_API_AUTH_CLEANUP_FAILED']);
 const PARENT_ERROR = 'ACCOUNT_SANDBOX_PARENT_INVALID';
 const TOOL_ERROR = 'ACCOUNT_SANDBOX_TOOL_INVALID';
 const PREFLIGHT_FILE = 'Sport Center · comprobación privada\n';
+const LOGIN_ERRORS = Object.freeze({
+  'No pudimos confirmar una sesión válida. Vuelve a intentarlo.': 'INVALID_SESSION_RESPONSE',
+  'No pudimos conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.': 'NETWORK_UNAVAILABLE',
+  'Has realizado demasiados intentos. Espera un minuto antes de volver a intentarlo.': 'RATE_LIMITED',
+  'El servidor no está disponible. Inténtalo más tarde.': 'SERVER_UNAVAILABLE',
+  'Tu cuenta todavía no está verificada. Revisa el correo que recibiste para activarla.': 'ACCOUNT_UNVERIFIED',
+  'El correo o la contraseña no son correctos. Revisa tus datos.': 'CREDENTIALS_REJECTED',
+  'No se pudo iniciar sesión. Inténtalo de nuevo más tarde.': 'LOGIN_REJECTED',
+  'Escribe tu correo.': 'EMAIL_REQUIRED', 'Escribe un correo válido.': 'EMAIL_INVALID',
+  'Escribe tu contraseña.': 'PASSWORD_REQUIRED', 'La contraseña debe tener al menos 8 caracteres.': 'PASSWORD_TOO_SHORT',
+});
+const LOGIN_ERROR_CODES = Object.freeze(Object.values(LOGIN_ERRORS));
 class AccountError extends Error { constructor(code) { super(code); this.code = code; } }
 function need(value, code) { if (!value) throw new AccountError(code); }
 function trustedSandboxError(error) { return error instanceof SandboxError && SANDBOX_ERROR_CODES.includes(error.code); }
@@ -136,6 +151,30 @@ function profileMatches(nodes, email) {
   const fields = labelled(nodes, 'Correo').filter(node => node.class === 'android.widget.EditText');
   return fields.length === 1 && fields[0].text?.trim().toLowerCase() === email;
 }
+function inputMatches(nodes, label, expected) {
+  const found = labelled(nodes, label).filter(node => node.class === 'android.widget.EditText');
+  return found.length === 1 && found[0].text === expected;
+}
+function classifyLoginUi(nodes) {
+  const owned = nodes.filter(node => node.package === SOURCE.appId), codes = [];
+  for (const [message, code] of Object.entries(LOGIN_ERRORS)) if (owned.some(node => [node.text, node['content-desc']].includes(message))) codes.push(code);
+  return { observed: true, hasLogin: hasLabel(owned, 'Accede a tu cuenta de Sport Center.'),
+    hasAccount: hasLabel(owned, 'Mi cuenta') && hasLabel(owned, 'Has iniciado sesión en Sport Center.'),
+    busy: hasLabel(owned, 'Ingresando…') || labelled(owned, 'Iniciar sesión').some(node => node.clickable === 'true' && node.enabled === 'false'),
+    errorCodes: codes };
+}
+function safeLoginUi(value) {
+  if (!value || Object.keys(value).sort().join(',') !== 'busy,errorCodes,hasAccount,hasLogin,observed' ||
+    !['observed', 'hasLogin', 'hasAccount', 'busy'].every(key => typeof value[key] === 'boolean') ||
+    !Array.isArray(value.errorCodes) || value.errorCodes.length > LOGIN_ERROR_CODES.length ||
+    !value.errorCodes.every(code => LOGIN_ERROR_CODES.includes(code)) || new Set(value.errorCodes).size !== value.errorCodes.length) return null;
+  return { observed: value.observed, hasLogin: value.hasLogin, hasAccount: value.hasAccount, busy: value.busy, errorCodes: [...value.errorCodes] };
+}
+function safeInputObservation(value) {
+  if (!value || Object.keys(value).sort().join(',') !== 'emailMatches,passwordHidden,passwordMatches' ||
+    !Object.values(value).every(item => item === null || typeof item === 'boolean')) return null;
+  return { emailMatches: value.emailMatches, passwordMatches: value.passwordMatches, passwordHidden: value.passwordHidden };
+}
 function fixtureStatus(nodes) {
   if (hasLabel(nodes, 'Tu carrito está vacío')) return 'empty';
   if (nodes.some(node => node.package === SOURCE.appId && /^Revisa las existencias \(\d+ disponibles\)\.$/.test(node.text || ''))) return 'stock';
@@ -178,6 +217,8 @@ function publicReport(state) {
     stage: STAGES.includes(state.failureStage || state.stage) ? state.failureStage || state.stage : 'unknown',
     sandboxAttempted: state.sandboxAttempted === true,
     sandboxDiagnostic: isSafeSandboxDiagnostic(state.sandboxDiagnostic) ? { ...state.sandboxDiagnostic } : null,
+    apiContract: validateProbeReport(state.apiContract) ? Object.fromEntries(API_REPORT_KEYS.map(key => [key, state.apiContract[key]])) : null,
+    inputObservation: safeInputObservation(state.inputObservation), loginUi: safeLoginUi(state.loginUi),
     cases: CASES.map(id => ({ id, status: ['passed', 'failed', 'blocked', 'not_run'].includes(state.cases?.[id]) ? state.cases[id] : 'not_run' })),
     cleanup: { device: state.cleanup?.device === true, sandbox: state.cleanup?.sandbox === true,
       localSession: state.cleanup?.localSession === true, serverRevocation: 'not-independently-observed' },
@@ -191,7 +232,7 @@ async function apkHash(file) { const hash = createHash('sha256'); for await (con
 
 // Wiring deliberately accepts a source proof verified in a credential-free step.
 // The future workflow must not inject account secrets into prepare/download/inspect.
-async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, parent = sandboxParent, now = Date.now, wait = pause, hash = apkHash }) {
+async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, parent = sandboxParent, authProbe = probeAccountAuth, now = Date.now, wait = pause, hash = apkHash }) {
   need(process.platform === 'linux' || env.ACCOUNT_UNIT_TEST === true, 'ACCOUNT_SANDBOX_FAILED');
   need(context?.artifactSourceCommit === SOURCE.commit && context.automationCommit === env.GITHUB_SHA && context.producerVerified === true &&
     context.producerRun === SOURCE.producer && context.producerAttempt === SOURCE.attempt && context.apkSha256 === SOURCE.sha256 && context.parentInspectionVerified === true,
@@ -222,6 +263,10 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     need((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34' && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['reverse', '--list'])).trim(), 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['shell', 'pm', 'list', 'packages', SOURCE.appId])).trim(), 'ACCOUNT_PROCESS_FAILED');
+    state.stage = 'api-auth-probe'; const apiContract = await authProbe({ email: secret.email, password: secret.password });
+    need(validateProbeReport(apiContract), 'ACCOUNT_API_AUTH_FAILED'); state.apiContract = apiContract;
+    need(apiContract.status !== 'blocked', 'ACCOUNT_API_AUTH_BLOCKED');
+    need(apiContract.status === 'passed' && apiContract.sessionValid === true && apiContract.logoutConfirmed === true && apiContract.uiContinueAllowed === true, 'ACCOUNT_API_AUTH_FAILED');
     state.stage = 'sandbox-parent-verify'; parentContext = parent(env); await parentContext.verifyMaestro(run);
     parentContext.confirm(false);
     state.stage = 'sandbox-probes'; setupAttempted = true; state.sandboxAttempted = true;
@@ -233,8 +278,30 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     await flow('AC01-navigate', FLOWS.navigate);
     state.stage = 'AC01-email'; await tap('Correo electrónico', 'input'); await flow('AC01-email', FLOWS.email, { MAESTRO_ACCOUNT_EMAIL: secret.email });
     state.stage = 'AC01-password'; await tap('Contraseña', 'input'); await flow('AC01-password', FLOWS.password, { MAESTRO_ACCOUNT_PASSWORD: secret.password });
+    state.stage = 'AC01-input-check'; state.inputObservation = { emailMatches: inputMatches(await readUi(), 'Correo electrónico', secret.email), passwordMatches: null, passwordHidden: null };
+    let shown = false;
+    try {
+      await tap('Mostrar contraseña', 'button'); shown = true;
+      const visible = await waitUi(nodes => hasLabel(nodes, 'Ocultar contraseña'));
+      state.inputObservation.passwordMatches = inputMatches(visible, 'Contraseña', secret.password);
+    } finally {
+      if (shown) {
+        state.stage = 'AC01-password-hide'; await tap('Ocultar contraseña', 'button');
+        const hidden = await waitUi(nodes => hasLabel(nodes, 'Mostrar contraseña'));
+        const passwords = labelled(hidden, 'Contraseña').filter(node => node.class === 'android.widget.EditText');
+        state.inputObservation.passwordHidden = passwords.length === 1 && passwords[0].password === 'true';
+      }
+    }
+    state.stage = 'AC01-input-check'; need(Object.values(state.inputObservation).every(value => value === true), 'ACCOUNT_INPUT_MISMATCH');
     state.stage = 'AC01-submit'; loginAttempted = true; await tap('Iniciar sesión', 'button');
-    state.stage = 'AC01-await-account'; await flow('AC01', FLOWS.login); state.cases.AC01 = 'passed';
+    state.stage = 'AC01-await-account';
+    try { await flow('AC01', FLOWS.login); }
+    catch (error) {
+      try { state.loginUi = classifyLoginUi(await readUi()); }
+      catch { state.loginUi = { observed: false, hasLogin: false, hasAccount: false, busy: false, errorCodes: [] }; }
+      throw error;
+    }
+    state.cases.AC01 = 'passed';
     caseId = 'AC02'; state.stage = 'AC02-open'; await flow('AC02', FLOWS.profile);
     // The field can be below the viewport; scroll only (never enter/save data).
     state.stage = 'AC02-scroll'; await flow('AC02', '- scrollUntilVisible:\n    element:\n      text: "^Correo$"\n    timeout: 30000');
@@ -253,7 +320,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     const code = error?.code === 'SANDBOX_SETUP_CLEANUP_FAILED' ? 'ACCOUNT_SANDBOX_CLEANUP_FAILED' : safeCode(error);
     if (trustedSandboxError(error)) state.sandboxDiagnostic = safeSandboxDiagnostic(error);
     state.errors.push(new AccountError(code)); state.failureStage = state.stage;
-    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK'].includes(code); state.cases[caseId] = blocked ? 'blocked' : 'failed'; state.status = blocked ? 'blocked' : 'failed';
+    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_API_AUTH_BLOCKED'].includes(code); state.cases[caseId] = blocked ? 'blocked' : 'failed'; state.status = blocked ? 'blocked' : 'failed';
   } finally {
     if (loginAttempted && !loggedOut) {
       try {
@@ -263,6 +330,9 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
         state.cleanup.localSession = true;
       } catch { state.errors.push(new AccountError('ACCOUNT_SESSION_CLEANUP_UNCONFIRMED')); state.failureStage ||= 'cleanup-session'; }
     } else state.cleanup.localSession = !loginAttempted || loggedOut;
+    if (state.apiContract?.accessTokenReceived === true && state.apiContract.logoutConfirmed !== true) {
+      state.cleanup.localSession = false; state.errors.push(new AccountError('ACCOUNT_API_AUTH_CLEANUP_FAILED')); state.failureStage ||= 'api-auth-probe';
+    }
     try {
       if (installed) { await adb(['shell', 'am', 'force-stop', SOURCE.appId]); await adb(['uninstall', SOURCE.appId]); }
       if (remoteCreated) { await adb(['shell', 'rm', '-f', remote + '/ui.xml']); await adb(['shell', 'rmdir', remote]); }
@@ -504,7 +574,7 @@ async function main(mode, env = process.env) {
   }
   throw new AccountError('ACCOUNT_AUTOMATION_SCOPE');
 }
-module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
-  credentials, parsePrivateUi, hasLabel, point, profileMatches, fixtureStatus, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
+module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
+  credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
   locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };
 if (require.main === module) main(process.argv[2]).catch(error => { process.stderr.write(safeCode(error) + '\n'); process.exitCode = 1; });
