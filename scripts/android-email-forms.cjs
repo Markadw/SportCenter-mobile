@@ -37,6 +37,18 @@ function scrollBody(key,direction='DOWN'){
  need(Object.hasOwn(LABELS,key)&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
  return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+LABELS[key].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+'\n    direction: '+direction+'\n    timeout: 30000\n    centerElement: true';
 }
+const FIELD_BODY='- eraseText: 256\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard';
+const BUTTONS=Object.freeze(['Acepto el tratamiento necesario para mi cuenta','Crear cuenta','Reenviar código','Ya tengo un código','Verificar cuenta','Enviar código','Ya tengo un código de recuperación','Actualizar contraseña','Iniciar sesión','Cerrar sesión']);
+function tapBody(label){
+ need(BUTTONS.includes(label),'FORMS_UI_INVALID');
+ const below=label==='Crear cuenta'?'Leer privacidad y términos':label==='Iniciar sesión'?'Contraseña':null;
+ return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+(below?'\n      below:\n        text: '+JSON.stringify('^'+below+'$'):'')+'\n    direction: DOWN\n    timeout: 30000\n    centerElement: true';
+}
+const FLOW_BODIES=new Set([FIELD_BODY,...Object.keys(LABELS).flatMap(key=>['UP','DOWN'].map(direction=>scrollBody(key,direction))),...BUTTONS.map(tapBody)]);
+function formsYaml(name,body){
+ need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&FLOW_BODIES.has(body),'FORMS_MAESTRO_FAILED');
+ return 'appId: '+PACKAGE+'\nname: '+name+' private account\n---\n'+body+'\n';
+}
 function stage(state,value){need(STAGES.includes(value),'FORMS_UI_INVALID');state.stage=value;}
 async function executePhase(driver,secret,state){
  const mark=(id,evidence)=>{state.cases[id]='passed';state.evidence[evidence]=true;};
@@ -83,14 +95,13 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
  const adb=async args=>stdout(await run('adb',['-s',serial,...args],{}));
  const readUi=async()=>{try{await adb(['shell','uiautomator','dump',remote+'/ui.xml']);return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml']));}finally{await adb(['shell','rm','-f',remote+'/ui.xml']);}};
- const flow=async(body,value)=>{const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',account.yaml(name,body)),output=path.posix.join(box.root,name+'.xml');const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});need(result.exitCode===0,'FORMS_MAESTRO_FAILED');account.verifyJUnit(await box.readPrivateFile(name+'.xml'),name,xmlTree);};
+ const flow=async(body,value)=>{const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});need(result.exitCode===0,'FORMS_MAESTRO_FAILED');account.verifyJUnit(await box.readPrivateFile(name+'.xml'),name,xmlTree);};
  const measured=async(label,kind)=>account.point(await readUi(),label,kind);
- const tap=async label=>{const below=label==='Crear cuenta'?'Leer privacidad y términos':label==='Iniciar sesión'?'Contraseña':null;
-  await flow('- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+(below?'\n      below:\n        text: '+JSON.stringify('^'+below+'$'):'')+'\n    direction: DOWN\n    timeout: 30000\n    centerElement: true');const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
+ const tap=async label=>{await flow(tapBody(label));const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
   async open(route){need(['register','forgot-password','login'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);},
   async wait(predicate){const deadline=now()+45000;while(now()<deadline){const nodes=await readUi();if(predicate(nodes))return nodes;await wait(250);}throw new FormsError('FORMS_UI_TIMEOUT');},tap,
-  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow('- eraseText: 256\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard',value);stage(state,'check-'+key);
+  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
    try{const p=await measured(show,'button');await adb(['shell','input','tap',...p.map(String)]);shown=true;need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');}
@@ -111,7 +122,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}

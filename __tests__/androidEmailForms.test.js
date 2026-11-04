@@ -4,6 +4,10 @@ const test=globalThis.test||require('node:test').test;
 const assert=require('node:assert/strict'),path=require('node:path');
 const forms=require(path.join(process.env.EMAIL_FORMS_PREP_DIR||path.join(__dirname,'..','scripts'),'android-email-forms.cjs'));
 const guard=require(path.join(process.env.EMAIL_FORMS_PREP_DIR||path.join(__dirname,'..','scripts'),'android-email-forms-source.cjs'));
+const repo=process.env.ACCOUNT_REPO_ROOT||path.join(__dirname,'..');
+const account=require(path.join(repo,'scripts','android-account.cjs'));
+const {xmlTree}=require(path.join(repo,'scripts','android-pinning.js'));
+const YAML=require('yaml');
 const config=()=>({version:1,...guard.IDENTITY,sourceCommit:guard.EXPECTED_SOURCE,buildId:'11111111-2222-4333-8444-555555555555',sha256:'b'.repeat(64),bytes:10,fingerprint:'c'.repeat(64),producerRun:guard.EXPECTED_PRODUCER,producerAttempt:guard.EXPECTED_ATTEMPT,producerTag:guard.EXPECTED_PRODUCER_TAG,artifactId:202,artifactBytes:10,artifactSha256:'d'.repeat(64)});
 const env=phase=>({ANDROID_FORMS_EMAIL:'qa+forms@example.com',ANDROID_FORMS_PASSWORD:'AnteriorSegura456!',ANDROID_FORMS_PHONE:'5551234567',ANDROID_FORMS_CODE:'654321',ANDROID_FORMS_NEW_PASSWORD:'NuevaSegura789!',GITHUB_SHA:'e'.repeat(40),GITHUB_REF:'refs/tags/validation/account-forms-'+phase+'-fixture'});
 const node=(text,extra={})=>({package:forms.PACKAGE,text,enabled:'true',clickable:'true',...extra});
@@ -79,6 +83,17 @@ test('secret validation is phase-specific, requires independent new password and
 test('Maestro receives only a whitelisted public label, while field values use the existing private environment',()=>{
  assert.match(forms.scrollBody('phone'),/Teléfono/);assert.match(forms.scrollBody('verification'),/centerElement: true/);assert.throws(()=>forms.scrollBody('${PRIVATE_VALUE}'),/FORMS_UI_INVALID/);assert.throws(()=>forms.scrollBody('phone','LEFT'),/FORMS_UI_INVALID/);assert.throws(()=>forms.noFormSecrets(env('register')),/FORMS_SOURCE_INVALID/);forms.noFormSecrets({PATH:'/usr/bin'});
 });
+test('Forms YAML uses its own exact IDs and rejects injected IDs, inline values and capture commands',()=>{
+ const body=forms.scrollBody('name');
+ for(const id of ['EF001','EF999']){
+  const docs=YAML.parseAllDocuments(forms.formsYaml(id,body)).map(d=>d.toJSON());
+  assert.deepEqual(docs[0],{appId:forms.PACKAGE,name:id+' private account'});
+  assert.deepEqual(docs[1],YAML.parse(body));
+ }
+ for(const id of ['AC01','EF01','EF1000','EF001\n','EF001\nappId: other',null])assert.throws(()=>forms.formsYaml(id,body),/FORMS_MAESTRO_FAILED/);
+ for(const unsafe of [body+'\n- takeScreenshot: private','- inputText: inline-private-value','- runScript: private.js','- startRecording: private'])assert.throws(()=>forms.formsYaml('EF001',unsafe),/FORMS_MAESTRO_FAILED/);
+ assert.throws(()=>account.yaml('EF001',body),/ACCOUNT_MAESTRO_FAILED/);
+});
 test('finish enforces the phase tag and exact fixed report, and does not accept a fabricated success',async()=>{
  const {report,c}=await completed('register');assert.equal(forms.verifyFinished(c,env('register'),report).status,'passed');assert.throws(()=>forms.verifyFinished(c,env('reset'),report),/FORMS_SOURCE_INVALID/);assert.throws(()=>forms.verifyFinished(c,env('register'),{...report,extra:'private'}),/FORMS_CASES_INCOMPLETE/);
 });
@@ -96,17 +111,34 @@ test('failed sandbox setup with unconfirmed cleanup cannot be marked cleaned up 
 });
 async function runtimeFailure(options={}){
  const c=config(),e={...env('register'),ACCOUNT_UNIT_TEST:true,GITHUB_RUN_ID:'1'},context={phase:'register',artifactSourceCommit:c.sourceCommit,automationCommit:e.GITHUB_SHA,producerVerified:true,parentInspectionVerified:true,producerRun:c.producerRun,producerAttempt:c.producerAttempt,apkSha256:c.sha256,buildId:c.buildId,receiptSha256:guard.fingerprint(c),sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}};
- let installed=false,removed=false,boxCleaned=false,confirmed=false;const calls=[];
+ let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='';const calls=[],flows=[],privateField='Dato sintetico QA';
  const run=async(file,args)=>{calls.push([file,...args]);assert.equal(args.some(v=>Object.values(env('register')).includes(v)&&v!==e.GITHUB_SHA&&v!==e.GITHUB_REF),false);
   if(args[0]==='devices')return'List of devices attached\nemulator-5554\tdevice\n';const a=args.slice(2);
   if(a[0]==='shell'&&a[1]==='getprop')return'34\n';if(a[0]==='shell'&&a[1]==='pm'&&a[2]==='list')return installed?'package:'+forms.PACKAGE+'\n':'';
+  if(a[0]==='exec-out'&&a[1]==='cat')return '<hierarchy><node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="Nombre" text="'+fieldValue+'" enabled="true" bounds="[10,10][200,60]"/></hierarchy>';
   if(a[0]==='install'){installed=true;if(options.partialInstall)throw new forms.FormsError('FORMS_PROCESS_FAILED');return'Success\n';}
   if(a[0]==='uninstall'){installed=false;removed=true;return'Success\n';}return'';
  };
- const create=async()=>({probes:{ipv4RejectedWithCounter:true,adbLoopbackReachable:true},cleanup:async()=>{boxCleaned=true;if(options.cleanupFailed)throw new Error('private failure');}});
- const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,execute:async()=>{throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
- return{report,installed,removed,boxCleaned,confirmed,calls};
+ const create=async()=>({root:'/private/forms',probes:{ipv4RejectedWithCounter:true,adbLoopbackReachable:true},
+  createPrivateFile:async(name,body)=>{assert.equal(body.includes(privateField),false);const docs=YAML.parseAllDocuments(body).map(d=>d.toJSON());assert.equal(docs[0].appId,forms.PACKAGE);assert.match(docs[0].name,/^EF[0-9]{3} private account$/);assert.ok(Array.isArray(docs[1]));flows.push({name,body});return '/private/forms/'+name;},
+  runMaestro:async(serial,args,options)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);assert.deepEqual(Object.keys(options.secretEnv),flows.length===2?['MAESTRO_ACCOUNT_FIELD_VALUE']:[]);if(options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE)fieldValue=options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0};},
+  readPrivateFile:async filename=>{const name=filename.replace(/\.xml$/,'')+' private account';const xml='<testsuites><testsuite tests="1" failures="0"><testcase id="'+name+'" name="'+name+'" classname="'+name+'" status="SUCCESS"/></testsuite></testsuites>';return options.invalidJunit?xml.slice(0,-5):xml;},
+  cleanup:async()=>{boxCleaned=true;if(options.cleanupFailed)throw new Error('private failure');}});
+ const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,execute:async driver=>{if(options.realField)await driver.fill('name',privateField);throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
+ return{report,installed,removed,boxCleaned,confirmed,calls,flows,privateField};
 }
+test('the runtime field adapter uses real Forms YAML, private UI parsing and strict real JUnit verification before input is observed',async()=>{
+ const r=await runtimeFailure({realField:true});
+ assert.equal(r.flows.length,2);assert.deepEqual(r.flows.map(f=>f.name),['EF001.yaml','EF002.yaml']);
+ assert.match(r.flows[1].body,/inputText: \$\{MAESTRO_ACCOUNT_FIELD_VALUE\}/);assert.equal(r.flows.some(f=>/takeScreenshot|startRecording|runScript/.test(f.body)),false);
+ assert.equal(r.report.stage,'check-name');assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH']);assert.equal(JSON.stringify(r.report).includes(r.privateField),false);
+ assert.equal(r.report.operationUncertain,false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+});
+test('the runtime field adapter rejects a truncated JUnit report and cleans up without continuing to input',async()=>{
+ const r=await runtimeFailure({realField:true,invalidJunit:true});
+ assert.equal(r.flows.length,1);assert.equal(r.report.stage,'field-name');assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);
+ assert.equal(r.report.status,'failed');assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+});
 test('a private input mismatch stops the phase and still removes app data, package and isolated UID',async()=>{
  const r=await runtimeFailure();assert.equal(r.report.status,'failed');assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH']);assert.equal(r.installed,false);assert.equal(r.removed,true);assert.equal(r.boxCleaned,true);assert.equal(r.confirmed,true);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});assert.equal(r.report.cases.some(c=>c.status==='passed'),false);
 });
