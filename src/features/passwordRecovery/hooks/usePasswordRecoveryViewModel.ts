@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { passwordRecoveryApi } from "../../../api/passwordRecoveryApi";
 import { useAccountRequest } from "../../profile/hooks/useAccountRequest";
 import { validateRecovery, type RecoveryForm, type RecoveryErrors } from "../validation";
+import { normalizeEmail } from "../../registration/validation";
 export function usePasswordRecoveryViewModel() {
   const [form, setForm] = useState<RecoveryForm>({ email: "", token: "", psw: "", confirmation: "" });
   const [stage, setStage] = useState<"email" | "reset" | "done">("email"), [errors, setErrors] = useState<RecoveryErrors>({});
@@ -26,6 +27,14 @@ export function usePasswordRecoveryViewModel() {
       setForm({ email: "", token: "", psw: "", confirmation: "" }); setStage("done");
     });
   }
+  function resumeWithCode() {
+    if (request.pending || stage !== "email") return;
+    const next = validateRecovery(form, false); setErrors(next);
+    if (Object.keys(next).length) return;
+    request.cancel(); request.clearError();
+    setForm({ email: normalizeEmail(form.email), token: "", psw: "", confirmation: "" });
+    setStage("reset");
+  }
   function changeEmail() { request.cancel(); request.clearError(); setStage("email"); setForm(previous => ({ ...previous, token: "", psw: "", confirmation: "" })); setErrors({}); }
-  return { form, stage, errors, cooldown, change, sendCode, submit, changeEmail, ...request };
+  return { form, stage, errors, cooldown, change, sendCode, submit, resumeWithCode, changeEmail, ...request };
 }

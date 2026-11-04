@@ -13,7 +13,10 @@ export function PasswordRecoveryScreen() {
       <Field label="Confirmar contraseña" value={model.form.confirmation} onChangeText={value => model.change("confirmation", value)} error={model.errors.confirmation} secureTextEntry autoComplete="new-password" editable={!model.pending} />
     </>}
     <FormMessage text={model.error ? (model.stage === "reset" ? "No pudimos cambiar la contraseña. Revisa el código y la nueva contraseña; solicita otro código si venció o agotaste los intentos." : "No pudimos enviar el código. Revisa tu correo, la activación de tu cuenta y tu conexión. Si realizaste varios intentos, espera un minuto.") : null} error />
-    {model.stage === "email" ? <FormButton label="Enviar código" onPress={model.sendCode} busy={model.pending} disabled={model.cooldown > 0} /> : <>
+    {model.stage === "email" ? <>
+      <FormButton label="Enviar código" onPress={model.sendCode} busy={model.pending} disabled={model.cooldown > 0} />
+      <FormButton label="Ya tengo un código de recuperación" onPress={model.resumeWithCode} disabled={model.pending} secondary />
+    </> : <>
       <FormButton label="Actualizar contraseña" onPress={model.submit} busy={model.pending} />
       <FormButton label={model.cooldown ? "Reenviar código en " + model.cooldown + " s" : "Reenviar código"} onPress={model.sendCode} disabled={model.pending || model.cooldown > 0} secondary />
       <FormButton label="Cambiar correo" onPress={model.changeEmail} secondary />
