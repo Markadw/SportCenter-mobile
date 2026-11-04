@@ -2,17 +2,17 @@
   "version": 1,
   "mode": "production-release-only",
   "repository": "Markadw/SportCenter-mobile",
-  "sourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
-  "prebuildRunId": 41810909053,
+  "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+  "prebuildRunId": 41860689069,
   "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
   "appId": "com.markadw.sportcenter",
   "api": "https://back-sport-ghxk.onrender.com",
   "appVersion": "1.0.0",
   "appBuildVersion": "1",
   "production": {
-    "buildId": "c55fd545-cff4-4758-a5be-5bc583b85589",
-    "sha256": "db53be0e836ff939e56a74607115ee79e482a6fd537a933ff7b0d6bcc7b54f36",
-    "bytes": 68959777,
-    "message": "sport-center-production-v1:8e8a6da3fedbb61057efaa7fe30b6923b6195595"
+    "buildId": "43bcc31d-8297-48e4-b91e-7f37c63d349c",
+    "sha256": "8fac2e502cd1877d8fd60b7b93e5b42ae85313025dcf1cbed62f4699b8cd693a",
+    "bytes": 68959933,
+    "message": "sport-center-production-v1:8831dfad7fd1b0c696d11f50c79442c5499b7cd2"
   }
 }

@@ -419,9 +419,14 @@ jobs:
         id: kvm
         timeout-minutes: 2
         run: node scripts/android-release.js kvm
+      - name: Exigir 12 GiB antes de crear la AVD Release API34
+        id: disk34
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        timeout-minutes: 3
+        run: node scripts/prepare-android-disk.cjs
       - name: Release API34 sin Metro en otra AVD nueva
         id: release34
-        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.disk34.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -433,9 +438,19 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: node scripts/android-release.js release34
+      - name: Eliminar sólo la AVD API34 propia después de sus cuatro casos
+        id: avd34_cleanup
+        if: ${{ !cancelled() && steps.release34.outcome == 'success' }}
+        timeout-minutes: 2
+        run: node scripts/android-release.js cleanup-avd34
+      - name: Exigir 12 GiB antes de crear la AVD Release API36
+        id: disk36
+        if: ${{ !cancelled() && steps.avd34_cleanup.outcome == 'success' }}
+        timeout-minutes: 3
+        run: node scripts/prepare-android-disk.cjs
       - name: API36 16KB simulados del APK derivado AAB
         id: pages16k
-        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.avd34_cleanup.outcome == 'success' && steps.disk36.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
