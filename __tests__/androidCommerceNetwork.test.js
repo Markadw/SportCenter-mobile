@@ -4,6 +4,7 @@ const test=globalThis.test||require('node:test').test,assert=require('node:asser
 const network=require(path.join(process.env.NATIVE_COMMERCE_PREP_DIR||path.join(__dirname,'..','scripts'),'android-commerce-network.cjs'));
 function fake(options={}){
  const chains={iptables:new Map(),ip6tables:new Map()},output={iptables:[],ip6tables:[]},counts={iptables:0,ip6tables:0},calls=[];const ok=stdout=>({stdout:stdout||'',stderr:'',exitCode:0,timedOut:false}),missing=()=>({stdout:'',stderr:'iptables: No chain/target/match by that name.\n',exitCode:1,timedOut:false});
+ if(options.preexistingChain)chains.iptables.set('SCQ4_12345',[]);if(options.preexistingReference)output.iptables.push('-A OUTPUT -j SCQ4_12345');
  const adb=async args=>{calls.push(args);
   if(args[0]==='root'||args[0]==='wait-for-device')return ok();
   if(args.slice(0,3).join(' ')==='shell id -u')return ok(options.rootDenied?'2000\n':'0\n');
@@ -17,9 +18,12 @@ function fake(options={}){
    return ok('HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n'+(host===network.HOST&&port==='8081'?'packager-status:running':'[]'));
   }
   const binary=args[1],a=args.slice(2);if(!Object.hasOwn(chains,binary))throw Error('unexpected fake tool');
-  if(a[0]==='-n'&&a[1]==='-S'){
-   if(a[2]==='OUTPUT')return ok('-P OUTPUT ACCEPT\n'+output[binary].join('\n')+'\n');
-   if(!chains[binary].has(a[2]))return missing();return ok('-N '+a[2]+'\n'+chains[binary].get(a[2]).join('\n')+'\n');
+  // AOSP14 generic_opt_check rejects OPT_NUMERIC with CMD_LIST_RULES.
+  if(a.includes('-S')&&a.includes('-n'))return{stdout:'',stderr:'option -n not allowed in this context',exitCode:2,timedOut:false};
+  if(a[0]==='-S'){
+   if(a.length===1){if(options.enumerationFailure)return{stdout:'',stderr:'table unavailable',exitCode:2,timedOut:false};if(options.malformedEnumeration)return ok('not a table dump');return ok('-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n'+[...chains[binary].keys()].map(k=>'-N '+k).join('\n')+'\n'+output[binary].join('\n')+'\n'+[...chains[binary].values()].flat().join('\n')+'\n');}
+   if(a[1]==='OUTPUT')return ok('-P OUTPUT ACCEPT\n'+output[binary].join('\n')+'\n');
+   if(!chains[binary].has(a[1]))return missing();return ok('-N '+a[1]+'\n'+chains[binary].get(a[1]).join('\n')+'\n');
   }
   if(a[0]==='-N'){if(chains[binary].has(a[1]))return{...missing(),stderr:'Chain already exists'};chains[binary].set(a[1],[]);return ok();}
   if(a[0]==='-A'){chains[binary].get(a[1]).push(a.join(' '));if(options.extraAllow&&binary==='iptables'&&a.includes('REJECT'))chains[binary].get(a[1]).unshift('-A '+a[1]+' -d 0.0.0.0/0 -p tcp -m tcp --dport 443 -j ACCEPT');return ok();}
@@ -52,3 +56,15 @@ test('rule and identity parsers reject partial, duplicate, widened or foreign de
  assert.throws(()=>network.rules('-N SCQ4_1\n-A SCQ4_1 -j ACCEPT','SCQ4_1'),/COMMERCE_AVD_RULES_UNVERIFIED/);assert.throws(()=>network.jump('-A OUTPUT -m owner --uid-owner 10124 -j SCQ4_1',10123,'SCQ4_1'),/COMMERCE_AVD_RULES_UNVERIFIED/);assert.throws(()=>network.rejectCount('0 0 ACCEPT all\n'),/COMMERCE_AVD_RULES_UNVERIFIED/);
 });
 test('foreign package is rejected before any root or network command',async()=>{let called=false;await assert.rejects(network.installNetwork({adb:async()=>{called=true;},runId:'1',packageName:'other.app'}),/COMMERCE_AVD_NETWORK_SCOPE/);assert.equal(called,false);});
+
+test('AOSP14 list-rules rejects numeric modifier; guard uses valid numeric serialization and retains numeric counters',async()=>{
+ const f=fake(),incompatible=await f.adb(['shell','iptables','-n','-S']);assert.equal(incompatible.exitCode,2);f.calls.length=0;
+ const guard=await network.installNetwork({adb:f.adb,runId:'12345'});await guard.verify();await guard.cleanup();
+ const queries=f.calls.filter(a=>a.includes('-S'));assert(queries.length>0);assert(queries.every(a=>!a.includes('-n')));assert(f.calls.some(a=>a.slice(2,6).join(' ')==='-n -v -x -L'));
+});
+test('failed or malformed whole-table enumeration never proves absence and never creates a chain',async()=>{
+ for(const [options,code]of[[{enumerationFailure:true},'COMMERCE_AVD_TOOL_FAILED'],[{malformedEnumeration:true},'COMMERCE_AVD_RULES_UNVERIFIED']]){const f=fake(options);await assert.rejects(network.installNetwork({adb:f.adb,runId:'12345'}),e=>e.code===code&&e.diagnostic.cleanupConfirmed===true);assert(!f.calls.some(a=>a.includes('-N')));}
+});
+test('preexisting exact chain or reference is preserved and rejected before any firewall mutation',async()=>{
+ for(const options of[{preexistingChain:true},{preexistingReference:true}]){const f=fake(options),before=JSON.stringify({chains:[...f.chains.iptables],output:f.output});await assert.rejects(network.installNetwork({adb:f.adb,runId:'12345'}),e=>e.code==='COMMERCE_AVD_NETWORK_SCOPE'&&e.diagnostic.cleanupConfirmed===true);assert.equal(JSON.stringify({chains:[...f.chains.iptables],output:f.output}),before);assert(!f.calls.some(a=>['-N','-A','-I','-D','-F','-X'].some(flag=>a.includes(flag))));}
+});

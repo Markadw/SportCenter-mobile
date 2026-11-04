@@ -12,15 +12,26 @@ function rules(raw,chain,ipv6=false){need(typeof raw==='string'&&raw.length<=327
  for(let i=0;i<lines.length;i++){const actual=ruleTokens(lines[i],chain),expected=!ipv6&&i<2?{'-d':HOST+'/32','-p':'tcp','-m':'tcp','--dport':String([3011,8081][i]),'-j':'ACCEPT'}:{'-j':'REJECT','--reject-with':ipv6?'icmp6-port-unreachable':'icmp-port-unreachable'};need(JSON.stringify(Object.entries(actual).sort())===JSON.stringify(Object.entries(expected).sort()),'COMMERCE_AVD_RULES_UNVERIFIED');}return true;}
 function jump(raw,uid,chain){need(typeof raw==='string'&&raw.length<=65536,'COMMERCE_AVD_RULES_UNVERIFIED');const lines=raw.trim().split(/\r?\n/).filter(line=>line.startsWith('-A OUTPUT '));need(lines.length>0,'COMMERCE_AVD_RULES_UNVERIFIED');const actual=ruleTokens(lines[0],'OUTPUT'),expected={'-m':'owner','--uid-owner':String(uid),'-j':chain};need(JSON.stringify(Object.entries(actual).sort())===JSON.stringify(Object.entries(expected).sort()),'COMMERCE_AVD_RULES_UNVERIFIED');return true;}
 function rejectCount(raw){need(typeof raw==='string'&&raw.length<=32768,'COMMERCE_AVD_RULES_UNVERIFIED');const matches=[...raw.matchAll(/^\s*([0-9]+)\s+[0-9]+\s+REJECT\s+/gm)];need(matches.length===1,'COMMERCE_AVD_RULES_UNVERIFIED');const count=Number(matches[0][1]);need(Number.isSafeInteger(count)&&count>=0,'COMMERCE_AVD_RULES_UNVERIFIED');return count;}
-const missing=result=>result.exitCode===1&&/No chain\/target\/match by that name\./.test(result.stderr);
+// AOSP14 xshared.c makes -n illegal with -S; list-rules already serializes numbers.
+// Absence is established by a successful whole-table dump, never by stderr text.
+function chainAbsent(raw,chain){
+ need(typeof raw==='string'&&raw.length>0&&raw.length<=262144&&/^[A-Za-z0-9_.:-]{1,28}$/.test(chain),'COMMERCE_AVD_RULES_UNVERIFIED');
+ const lines=raw.trim().split(/\r?\n/).map(line=>line.trim()).filter(Boolean),policies=new Set(),declared=new Set(),owners=[];let present=false;
+ for(const line of lines){const tokens=line.split(/\s+/),[op,name]=tokens;need(/^[A-Za-z0-9_.:-]{1,28}$/.test(name||''),'COMMERCE_AVD_RULES_UNVERIFIED');if(tokens.includes(chain))present=true;
+  if(op==='-P'){need(tokens.length===3&&['INPUT','FORWARD','OUTPUT'].includes(name)&&['ACCEPT','DROP'].includes(tokens[2])&&!policies.has(name),'COMMERCE_AVD_RULES_UNVERIFIED');policies.add(name);}
+  else if(op==='-N'){need(tokens.length===2&&!declared.has(name)&&!['INPUT','FORWARD','OUTPUT'].includes(name),'COMMERCE_AVD_RULES_UNVERIFIED');declared.add(name);}
+  else{need(op==='-A'&&tokens.length>=4,'COMMERCE_AVD_RULES_UNVERIFIED');owners.push(name);}
+ }
+ need(policies.size===3&&owners.every(name=>policies.has(name)||declared.has(name)),'COMMERCE_AVD_RULES_UNVERIFIED');return !present;
+}
 async function installNetwork({adb,runId,packageName=APP}){
  need(packageName===APP&&typeof adb==='function','COMMERCE_AVD_NETWORK_SCOPE');const resources=[];let setupStage='root',uid,p,mutationUncertain=false;
  const call=async(args,options={})=>normal(await adb(args,{timeout:10000,...options}));
  const good=async args=>{const result=await call(args);need(result.exitCode===0&&!result.timedOut,'COMMERCE_AVD_TOOL_FAILED');return result.stdout;};
  const table=(binary,args)=>good(['shell',binary,...args]);
- const absence=async(binary,chain)=>{const result=await call(['shell',binary,'-n','-S',chain]);return missing(result);};
- const verify=async()=>{need(p&&uid,'COMMERCE_AVD_UID_INVALID');need(parseUid(await good(['shell','pm','list','packages','-U',APP]))===uid,'COMMERCE_AVD_UID_INVALID');for(const[binary,chain,ipv6]of[['iptables',p.v4,false],['ip6tables',p.v6,true]]){jump(await table(binary,['-n','-S','OUTPUT']),uid,chain);rules(await table(binary,['-n','-S',chain]),chain,ipv6);}return true;};
- const cleanup=async()=>{let failed=mutationUncertain;for(const resource of [...resources].reverse()){const{binary,chain,jumpAttempted}=resource;try{if(jumpAttempted){const removed=await call(['shell',binary,'-D','OUTPUT','-m','owner','--uid-owner',String(uid),'-j',chain]);need(removed.exitCode===0||removed.exitCode===1,'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');const output=await table(binary,['-n','-S','OUTPUT']);need(!output.split(/\r?\n/).some(line=>line.split(/\s+/).includes(chain)),'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');}await table(binary,['-F',chain]);await table(binary,['-X',chain]);need(await absence(binary,chain),'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');}catch{failed=true;}}
+ const absence=async(binary,chain)=>chainAbsent(await table(binary,['-S']),chain);
+ const verify=async()=>{need(p&&uid,'COMMERCE_AVD_UID_INVALID');need(parseUid(await good(['shell','pm','list','packages','-U',APP]))===uid,'COMMERCE_AVD_UID_INVALID');for(const[binary,chain,ipv6]of[['iptables',p.v4,false],['ip6tables',p.v6,true]]){jump(await table(binary,['-S','OUTPUT']),uid,chain);rules(await table(binary,['-S',chain]),chain,ipv6);}return true;};
+ const cleanup=async()=>{let failed=mutationUncertain;for(const resource of [...resources].reverse()){const{binary,chain,jumpAttempted}=resource;try{if(jumpAttempted){const removed=await call(['shell',binary,'-D','OUTPUT','-m','owner','--uid-owner',String(uid),'-j',chain]);need(removed.exitCode===0||removed.exitCode===1,'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');const output=await table(binary,['-S','OUTPUT']);need(!output.split(/\r?\n/).some(line=>line.split(/\s+/).includes(chain)),'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');}await table(binary,['-F',chain]);await table(binary,['-X',chain]);need(await absence(binary,chain),'COMMERCE_AVD_NETWORK_CLEANUP_FAILED');}catch{failed=true;}}
   if(failed)throw new NetworkError('COMMERCE_AVD_NETWORK_CLEANUP_FAILED');return true;};
  try{
   const rooted=await call(['root']);need(rooted.exitCode===0,'COMMERCE_AVD_ROOT_REQUIRED');await good(['wait-for-device']);need((await good(['shell','id','-u'])).trim()==='0'&&(await good(['shell','am','get-current-user'])).trim()==='0','COMMERCE_AVD_ROOT_REQUIRED');
@@ -37,4 +48,4 @@ async function installNetwork({adb,runId,packageName=APP}){
   await verify();return Object.freeze({proof:Object.freeze({rooted:true,uidMatched:true,ipv4RulesVerified:true,ipv6RulesVerified:true,ipv4RejectedWithCounter:true,ipv6RejectedWithCounter:true,apiReachable:true,metroReachable:true,scope:'app-uid-10.0.2.2-tcp-3011-8081-only'}),verify,cleanup});
  }catch(error){let cleaned=false;try{await cleanup();cleaned=true;}catch{}const code=error instanceof NetworkError?error.code:'COMMERCE_AVD_TOOL_FAILED';throw new NetworkError(code,{stage:['root','uid','rules','reject-probes','positive-probes'].includes(setupStage)?setupStage:'unknown',cleanupConfirmed:cleaned});}
 }
-module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,installNetwork};
+module.exports={APP,HOST,CODES,NetworkError,parseUid,plan,rules,jump,rejectCount,chainAbsent,installNetwork};
