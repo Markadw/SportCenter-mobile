@@ -349,6 +349,32 @@ function validateWorkflows(workflows) {
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');
   assert.ok(integration.jobs.api.steps.some((step) => step.id === 'readiness'
     && step.run === 'node scripts/wait-for-service.js'), 'HTTP requiere comprobar disponibilidad de la API');
+  const apiSteps = integration.jobs.api.steps;
+  const commerceSteps = apiSteps.filter(item => item.id === 'commerce_local');
+  assert.equal(commerceSteps.length, 1, 'Comercio requiere un único paso en el job HTTP existente');
+  const commerceStep = commerceSteps[0];
+  assert.deepEqual(commerceStep.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true' }, 'Comercio exige ambas flags sólo en su paso');
+  assert.equal(commerceStep.if, undefined, 'Comercio HTTP no puede omitirse');
+  assert.equal(commerceStep.run.trim(), [
+    'docker compose -f tests/environment/compose.yml up -d --no-deps --force-recreate access',
+    'node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"',
+    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"',
+  ].join('\n'), 'Comercio sólo recrea access, aplica seed una vez y prueba la QA local');
+  const teardownIndex = apiSteps.findIndex(item => item.run === 'node scripts/test-environment.js stop');
+  assert.ok(apiSteps.indexOf(commerceStep) > apiSteps.findIndex(item => item.id === 'dast_local') &&
+    apiSteps.findIndex(item => item.id === 'dast_local') >= 0 && teardownIndex > apiSteps.indexOf(commerceStep),
+  'Comercio se ejecuta después de DAST y antes del teardown');
+  assert.equal(apiSteps[teardownIndex].if, 'always()', 'Comercio conserva cleanup siempre');
+  assert.ok(!integration.env?.QA_COMMERCE && !integration.jobs.api.env?.QA_COMMERCE, 'No habilitar comercio globalmente');
+  for (const item of apiSteps.filter(item => item !== commerceStep)) {
+    assert.equal(item.env?.QA_COMMERCE, undefined, 'La flag de comercio sólo pertenece a su paso');
+  }
+  const httpSummary = apiSteps.find(item => item.run === 'node scripts/write-api-summary.js');
+  assert.equal(httpSummary?.env.COMMERCE_OUTCOME, '${{ steps.commerce_local.outcome }}', 'El resumen evalúa el resultado real de comercio');
+  const httpArtifacts = apiSteps.filter(item => item.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(httpArtifacts.length, 1, 'Comercio reutiliza el único artefacto HTTP');
+  assert.equal(httpArtifacts[0].with.name, 'api-evidence');
+  assert.ok(httpArtifacts[0].with.path.trim().split('\n').includes('test-results/commerce-api.json'), 'Falta informe compacto de comercio');
   const security = workflows.get('security.yml');
   assert.ok(security, 'Falta el workflow de seguridad obligatorio');
   assert.deepEqual(Object.keys(security.on), ['workflow_call'], 'Seguridad sólo debe reutilizarse desde integración');
@@ -464,6 +490,9 @@ function validateWorkflows(workflows) {
     'test-results/maestro/**/*.png',
     'test-results/eas-candidate.json',
   ]);
+  assert.equal(integration.jobs.integration.name.replace(/\s+/g, ' '),
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || (github.event_name == 'workflow_dispatch' && (inputs.run_android || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/')))) && 'Resultado de candidata Android' || 'Resultado de integración' }}",
+    'Separar el check de candidata explícita y conservar Resultado de integración para PR y pushes normales');
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');
