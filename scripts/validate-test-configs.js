@@ -470,6 +470,9 @@ function validateWorkflows(workflows) {
     'test-results/maestro/**/*.png',
     'test-results/eas-candidate.json',
   ]);
+  assert.equal(integration.jobs.integration.name.replace(/\s+/g, ' '),
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || (github.event_name == 'workflow_dispatch' && (inputs.run_android || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/')))) && 'Resultado de candidata Android' || 'Resultado de integración' }}",
+    'Separar el check de candidata explícita y conservar Resultado de integración para PR y pushes normales');
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');
