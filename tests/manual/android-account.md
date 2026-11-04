@@ -10,7 +10,7 @@ Los valores completos de procedencia están fijados en `SOURCE` de `scripts/andr
 
 ## Cuenta reservada y restauración
 
-Se reutilizan `ANDROID_TEST_EMAIL` y `ANDROID_TEST_PASSWORD`, únicamente en el runtime privado. La cuenta debe estar verificada y reservada durante toda la ejecución. El perfil debe tener sus cinco campos válidos y normalizados. El carrito debe contener una variante activa, con nombre no ambiguo, cantidad de 1 a 98 y existencias para una unidad adicional. Su precio guardado debe coincidir con el precio actual. Una condición incumplida bloquea la prueba antes de escribir datos.
+`ANDROID_TEST_EMAIL` y `ANDROID_TEST_PASSWORD` se leen del entorno dedicado `android-private-qa`, autorizado para esta prueba y limitado a etiquetas `validation/account-*`. Sus valores pertenecen a una cuenta QA aislada y verificada. Los secretos originales del repositorio se conservan intactos. Las credenciales llegan únicamente al runtime privado. La cuenta debe estar verificada y reservada durante toda la ejecución. El perfil debe tener sus cinco campos válidos y normalizados. El carrito debe contener una variante activa, con nombre no ambiguo, cantidad de 1 a 98 y existencias para una unidad adicional. Su precio guardado debe coincidir con el precio actual. Una condición incumplida bloquea la prueba antes de escribir datos.
 
 Un chequeo API previo captura en memoria el perfil y el carrito dentro de una única sesión auxiliar y confirma su logout antes de abrir la app. No se guarda la línea base en artifacts. La prueba modifica sólo el Nombre y una línea del carrito; comprueba los valores mediante la interfaz y vuelve a leerlos después de cerrar y abrir la app. Conserva los demás campos y líneas.
 
@@ -54,3 +54,7 @@ El logout local y la confirmación HTTP auxiliar se documentan por separado. No 
 Se completó por HTTPS y buzón propio la secuencia registro, rechazo de un código incorrecto, reenvío, verificación, solicitud de recuperación y cambio de contraseña. Se usaron los códigos recibidos en los mensajes nuevos, nunca los datos internos de la respuesta de registro. El acceso y cierre después de verificar y después de cambiar la contraseña recibieron confirmación. La cuenta es una fixture aislada; no se cambió la cuenta reservada de Android ni se crearon pedidos o pagos.
 
 Es una comprobación HTTP real con correo real. No se presenta como recorrido nativo de esos formularios. La prueba adicional de interfaz web, cuando esté ejecutada, se identifica por separado.
+
+## Datos de la primera ejecución RC5
+
+La [ejecución v1](https://github.com/Markadw/SportCenter-mobile/actions/runs/41814484621) se detuvo en el chequeo previo con `FIXTURE_STOCK`: el carrito no ofrecía margen para aumentar una unidad. El login y logout auxiliar recibieron 201; no se abrió la interfaz ni se intentaron cambios. No se acredita ninguno de los casos no ejecutados. La cuenta QA aislada prepara una única variante con al menos tres existencias y mantiene una unidad como línea base reservada. La siguiente ejecución debe demostrar sus propios resultados.

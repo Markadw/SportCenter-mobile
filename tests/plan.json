@@ -1207,6 +1207,91 @@
       "MU05"
     ],
     "restorationRequired": true,
-    "scope": "Sesion, lecturas y cambios reversibles de Nombre y una linea del carrito en API34. Sin direccion persistida, pedido, pago, publicacion de resena ni dispositivo fisico."
+    "scope": "Sesion, lecturas y cambios reversibles de Nombre y una linea del carrito en API34. Sin direccion persistida, pedido, pago, publicacion de resena ni dispositivo fisico.",
+    "environment": "android-private-qa",
+    "repositorySecretsPreserved": true,
+    "firstRun": {
+      "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41814484621",
+      "status": "blocked",
+      "stage": "api-auth-probe",
+      "code": "FIXTURE_STOCK",
+      "uiStarted": false,
+      "mutationAttempted": false,
+      "artifactId": 13313947749,
+      "artifactSha256": "7200726c81739edc24b75149543838445bf741c32eaafd8d063776ff17b4675b"
+    }
+  },
+  "webAccountAcceptance": {
+    "version": 1,
+    "scope": "real-web-ui-with-real-http",
+    "status": "partial",
+    "nativeAcceptance": false,
+    "physicalAndroidAcceptance": false,
+    "currentExecutedWebChecksPassed": true,
+    "testOrigin": "http://localhost:4200",
+    "historicalOriginFailure": {
+      "status": "failed",
+      "httpStatus": null,
+      "requestFailed": true,
+      "requestCount": 1,
+      "cause": "CORS_ORIGIN_8084_NOT_ALLOWED",
+      "mailDeliveryConfirmedByRoot": true,
+      "report": "web-recovery-request-origin8084.json",
+      "preserved": true
+    },
+    "allowedOriginRequest": {
+      "status": "passed",
+      "httpStatus": 201,
+      "emailMatched": true,
+      "resetFormVisible": true,
+      "requestCount": 1,
+      "report": "web-recovery-origin-retry.json"
+    },
+    "recoveryLoginLogout": {
+      "status": "passed",
+      "resetHttpStatus": 201,
+      "loginHttpStatus": 201,
+      "logoutHttpStatus": 201,
+      "passwordUpdated": true,
+      "loginConfirmed": true,
+      "logoutConfirmed": true,
+      "guestVisible": true,
+      "inputMatched": true,
+      "resetRequests": 1,
+      "loginRequests": 1,
+      "logoutRequests": 1,
+      "finalRoute": "/login",
+      "report": "web-recovery-finish.json",
+      "serverRevocationIndependentlyObserved": false
+    },
+    "reviews": {
+      "status": "passed",
+      "httpStatus": 200,
+      "listRead": true,
+      "empty": true,
+      "guestOnly": true,
+      "localHideAttempted": false,
+      "localHidden": false,
+      "localRestored": false,
+      "localPreferenceStatus": "not_run_no_review_fixture",
+      "serverMutationRequests": 0,
+      "blockedMutationRequests": 0,
+      "productSource": "repository variable API_TEST_PRODUCT_ID",
+      "report": "web-reviews-read-only.json"
+    },
+    "limits": [
+      "web is not native Android or full physical QA",
+      "no review publication or report",
+      "no order or payment operation",
+      "local hiding not tested because the selected product has no reviews"
+    ],
+    "cleanup": {
+      "privateBrowserClosed": true,
+      "ownedMetroStopped": true,
+      "temporaryCredentialCodeAbsent": true,
+      "fixtureRetained": true,
+      "browserPersistentProfileSaved": false,
+      "rawAccountArtifactsPublished": false
+    }
   }
 }

@@ -509,6 +509,7 @@ jobs:
   # Aceptación E2E de sesión, perfil y carrito con restauración; sin pedido ni pago.
   account:
     name: Cuenta de pruebas en APK final API34
+    environment: android-private-qa
     if: ${{ startsWith(github.ref, 'refs/tags/validation/account-') }}
     needs: [quality, security]
     runs-on: ubuntu-24.04
