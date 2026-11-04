@@ -270,16 +270,45 @@
           },
           "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor.",
           "readOnlyExtension": {
-            "status": "not_run",
-            "execution": "pending_explicit_new_source_account_pipeline",
+            "status": "passed_for_executed_scope",
+            "execution": "explicit_account_pipeline_completed",
             "cases": [
               "RO01",
               "RO02",
               "RO03",
               "RO04"
             ],
-            "scope": "Lista/vacío de pedidos propios y privacidad/protección de rutas; sin detalle/seguimiento, ediciones, solicitudes, pedido o pago.",
-            "priorAccountRunDoesNotAccreditExtension": true
+            "results": [
+              {
+                "id": "RO01",
+                "status": "passed"
+              },
+              {
+                "id": "RO02",
+                "status": "passed"
+              },
+              {
+                "id": "RO03",
+                "status": "passed"
+              },
+              {
+                "id": "RO04",
+                "status": "passed"
+              }
+            ],
+            "orderListState": "empty",
+            "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41774275494",
+            "attempt": 1,
+            "automationCommit": "4e5d9260d61fda1d7c6a2e142fa0d5cacd29602b",
+            "artifactId": 13296547368,
+            "artifactSha256": "08388ba911403a74be93ac06b216a223fc2ceddac1b55b361250dd0fb6062287",
+            "cleanup": {
+              "device": true,
+              "sandbox": true,
+              "localSession": true,
+              "serverRevocation": "not-independently-observed"
+            },
+            "scope": "Pedidos vacío real, guardias de perfil/checkout y privacidad invitado. Sin pedido existente/detalle, seguimiento, documentos externos, ediciones, solicitudes, pedido/pago o QA física completa."
           }
         },
         "physical": {
@@ -686,7 +715,7 @@
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/14",
       "available": "Pertenencia a la lista propia, coincidencia del pedido, importes y estado vacío cubiertos con transporte controlado.",
       "pending": [
-        "Consultar pedidos y estados reales en Android final; aceptación privada/física aplazada."
+        "Comprobar detalle y seguimiento de un pedido propio existente en Android final; el estado de lista vacía ya pasó en emulador."
       ],
       "implementation": "implemented",
       "clientVerification": {
@@ -706,6 +735,12 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeReadOnlyEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41774275494",
+        "check": "RO01",
+        "observed": "empty",
+        "scope": "Lista propia vacía real; sin pedido existente ni detalle/seguimiento."
       }
     },
     {
@@ -976,6 +1011,47 @@
           "serverRevocation": "not-independently-observed"
         },
         "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "readOnlyExtension": {
+        "status": "passed_for_executed_scope",
+        "execution": "explicit_account_pipeline_completed",
+        "cases": [
+          "RO01",
+          "RO02",
+          "RO03",
+          "RO04"
+        ],
+        "results": [
+          {
+            "id": "RO01",
+            "status": "passed"
+          },
+          {
+            "id": "RO02",
+            "status": "passed"
+          },
+          {
+            "id": "RO03",
+            "status": "passed"
+          },
+          {
+            "id": "RO04",
+            "status": "passed"
+          }
+        ],
+        "orderListState": "empty",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41774275494",
+        "attempt": 1,
+        "automationCommit": "4e5d9260d61fda1d7c6a2e142fa0d5cacd29602b",
+        "artifactId": 13296547368,
+        "artifactSha256": "08388ba911403a74be93ac06b216a223fc2ceddac1b55b361250dd0fb6062287",
+        "cleanup": {
+          "device": true,
+          "sandbox": true,
+          "localSession": true,
+          "serverRevocation": "not-independently-observed"
+        },
+        "scope": "Pedidos vacío real, guardias de perfil/checkout y privacidad invitado. Sin pedido existente/detalle, seguimiento, documentos externos, ediciones, solicitudes, pedido/pago o QA física completa."
       }
     },
     "scope": "Procedencia, inspección, aceptación pública y siete controles de cuenta del Preview F2 verificados; edición, pedidos/pagos, aceptación física completa y publicación en Play pendientes."
