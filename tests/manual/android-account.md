@@ -4,7 +4,7 @@
 
 La [ejecución histórica F2](https://github.com/Markadw/SportCenter-mobile/actions/runs/41774275494) aprobó siete controles de sesión y cuatro comprobaciones de lectura. Se conserva esa evidencia con su propio APK; no acredita la corrección posterior del carrito.
 
-La candidata `candidate/android-rc5` incorpora la corrección del carrito del [PR #60](https://github.com/Markadw/SportCenter-mobile/pull/60), fuente `8e8a6da3fedbb61057efaa7fe30b6923b6195595`. Su [productor](https://github.com/Markadw/SportCenter-mobile/actions/runs/41810909053) y la posterior ejecución de cuenta deben aprobar antes de acreditar los nuevos casos. La compilación se solicita una vez; la prueba de cuenta sólo descarga el mismo APK y verifica su fuente, build y SHA256 exactos.
+La candidata `candidate/android-rc5` incorpora la corrección del carrito del [PR #60](https://github.com/Markadw/SportCenter-mobile/pull/60), fuente `8e8a6da3fedbb61057efaa7fe30b6923b6195595`. Su [productor](https://github.com/Markadw/SportCenter-mobile/actions/runs/41810909053) y la [ejecución de cuenta v3](https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397) están aprobados. La compilación se solicita una vez; la prueba de cuenta sólo descarga el mismo APK y verifica su fuente, build y SHA256 exactos.
 
 Los valores completos de procedencia están fijados en `SOURCE` de `scripts/android-account.cjs`. Se verifican el productor y su intento, todos sus trabajos exigidos, el ID y digest del artifact original y los JSON de inspección. EAS se consulta con `build:view` 27.4.0, sin construir otra app. Una guardia acepta sólo las rutas concretas de automatización y documentación revisadas desde la fuente del APK. Un cambio de aplicación, activos, configuración, paquetes o lockfile exige otra candidata.
 
@@ -60,3 +60,9 @@ Es una comprobación HTTP real con correo real. No se presenta como recorrido na
 La [ejecución v1](https://github.com/Markadw/SportCenter-mobile/actions/runs/41814484621) se detuvo en el chequeo previo con `FIXTURE_STOCK`: el carrito no ofrecía margen para aumentar una unidad. El login y logout auxiliar recibieron 201; no se abrió la interfaz ni se intentaron cambios. No se acredita ninguno de los casos no ejecutados. La cuenta QA aislada prepara una única variante con al menos tres existencias y mantiene una unidad como línea base reservada. La siguiente ejecución debe demostrar sus propios resultados.
 
 La [ejecución v2](https://github.com/Markadw/SportCenter-mobile/actions/runs/41817509395) aprobó login y lectura del perfil. El desplazamiento del ejecutor agotó la búsqueda antes de pulsar Guardar; no envió cambios de perfil ni carrito y confirmó la limpieza. La localización de los controles de perfil utiliza ahora `scrollUntilVisible` de Maestro, dirección explícita y validación posterior estricta del XML. Se mantienen todas las comparaciones y requisitos de aceptación.
+
+## Resultado RC5 aprobado
+
+La [ejecución v3](https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397), automatización `625ab15b48cbe2906b16e92949a20775135b753b`, aprobó los dieciséis casos y sus cinco cambios reversibles. Nombre y carrito persistieron después de detener/abrir la app y volvieron a la línea base original. Los demás campos/líneas permanecieron intactos; no hubo mutación incierta o cambio concurrente. Las cuatro limpiezas fueron confirmadas. Login/logout auxiliar: HTTP 201.
+
+El artifact `13316764661`, 1709 bytes, SHA256 `79715632da771ad516d32a2f41f66dd1b9e29aeb567cad87d6223dd23ead963e`, contiene exactamente los dos JSON saneados. Pedidos mostró una lista vacía: no acredita detalle/seguimiento, compra/pago, publicación de reseña ni dispositivo físico. Los fallos v1/v2 anteriores se conservan con su propio alcance.
