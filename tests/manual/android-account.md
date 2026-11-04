@@ -96,3 +96,16 @@ Contrato móvil comprobado en `src/api/cartApi.ts`, `src/api/checkoutApi.ts`, `s
 - Artifact `13287617795`, 1476 bytes, SHA256 `3ac467ea7b29cc1464961e55a29a9f7380687a4fe66d23e96842823ab6f38098`; se verificaron huella, tamaño y los dos JSON exactos. No contiene datos de cuenta.
 - Los intentos 1 y 2 se conservan: rechazo de credenciales y carrito vacío respectivamente. El propietario corrigió los datos de prueba y preparó una unidad en el carrito; el ejecutor no modificó ese carrito.
 - No acredita registro/correo, edición de perfil o dirección, creación de pedido, pago, elegibilidad de reseñas, eliminación de cuenta, teléfono físico completo ni publicación en Play.
+
+## Regresión adicional de lectura
+
+| ID | Condición exigida |
+|---|---|
+| RO01 | Con la sesión restaurada, Mis pedidos termina de cargar y muestra lista real o el estado vacío explícito. Loading y error no acreditan el caso. Sólo se registra empty/list; no se abre detalle o seguimiento ni se publican IDs. |
+| RO02 | Tras logout, la entrada directa a perfil muestra acceso y no el formulario privado. |
+| RO03 | Tras logout, la entrada directa a checkout solicita sesión sin dirección, totales ni botón de pago privados. |
+| RO04 | Como invitado se puede leer Privacidad y términos, documentos y datos de sesión local. No se abre un destino externo ni se completa/envía solicitud. |
+
+El resultado se publica en readOnlyChecks y orderListState dentro del mismo JSON saneado. finish exige esos cuatro resultados además de AC01–AC07 y la limpieza. La ejecución base de siete casos conserva su identidad y no se reinterpreta como evidencia de la ampliación.
+
+La [ejecución v7](https://github.com/Markadw/SportCenter-mobile/actions/runs/41774275494), automatización `4e5d9260d61fda1d7c6a2e142fa0d5cacd29602b`, aprobó AC01–AC07 y RO01–RO04 con limpieza confirmada. Pedidos mostró empty; no había un pedido visible en esa lista para acreditar detalle o seguimiento. Artifact `13296547368`, 1524 bytes, SHA256 `08388ba911403a74be93ac06b216a223fc2ceddac1b55b361250dd0fb6062287`, validado con los dos JSON exactos. La evidencia de la ejecución base anterior permanece separada y no se suma al nuevo conteo. No acredita pedido propio/detalle cuando la lista está vacía, escritura de perfil o dirección, pago ni QA física completa. La comprobación de pago completo espera que el administrador confirme un entorno Mercado Pago Prueba; el usuario indicó que no tiene acceso a Developers.

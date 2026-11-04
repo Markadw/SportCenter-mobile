@@ -506,6 +506,7 @@ jobs:
           RESULT_QUALITY: ${{ needs.quality.result }}
           RESULT_SECURITY: ${{ needs.security.result }}
           RESULT_RELEASE: ${{ needs.release.result }}
+  # Aceptación y regresión E2E de lectura/sesión con APK existente; sin pedido ni pago.
   account:
     name: Cuenta de pruebas en APK final API34
     if: ${{ startsWith(github.ref, 'refs/tags/validation/account-') }}
@@ -568,7 +569,7 @@ jobs:
       - name: Probar aislamiento Linux sin credenciales antes de Android
         timeout-minutes: 3
         run: node scripts/android-account.cjs probe
-      - name: Login perfil carrito resumen restauración y cierre sin pedido
+      - name: Cuenta pedidos privacidad y protección Android sin compra
         id: account_runtime
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -584,7 +585,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           script: node scripts/android-account.cjs runtime
-      - name: Exigir siete controles y limpieza confirmados
+      - name: Exigir siete controles cuatro comprobaciones de lectura y limpieza
         run: node scripts/android-account.cjs finish
       - name: Limpiar temporales privados de esta comprobación
         if: always()
