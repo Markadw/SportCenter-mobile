@@ -73,13 +73,13 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run typecheck:report
       - name: Preparar criptografía real sólo para la candidata explícita
-        if: startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-')
+        if: startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')
         run: bash scripts/android-pinning-install.sh
       - name: Unitarias, componentes, integración simulada y regresión
         id: tests
         run: npm run test:ci
         env:
-          PINNING_TEST_MITMDUMP: ${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-')) && 'mitmdump' || '' }}
+          PINNING_TEST_MITMDUMP: ${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')) && 'mitmdump' || '' }}
       - name: Validar matriz, dependencias y configuración de pruebas
         id: config
         run: npm run test:config

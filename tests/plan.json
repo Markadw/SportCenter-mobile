@@ -177,10 +177,13 @@
         "tests/manual/compra-cliente.md",
         "tests/manual/android-profiles.md",
         "tests/manual/android-release.md",
-        "scripts/android-release.js"
+        "scripts/android-release.js",
+        "tests/manual/android-account.md",
+        "scripts/android-account.cjs",
+        "scripts/account-sandbox.cjs"
       ],
       "status": "partial",
-      "scope": "Catálogo/detalle F2 aprobados en los binarios identificados; aceptación privada y física separada, pendiente.",
+      "scope": "Catálogo/detalle F2 y siete controles de cuenta API34 aprobados en sus binarios identificados; edición, pedido/pago y aceptación física completa pendientes.",
       "evidence": {
         "commit": "ac6bf53beaa2f69ba93aeb67b073c24796cc0002",
         "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/40453688133",
@@ -211,8 +214,61 @@
         },
         "debug": "historical-source-5dc-only-not-F2",
         "privateAndroid": {
-          "status": "not_run",
-          "execution": "automation_preparation_awaiting_verified_reserved_account"
+          "status": "passed_for_executed_scope",
+          "execution": "explicit_account_pipeline_completed",
+          "guide": "tests/manual/android-account.md",
+          "cases": [
+            "AC01",
+            "AC02",
+            "AC03",
+            "AC04",
+            "AC05",
+            "AC06",
+            "AC07"
+          ],
+          "scope": "Emulador API34: inicio, lectura de perfil/carrito/resumen, restauración, cierre y guardia de invitado; sin pedido/pago/edición ni teléfono físico.",
+          "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+          "attempt": 3,
+          "automationCommit": "8dccab9d053f426d2c9e010cd29d2ef45e8311f2",
+          "artifactId": 13287617795,
+          "artifactSha256": "3ac467ea7b29cc1464961e55a29a9f7380687a4fe66d23e96842823ab6f38098",
+          "results": [
+            {
+              "id": "AC01",
+              "status": "passed"
+            },
+            {
+              "id": "AC02",
+              "status": "passed"
+            },
+            {
+              "id": "AC03",
+              "status": "passed"
+            },
+            {
+              "id": "AC04",
+              "status": "passed"
+            },
+            {
+              "id": "AC05",
+              "status": "passed"
+            },
+            {
+              "id": "AC06",
+              "status": "passed"
+            },
+            {
+              "id": "AC07",
+              "status": "passed"
+            }
+          ],
+          "cleanup": {
+            "device": true,
+            "sandbox": true,
+            "localSession": true,
+            "serverRevocation": "not-independently-observed"
+          },
+          "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
         },
         "physical": {
           "status": "not_run",
@@ -343,8 +399,8 @@
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/8",
       "available": "Login y cierre, SecureStore nativo para refreshToken/sessionId, restauración y renovación coordinada implementados. Las pruebas controladas cubren rotación, 401 concurrentes, cambios de cuenta, errores de red/almacenamiento y respuestas tardías. La comprobación Android anterior mantiene su alcance histórico.",
       "pending": [
-        "Validar en Android final restauración al cerrar/abrir, renovación y cierre, incluidos fallos de conexión o almacenamiento.",
-        "Comprobar entrada directa sin sesión, vencimiento natural y cuenta no verificada; aceptación manual/física aplazada."
+        "Comprobar renovación al vencer naturalmente y fallos de conexión o almacenamiento en Android final.",
+        "Comprobar cambio entre dos cuentas y cuenta no verificada; aceptación física completa pendiente."
       ],
       "evidence": [
         "__tests__/authApi.test.ts",
@@ -393,6 +449,17 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeAccountEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "cases": [
+          "AC01",
+          "AC05",
+          "AC06",
+          "AC07"
+        ],
+        "status": "passed_for_executed_scope",
+        "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
       }
     },
     {
@@ -484,7 +551,7 @@
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/15",
       "available": "Lectura y actualización, contactos nulos, misma sesión y cancelación de respuestas de otra cuenta cubiertos con transporte controlado.",
       "pending": [
-        "Comprobar consulta y actualización reales del perfil en Android final; aceptación privada/física aplazada."
+        "Comprobar actualización real del perfil y su persistencia en Android final; la consulta ya pasó en emulador y la aceptación física completa sigue pendiente."
       ],
       "implementation": "implemented",
       "clientVerification": {
@@ -506,6 +573,14 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeAccountEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "cases": [
+          "AC02"
+        ],
+        "status": "passed_for_executed_scope",
+        "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
       }
     },
     {
@@ -518,7 +593,7 @@
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/11",
       "available": "Totales del servidor, sesión, doble pulsación, cambio de cuenta y errores de stock/red cubiertos con transporte controlado.",
       "pending": [
-        "Comprobar carrito y stock con una cuenta real en Android final; aceptación privada/física aplazada."
+        "Comprobar cambios de cantidad, retiro, variantes y errores de stock/red con cuenta real en Android final; carrito no vacío y resumen ya pasaron en emulador."
       ],
       "implementation": "implemented",
       "clientVerification": {
@@ -539,6 +614,14 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeAccountEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "cases": [
+          "AC03"
+        ],
+        "status": "passed_for_executed_scope",
+        "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
       }
     },
     {
@@ -551,7 +634,7 @@
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/12",
       "available": "La dirección nueva se envía sólo al confirmar el pedido mediante la transacción real; resumen, dirección y validaciones cubiertos con transporte controlado. La API no ofrece CRUD separado de direcciones.",
       "pending": [
-        "Comprobar direcciones y resumen propios en Android final; aceptación privada/física aplazada."
+        "Comprobar selección/alta de dirección en un pedido de pruebas autorizado; visualizar el resumen no guarda la dirección."
       ],
       "implementation": "implemented",
       "clientVerification": {
@@ -571,6 +654,14 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeAccountEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "cases": [
+          "AC04"
+        ],
+        "status": "passed_for_executed_scope",
+        "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
       }
     },
     {
@@ -638,6 +729,14 @@
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "nativeAccountEvidence": {
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "cases": [
+          "AC04"
+        ],
+        "status": "passed_for_executed_scope",
+        "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
       }
     },
     {
@@ -819,8 +918,54 @@
       "resumedAcceptance": "passed_attempt_2_reused_same_build",
       "nativeAcceptance": "passed_for_public_scope",
       "sha256": "092cdbbc6942fe16c941f814a0b581b26c33c8cd658ae5b0015d9c10f947d564",
-      "nativeScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK."
+      "nativeScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
+      "accountAcceptance": {
+        "status": "passed_for_executed_scope",
+        "execution": "explicit_account_pipeline_completed",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3",
+        "attempt": 3,
+        "automationCommit": "8dccab9d053f426d2c9e010cd29d2ef45e8311f2",
+        "artifactId": 13287617795,
+        "artifactSha256": "3ac467ea7b29cc1464961e55a29a9f7380687a4fe66d23e96842823ab6f38098",
+        "results": [
+          {
+            "id": "AC01",
+            "status": "passed"
+          },
+          {
+            "id": "AC02",
+            "status": "passed"
+          },
+          {
+            "id": "AC03",
+            "status": "passed"
+          },
+          {
+            "id": "AC04",
+            "status": "passed"
+          },
+          {
+            "id": "AC05",
+            "status": "passed"
+          },
+          {
+            "id": "AC06",
+            "status": "passed"
+          },
+          {
+            "id": "AC07",
+            "status": "passed"
+          }
+        ],
+        "cleanup": {
+          "device": true,
+          "sandbox": true,
+          "localSession": true,
+          "serverRevocation": "not-independently-observed"
+        },
+        "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      }
     },
-    "scope": "Procedencia, inspección y aceptación pública verificadas; aceptación privada, teléfono físico y publicación en Play siguen pendientes."
+    "scope": "Procedencia, inspección, aceptación pública y siete controles de cuenta del Preview F2 verificados; edición, pedidos/pagos, aceptación física completa y publicación en Play pendientes."
   }
 }

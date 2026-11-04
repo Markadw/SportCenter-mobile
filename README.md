@@ -196,6 +196,12 @@ flowchart LR
 ```
 
 
+### Aceptación de cuenta en el APK final
+
+El auxiliar `validation/account-*` reutiliza el Preview F2 identificado arriba. Comprueba inicio, perfil de lectura, carrito, resumen sin confirmar compra, restauración al cerrar/abrir, cierre y protección como invitado. Requiere una cuenta de cliente verificada y reservada, con producto disponible en el carrito y los secretos `ANDROID_TEST_EMAIL` y `ANDROID_TEST_PASSWORD`. No modifica perfil, direcciones o carrito ni crea pedidos o pagos. Un carrito vacío bloquea el caso sin agregar productos.
+
+La [guía de cuenta Android](tests/manual/android-account.md) describe los siete controles, la procedencia exigida y los límites. Maestro se ejecuta con un UID efímero y tráfico IP restringido a loopback; el emulador conserva su conexión HTTPS. Los dos informes públicos sólo contienen IDs, huellas, estados y códigos permitidos. Capturas, XML, registros y credenciales quedan fuera de los artifacts. La [aceptación real del APK, intento 3](https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3) aprobó los siete controles AC01–AC07, con limpieza confirmada. Los intentos anteriores permanecen como histórico: credenciales rechazadas en el primero y carrito vacío en el segundo. No acredita edición de perfil/dirección, pedidos, pagos, revocación independiente en servidor ni el recorrido completo en teléfono físico.
+
 ### Evidencia Android histórica
 
 Los resultados siguientes conservan sus commits y artefactos originales. La aceptación pública de F2 se registra por separado en los runs rc4 y Release AAB enlazados arriba; los recorridos privados y físicos mantienen su estado pendiente.
@@ -258,7 +264,7 @@ La [arquitectura y los patrones aplicados](docs/arquitectura.md) describen la co
 
 ## Alcance de las historias
 
-Los criterios de HU-03 (#9) y HU-04 (#10) del tablero cubren catálogo y detalle públicos con datos reales y manejo de estados. Registro, sesión segura, perfil, carrito, direcciones/resumen de compra y pedidos están implementados, al igual que las ampliaciones autorizadas de recuperación y reseñas. Las pruebas del cliente comprueban sus contratos, lógica y estados mediante transportes controlados. La aceptación privada y física final continúa aplazada; implementación y cobertura controlada no se presentan como una comprobación completa en el teléfono.
+Los criterios de HU-03 (#9) y HU-04 (#10) del tablero cubren catálogo y detalle públicos con datos reales y manejo de estados. Registro, sesión segura, perfil, carrito, direcciones/resumen de compra y pedidos están implementados, al igual que las ampliaciones autorizadas de recuperación y reseñas. Las pruebas del cliente comprueban sus contratos, lógica y estados mediante transportes controlados. La aceptación de cuenta F2 aprobó inicio, perfil de lectura, carrito, resumen, restauración, cierre y protección de invitado en emulador API34. La edición, pedidos/pagos y aceptación física completa conservan sus comprobaciones pendientes.
 
 La matriz `tests/plan.json` conserva las nueve historias iniciales y añade HU-10 (#47, recuperación) y HU-11 (#48, reseñas), autorizadas sin alterar los 52 SP de la línea base. Los estados del tablero requieren conciliación con las entregas: una issue cerrada o una fecha vencida no sustituye la evidencia de implementación.
 

@@ -6,6 +6,7 @@ on:
       - validation/android-*
       - validation/profiles-*
       - validation/release-*
+      - validation/account-*
 permissions:
   contents: read
   actions: read
@@ -505,3 +506,111 @@ jobs:
           RESULT_QUALITY: ${{ needs.quality.result }}
           RESULT_SECURITY: ${{ needs.security.result }}
           RESULT_RELEASE: ${{ needs.release.result }}
+  account:
+    name: Cuenta de pruebas en APK final API34
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/account-') }}
+    needs: [quality, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      keep_evidence: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verificar productor y evidencia del APK existente
+        run: node scripts/android-account.cjs prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar dependencias exactas para consultar EAS
+        run: npm ci --no-audit --no-fund
+      - name: Consultar sólo el Preview final existente
+        run: node scripts/android-account.cjs view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar el mismo APK y verificar su huella
+        run: node scripts/android-account.cjs download
+      - name: Crear directorio exclusivo para el proceso aislado
+        run: node scripts/android-account.cjs runtime-dir
+      - name: Instalar Maestro 2.12 verificado sin credenciales de cuenta
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro-account.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-account.zip" | sha256sum --check --strict
+          umask 022
+          test -n "${ACCOUNT_SANDBOX_PARENT:-}"
+          unzip -q "$RUNNER_TEMP/maestro-account.zip" -d "$ACCOUNT_SANDBOX_PARENT/maestro-account"
+          echo "$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar KVM sin credenciales de cuenta
+        timeout-minutes: 2
+        run: node scripts/android-account.cjs kvm
+        env:
+          PINNING_EPHEMERAL_AVD: 'true'
+      - name: Exigir ADB del SDK instalado antes del chequeo previo
+        id: account_adb_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+      - name: Probar aislamiento Linux sin credenciales antes de Android
+        timeout-minutes: 3
+        run: node scripts/android-account.cjs probe
+      - name: Login perfil carrito resumen restauración y cierre sin pedido
+        id: account_runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_TEST_EMAIL: ${{ secrets.ANDROID_TEST_EMAIL }}
+          ANDROID_TEST_PASSWORD: ${{ secrets.ANDROID_TEST_PASSWORD }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: account-final34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: node scripts/android-account.cjs runtime
+      - name: Exigir siete controles y limpieza confirmados
+        run: node scripts/android-account.cjs finish
+      - name: Limpiar temporales privados de esta comprobación
+        if: always()
+        run: node scripts/android-account.cjs cleanup
+      - name: Conservar únicamente resultados sin datos de cuenta
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-account-evidence
+          path: |
+            test-results/android-account-source.json
+            test-results/android-account.json
+          if-no-files-found: error
+          retention-days: 14
+  account_result:
+    name: Resultado de cuenta Android
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/account-') }}
+    needs: [quality, security, account]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Exigir calidad seguridad y ejecución privada aprobadas
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_ACCOUNT: ${{ needs.account.result }}
+        run: |
+          test "$RESULT_QUALITY" = success
+          test "$RESULT_SECURITY" = success
+          test "$RESULT_ACCOUNT" = success
