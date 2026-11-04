@@ -13,9 +13,11 @@ const RECEIPT_FILE = 'config/android-release-validation.json';
 const PROOF_FILE = 'test-results/android-release-source.json';
 const REPORT_FILE = 'test-results/android-release.json';
 const MODE = 'production-release-only';
-const FINAL_SOURCE = 'e15671b17615621b29f4bc4bb9c0ccfdf167e657';
-const PREBUILD_RUN_ID = 41707259944;
-const PREBUILD_SCOPE = 'quality-sast-http-dast-and-script-inspection-not-android';
+const FINAL_SOURCE = '8e8a6da3fedbb61057efaa7fe30b6923b6195595';
+const PREBUILD_RUN_ID = 41810909053;
+const PREBUILD_SCOPE = 'rc5-preview-quality-sast-http-apk-api34-tls-api30';
+const PREBUILD_ATTEMPT = 1;
+const PREBUILD_ANDROID_SCOPE = 'passed-rc5-preview-api34-and-controlled-tls-api30';
 const TAG = /^refs\/tags\/validation\/release-[A-Za-z0-9_.-]+$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const HEX = /^[a-f0-9]{64}$/;
@@ -72,24 +74,25 @@ function verifyAutomation(receipt, { sha, ref, repository, head, changed, dirty 
 }
 function verifyPrebuild(receipt, run, jobs) {
   verifyReceipt(receipt);
-  need(run?.id === receipt.prebuildRunId && run.head_sha === receipt.sourceCommit && run.event === 'push' &&
-    run.head_branch === 'develop' &&
-    run.path === '.github/workflows/api-android.yml' && run.status === 'completed' && run.conclusion === 'success' &&
-    run.repository?.full_name === receipt.repository, 'RELEASE_PREBUILD_NOT_APPROVED');
-  need(Array.isArray(jobs?.jobs) && jobs.total_count === jobs.jobs.length, 'RELEASE_PREBUILD_JOBS_INCOMPLETE');
-  for (const name of ['Calidad previa a integración / Análisis estático y pruebas del cliente',
+  need(run?.id === PREBUILD_RUN_ID && run.id === receipt.prebuildRunId && run.head_sha === FINAL_SOURCE &&
+    run.head_sha === receipt.sourceCommit && run.run_attempt === PREBUILD_ATTEMPT && run.event === 'push' &&
+    run.head_branch === 'candidate/android-rc5' && run.path === '.github/workflows/api-android.yml' &&
+    run.status === 'completed' && run.conclusion === 'success' && run.repository?.full_name === receipt.repository,
+  'RELEASE_PREBUILD_NOT_APPROVED');
+  need(Array.isArray(jobs?.jobs) && Number.isSafeInteger(jobs.total_count) && jobs.total_count === jobs.jobs.length,
+    'RELEASE_PREBUILD_JOBS_INCOMPLETE');
+  for (const name of ['Definir comprobaciones por evento y rama',
+    'Calidad previa a integración / Análisis estático y pruebas del cliente',
     'Seguridad previa a integración y APK / Dependencias y SAST CodeQL', 'Integración HTTP real y regresión de contratos',
-    'Comprobar configuración de rendimiento y estrés / Inspeccionar guiones sin ejecutar carga', 'Definir comprobaciones por evento y rama', 'Resultado de integración']) {
+    'Comprobar configuración de rendimiento y estrés / Inspeccionar guiones sin ejecutar carga',
+    'Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK', 'Resultado de integración']) {
     const found = jobs.jobs.filter(job => job.name === name);
-    need(found.length === 1 && found[0].run_id === receipt.prebuildRunId && found[0].status === 'completed' &&
-      found[0].conclusion === 'success', 'RELEASE_PREBUILD_CHECK_NOT_SUCCESSFUL');
+    need(found.length === 1 && found[0].run_id === PREBUILD_RUN_ID && found[0].run_attempt === PREBUILD_ATTEMPT &&
+      found[0].status === 'completed' && found[0].conclusion === 'success', 'RELEASE_PREBUILD_CHECK_NOT_SUCCESSFUL');
   }
-  for (const name of ['Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK']) {
-    const found = jobs.jobs.filter(job => job.name === name);
-    need(found.length === 1 && found[0].run_id === PREBUILD_RUN_ID && found[0].status === 'completed' &&
-      found[0].conclusion === 'skipped', 'RELEASE_PREBUILD_NATIVE_SCOPE_MISMATCH');
-  }
-  return { prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: 'not-executed-by-branch-policy' };
+  // This is evidence of the exact Preview producer, not acceptance of the new AAB.
+  return { prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: PREBUILD_ANDROID_SCOPE,
+    prebuildAttempt: PREBUILD_ATTEMPT };
 }
 function verifyBuild(receipt, build, now = Date.now()) {
   verifyReceipt(receipt);
@@ -200,7 +203,7 @@ async function sourceContext(env, receipt, run = command, read = fs.readFileSync
   let proof;
   try { proof = JSON.parse(read(PROOF_FILE, 'utf8')); } catch { throw new ReleaseError('RELEASE_SOURCE_PROOF_MISSING'); }
   need(proof.prebuildChecksVerified === true && proof.prebuildScope === PREBUILD_SCOPE &&
-    proof.prebuildAndroid === 'not-executed-by-branch-policy' && Object.entries(context).every(([key, value]) => proof[key] === value), 'RELEASE_SOURCE_PROOF_MISMATCH');
+    proof.prebuildAndroid === PREBUILD_ANDROID_SCOPE && proof.prebuildAttempt === PREBUILD_ATTEMPT && Object.entries(context).every(([key, value]) => proof[key] === value), 'RELEASE_SOURCE_PROOF_MISMATCH');
   return context;
 }
 async function inspect(receipt, env, context, run = command) {
@@ -311,7 +314,7 @@ async function main(mode, env = process.env) {
   if (mode === 'finish') { save(validateResult(receipt, JSON.parse(fs.readFileSync(REPORT_FILE, 'utf8')), context)); return; }
   throw new ReleaseError('RELEASE_MODE_UNKNOWN');
 }
-module.exports = { RECEIPT_FILE, PROOF_FILE, REPORT_FILE, MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, LINK_CASES, AUTOMATION_FILES, ReleaseError, fingerprint,
+module.exports = { RECEIPT_FILE, PROOF_FILE, REPORT_FILE, MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, LINK_CASES, AUTOMATION_FILES, ReleaseError, fingerprint,
   verifyReceipt, readReceipt, verifyAutomation, verifyPrebuild, verifyBuild, incomingFlow, verifyLinkLaunch, verifyLinkReport, validateIncomingLinks,
   sourceContext, inspect, validateResult, main };
 if (require.main === module) main(process.argv[2]).catch(error => { console.error('Validación Release bloqueada: ' +

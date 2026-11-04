@@ -1410,5 +1410,210 @@
       "browserPersistentProfileSaved": false,
       "rawAccountArtifactsPublished": false
     }
+  },
+  "productionRc5Acceptance": {
+    "runId": 41825217994,
+    "runAttempt": 1,
+    "tag": "validation/release-rc5-v1",
+    "automationCommit": "55abb893cce4d868192724838e251dee755deae6",
+    "artifactSourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+    "buildId": "c55fd545-cff4-4758-a5be-5bc583b85589",
+    "aabSha256": "db53be0e836ff939e56a74607115ee79e482a6fd537a933ff7b0d6bcc7b54f36",
+    "aabBytes": 68959777,
+    "artifactId": 13320530258,
+    "artifactSha256": "7df6d3f0b9889755cc80c79c113912474bf035aab2f5ed152c52f2285d47b72f",
+    "artifactBytes": 521503,
+    "digestVerified": true,
+    "status": "passed_production_release_scope",
+    "totalExecutions": 8,
+    "junit": {
+      "API34": [
+        {
+          "name": "CP-04 detalle publico en Android",
+          "status": "SUCCESS"
+        },
+        {
+          "name": "CP-03 catalogo publico en Android",
+          "status": "SUCCESS"
+        }
+      ],
+      "API36": [
+        {
+          "name": "CP-04 detalle publico en Android",
+          "status": "SUCCESS"
+        },
+        {
+          "name": "CP-03 catalogo publico en Android",
+          "status": "SUCCESS"
+        }
+      ],
+      "API34-L01": [
+        {
+          "name": "L01 native public entry",
+          "status": "SUCCESS"
+        }
+      ],
+      "API34-L02": [
+        {
+          "name": "L02 native public entry",
+          "status": "SUCCESS"
+        }
+      ],
+      "API36-L01": [
+        {
+          "name": "L01 native public entry",
+          "status": "SUCCESS"
+        }
+      ],
+      "API36-L02": [
+        {
+          "name": "L02 native public entry",
+          "status": "SUCCESS"
+        }
+      ]
+    },
+    "phases": {
+      "API34": {
+        "version": 1,
+        "validationMode": "production-release-only",
+        "artifactSourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+        "automationCommit": "55abb893cce4d868192724838e251dee755deae6",
+        "prebuildRunId": 41810909053,
+        "productionBuildId": "c55fd545-cff4-4758-a5be-5bc583b85589",
+        "productionSha256": "db53be0e836ff939e56a74607115ee79e482a6fd537a933ff7b0d6bcc7b54f36",
+        "receiptSha256": "6ec6d10c44fd66019731079c7c54b905ca4a6ce0bd182baec8dd464ede98d790",
+        "changedAutomationFiles": 4,
+        "api": 34,
+        "abi": "x86_64",
+        "status": "passed_public_scope",
+        "profile": "production",
+        "selectedDevice": "emulator-5554",
+        "configuredAvdName": "profiles-release34",
+        "cleanReleaseStart": {
+          "metroAbsent": true,
+          "reverseAbsent": true,
+          "packageAbsent": true
+        },
+        "independentOfMetro": true,
+        "incomingLinks": {
+          "method": "adb-view-cold-public-uri",
+          "scope": "native-entry-routing-not-decoder-recovery",
+          "cases": [
+            {
+              "id": "L01",
+              "status": "passed",
+              "label": "unicode-plus-catalog-query",
+              "nativeLaunchConfirmed": true
+            },
+            {
+              "id": "L02",
+              "status": "passed",
+              "label": "malformed-uri-catalog-fallback",
+              "nativeLaunchConfirmed": true
+            }
+          ]
+        },
+        "publicFlows": 2,
+        "processAfter": true,
+        "crashCheck": {
+          "fatalCrashDetected": false,
+          "scope": "crash-buffer-since-launch-package-identity"
+        },
+        "cleanup": "passed",
+        "scope": "AAB-derived-release-public-flows-without-Metro"
+      },
+      "API36": {
+        "version": 1,
+        "validationMode": "production-release-only",
+        "artifactSourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+        "automationCommit": "55abb893cce4d868192724838e251dee755deae6",
+        "prebuildRunId": 41810909053,
+        "productionBuildId": "c55fd545-cff4-4758-a5be-5bc583b85589",
+        "productionSha256": "db53be0e836ff939e56a74607115ee79e482a6fd537a933ff7b0d6bcc7b54f36",
+        "receiptSha256": "6ec6d10c44fd66019731079c7c54b905ca4a6ce0bd182baec8dd464ede98d790",
+        "changedAutomationFiles": 4,
+        "api": 36,
+        "abi": "x86_64",
+        "status": "passed_public_scope",
+        "profile": "production",
+        "selectedDevice": "emulator-5554",
+        "configuredAvdName": "profiles16k",
+        "cleanReleaseStart": {
+          "metroAbsent": true,
+          "reverseAbsent": true,
+          "packageAbsent": true
+        },
+        "image": {
+          "package": "system-images;android-36;google_apis_ps16k;x86_64",
+          "revision": 7
+        },
+        "runtimeBefore": {
+          "pageSize": 16384,
+          "abi": "x86_64",
+          "api": 36
+        },
+        "backcompatDisabled": true,
+        "independentOfMetro": true,
+        "incomingLinks": {
+          "method": "adb-view-cold-public-uri",
+          "scope": "native-entry-routing-not-decoder-recovery",
+          "cases": [
+            {
+              "id": "L01",
+              "status": "passed",
+              "label": "unicode-plus-catalog-query",
+              "nativeLaunchConfirmed": true
+            },
+            {
+              "id": "L02",
+              "status": "passed",
+              "label": "malformed-uri-catalog-fallback",
+              "nativeLaunchConfirmed": true
+            }
+          ]
+        },
+        "publicFlows": 2,
+        "processAfter": true,
+        "crashCheck": {
+          "fatalCrashDetected": false,
+          "scope": "crash-buffer-since-launch-package-identity"
+        },
+        "runtimeAfter": {
+          "pageSize": 16384,
+          "abi": "x86_64",
+          "api": 36
+        },
+        "cleanup": "passed",
+        "scope": "derived-AAB-x86_64-16KB-simulation-not-native-ARM64"
+      }
+    },
+    "physicalDevice": "not-run",
+    "playSubmission": "not-run",
+    "reviewedIntegrationChanges": {
+      "applicationSourceTreeUnchanged": true,
+      "changesOnlyReviewedTestAndDocumentPaths": true,
+      "comparedPaths": [
+        ".github/workflows/android-validation.yml",
+        "README.md",
+        "__tests__/accountAuthProbe.test.js",
+        "__tests__/accountFixture.test.js",
+        "__tests__/accountSandbox.test.js",
+        "__tests__/androidAccount.test.js",
+        "__tests__/androidAccountWorkflow.test.js",
+        "__tests__/androidRelease.test.js",
+        "config/android-release-validation.json",
+        "docs/seguridad-candidata.md",
+        "scripts/account-auth-probe.cjs",
+        "scripts/account-fixture.cjs",
+        "scripts/account-sandbox.cjs",
+        "scripts/android-account.cjs",
+        "scripts/android-release.js",
+        "scripts/validate-test-configs.js",
+        "tests/manual/android-account.md",
+        "tests/manual/android-release.md",
+        "tests/plan.json"
+      ],
+      "srcTree": "23311105e23b29b27c8b88df5f7f6a1b3a4960fc"
+    }
   }
 }

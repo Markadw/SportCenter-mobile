@@ -9,7 +9,7 @@ const path = require('node:path');
 const YAML = require('yaml');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const profiles = require('../scripts/android-profiles');
-const { MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, AUTOMATION_FILES, verifyReceipt, readReceipt, fingerprint, verifyAutomation, verifyPrebuild,
+const { MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, AUTOMATION_FILES, verifyReceipt, readReceipt, fingerprint, verifyAutomation, verifyPrebuild,
   verifyBuild, sourceContext, validateResult, LINK_CASES, incomingFlow, verifyLinkLaunch, verifyLinkReport,
   validateIncomingLinks } = require('../scripts/android-release');
 
@@ -23,15 +23,14 @@ const automation = () => ({ sha: automationCommit, ref: 'refs/tags/validation/re
 const context = () => verifyAutomation(receipt(), automation());
 const contract = () => ({ sourceCommit, buildId: receipt().production.buildId, sha256: receipt().production.sha256 });
 function producer() {
-  const names = ['Calidad previa a integración / Análisis estático y pruebas del cliente',
+  const names = ['Definir comprobaciones por evento y rama', 'Calidad previa a integración / Análisis estático y pruebas del cliente',
     'Seguridad previa a integración y APK / Dependencias y SAST CodeQL', 'Integración HTTP real y regresión de contratos',
     'Comprobar configuración de rendimiento y estrés / Inspeccionar guiones sin ejecutar carga',
-    'Definir comprobaciones por evento y rama', 'Resultado de integración'];
-  const skipped = ['Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK'];
-  return { run: { id: PREBUILD_RUN_ID, head_sha: sourceCommit, head_branch: 'develop', event: 'push', path: '.github/workflows/api-android.yml',
-    status: 'completed', conclusion: 'success', repository: { full_name: profiles.SOURCE.repository } },
-  jobs: { total_count: names.length + skipped.length, jobs: [...names.map(name => ({ name, run_id: PREBUILD_RUN_ID, status: 'completed', conclusion: 'success' })),
-    ...skipped.map(name => ({ name, run_id: PREBUILD_RUN_ID, status: 'completed', conclusion: 'skipped' }))] } };
+    'Resultado de integración', 'Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK'];
+  return { run: { id: PREBUILD_RUN_ID, head_sha: sourceCommit, head_branch: 'candidate/android-rc5', run_attempt: PREBUILD_ATTEMPT,
+    event: 'push', path: '.github/workflows/api-android.yml', status: 'completed', conclusion: 'success', repository: { full_name: profiles.SOURCE.repository } },
+  jobs: { total_count: names.length, jobs: names.map(name => ({ name, run_id: PREBUILD_RUN_ID, run_attempt: PREBUILD_ATTEMPT,
+    status: 'completed', conclusion: 'success' })) } };
 }
 function build() { const value = receipt(); return { id: value.production.buildId, platform: 'ANDROID', status: 'FINISHED',
   gitCommitHash: value.sourceCommit, buildProfile: 'production', app: { id: value.projectId }, appIdentifier: value.appId,
@@ -74,14 +73,14 @@ test('la automatización nueva acepta sólo rutas exactas y jamás lock, app o p
     expect(() => verifyAutomation(receipt(), { ...automation(), ...changed })).toThrow();
   }
 });
-test('requiere la CI previa exacta de F y no atribuye sus omisiones APK/TLS como aceptación', () => {
-  const value = producer(); expect(verifyPrebuild(receipt(), value.run, value.jobs)).toEqual({ prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: 'not-executed-by-branch-policy' });
+test('requiere el productor RC5 exacto con ocho jobs aprobados, incluido Preview y TLS', () => {
+  const value = producer(); expect(verifyPrebuild(receipt(), value.run, value.jobs)).toEqual({ prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: PREBUILD_ANDROID_SCOPE, prebuildAttempt: PREBUILD_ATTEMPT });
   for (const mutate of [value => { value.run.head_sha = profiles.SOURCE.commit; }, value => { value.run.head_branch = 'candidate/android-rc3'; },
     value => { value.run.conclusion = 'failure'; }, value => { value.run.event = 'pull_request'; },
     value => { value.jobs.jobs[4].conclusion = 'skipped'; }, value => { value.jobs.jobs[4].status = 'in_progress'; },
     value => { value.jobs.jobs.push(value.jobs.jobs[0]); value.jobs.total_count++; }, value => { value.jobs.total_count++; },
-    value => { value.jobs.jobs[6].conclusion = 'success'; }, value => { value.jobs.jobs[7].conclusion = 'failure'; },
-    value => { value.run.id += 1; },
+    value => { value.jobs.jobs[6].conclusion = 'skipped'; }, value => { value.jobs.jobs[7].conclusion = 'failure'; },
+    value => { value.run.id += 1; }, value => { value.run.run_attempt += 1; }, value => { value.jobs.jobs[0].run_attempt += 1; },
     value => { value.run.status = 'in_progress'; value.run.conclusion = null; }]) {
     const input = producer(); mutate(input); expect(() => verifyPrebuild(receipt(), input.run, input.jobs)).toThrow();
   }
@@ -99,7 +98,7 @@ test('el AAB debe ser FINISHED, del SHA, perfil y mensaje congelados; jamás Pre
 test('revalida prueba de fuente por paso y rechaza otra revisión o comprobaciones previas no acreditadas', async () => {
   const env = { GITHUB_SHA: automationCommit, GITHUB_REF: automation().ref, GITHUB_REPOSITORY: profiles.SOURCE.repository };
   const run = async (_tool, args) => args[0] === 'rev-parse' ? automationCommit : args[0] === 'diff' ? automation().changed : '';
-  const proof = { ...context(), prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: 'not-executed-by-branch-policy' };
+  const proof = { ...context(), prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: PREBUILD_ANDROID_SCOPE, prebuildAttempt: PREBUILD_ATTEMPT };
   await expect(sourceContext(env, receipt(), run, () => JSON.stringify(proof))).resolves.toEqual(context());
   for (const invalid of [{ ...proof, prebuildChecksVerified: false }, { ...proof, prebuildScope: 'native-apk-tls-passed' },
     { ...proof, prebuildAndroid: 'passed' }, { ...proof, receiptSha256: 'b'.repeat(64) },
