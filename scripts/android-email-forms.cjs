@@ -49,6 +49,27 @@ function formsYaml(name,body){
  need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&FLOW_BODIES.has(body),'FORMS_MAESTRO_FAILED');
  return 'appId: '+PACKAGE+'\nname: '+name+' private account\n---\n'+body+'\n';
 }
+function landingReady(route,nodes){
+ const field=label=>nodes.some(node=>node.package===PACKAGE&&node.class==='android.widget.EditText'&&node['content-desc']===label&&node.enabled==='true');
+ if(route==='register')return account.hasLabel(nodes,'Crear cuenta')&&field('Nombre');
+ if(route==='forgot-password')return account.hasLabel(nodes,'Recuperar contraseña')&&field('Correo');
+ if(route==='login')return account.hasLabel(nodes,'Accede a tu cuenta de Sport Center.')&&field('Correo electrónico');
+ throw new FormsError('FORMS_UI_INVALID');
+}
+const MAESTRO_KEYS=Object.freeze(['action','resultObserved','exitCode','timedOut','junitRead','junitValid','errorEnum']);
+function safeMaestroDiagnostic(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==MAESTRO_KEYS.length||!MAESTRO_KEYS.every(key=>Object.hasOwn(value,key)))return null;
+ if(!['scroll','input'].includes(value.action)||!['resultObserved','timedOut','junitRead','junitValid'].every(key=>typeof value[key]==='boolean')||!(value.exitCode===null||Number.isInteger(value.exitCode)&&value.exitCode>=-1&&value.exitCode<=255)||!['none','element-not-found','device-offline','timeout','junit-invalid','process-error','other'].includes(value.errorEnum))return null;
+ return Object.fromEntries(MAESTRO_KEYS.map(key=>[key,value[key]]));
+}
+function maestroErrorEnum(result){
+ if(result?.timedOut===true)return'timeout';
+ const text=[result?.stdout,result?.stderr].filter(value=>typeof value==='string').map(value=>value.slice(0,1048576)).join('\n');
+ if(/device[^\r\n]*(?:offline|not found)|no devices\/emulators|device disconnected/i.test(text))return'device-offline';
+ if(/element[^\r\n]*not found|no (?:matching )?elements? found|unable to find[^\r\n]*element/i.test(text))return'element-not-found';
+ if(/timed? out|timeout|deadline exceeded/i.test(text))return'timeout';
+ return'other';
+}
 async function waitForUi(predicate,{readUi,now=Date.now,wait=pause}){
  const deadline=now()+45000;let invalidReads=0;
  while(now()<deadline){
@@ -110,10 +131,12 @@ function publicReport(state,config){
   producerRun:config.producerRun,producerAttempt:config.producerAttempt,status:state.status==='passed'?'passed':'failed',stage:STAGES.includes(state.failureStage||state.stage)?state.failureStage||state.stage:'unknown',
   cases:(phase?PHASE_CASES[phase]:[]).map(id=>({id,status:['passed','failed','not_run'].includes(state.cases?.[id])?state.cases[id]:'not_run'})),evidence:Object.fromEntries(EVIDENCE.map(k=>[k,state.evidence?.[k]===true])),operationUncertain:state.operationUncertain===true,
   recoveryUi:Object.fromEntries(['codeObserved','updateButtonObserved','lastCodeVisible','lastUpdateButtonVisible'].map(key=>[key,state.recoveryUi?.[key]===true])),
+  maestroDiagnostic:safeMaestroDiagnostic(state.maestroDiagnostic),
   cleanup:{device:state.cleanup?.device===true,sandbox:state.cleanup?.sandbox===true,localSession:state.cleanup?.localSession===true},sandboxDiagnostic:isSafeSandboxDiagnostic(state.sandboxDiagnostic)?state.sandboxDiagnostic:null,failureCodes:[...new Set((state.errors||[]).map(safeCode))],
   gmailDelivery:'not-observed-by-runner',serverRevocation:'not-independently-observed',physicalDevice:'not-run',payment:'not-run'};
  if(report.status==='passed'&&(!phase||report.stage!=='completed'||!report.cases.length||!report.cases.every(c=>c.status==='passed')||!REQUIRED_EVIDENCE[phase].every(key=>report.evidence[key])||!Object.values(report.cleanup).every(Boolean)||report.operationUncertain||report.failureCodes.length))report.status='failed';
  if(report.status==='passed'&&phase!=='register'&&(!report.recoveryUi.codeObserved||!report.recoveryUi.updateButtonObserved))report.status='failed';
+ if(report.status==='passed'&&report.maestroDiagnostic!==null)report.status='failed';
  return report;
 }
 async function strictRun(file,args,options={}){try{return(await promisify(execFile)(file,args,{encoding:'utf8',timeout:45000,maxBuffer:1024*1024,windowsHide:true,...options})).stdout;}catch{throw new FormsError('FORMS_PROCESS_FAILED');}}
@@ -127,12 +150,21 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
  const adb=async args=>stdout(await run('adb',['-s',serial,...args],{}));
  const readUi=async()=>{try{await adb(['shell','uiautomator','dump',remote+'/ui.xml']);return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml']));}finally{await adb(['shell','rm','-f',remote+'/ui.xml']);}};
- const flow=async(body,value)=>{const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});need(result.exitCode===0,'FORMS_MAESTRO_FAILED');account.verifyJUnit(await box.readPrivateFile(name+'.xml'),name,xmlTree);};
+ const flow=async(body,value)=>{
+  const diagnostic={action:body===FIELD_BODY?'input':'scroll',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error'};
+  try{
+   const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');
+   const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});
+   diagnostic.resultObserved=true;diagnostic.exitCode=Number.isInteger(result?.exitCode)&&result.exitCode>=-1&&result.exitCode<=255?result.exitCode:null;diagnostic.timedOut=result?.timedOut===true;diagnostic.errorEnum=maestroErrorEnum(result);
+   need(result?.exitCode===0&&!diagnostic.timedOut,'FORMS_MAESTRO_FAILED');
+   diagnostic.errorEnum='junit-invalid';const junit=await box.readPrivateFile(name+'.xml');diagnostic.junitRead=true;account.verifyJUnit(junit,name,xmlTree);diagnostic.junitValid=true;
+  }catch(error){state.maestroDiagnostic=diagnostic;throw error;}
+ };
  const measured=async(label,kind)=>account.point(await readUi(),label,kind);
  const reveal=async label=>flow(tapBody(label));
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
-  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);},
+  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
   async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
@@ -155,7 +187,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,waitForUi,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,landingReady,safeMaestroDiagnostic,maestroErrorEnum,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}
@@ -186,7 +218,7 @@ async function probeForms(config,env,{run=strictRun,create=createSandbox,parent=
 }
 function verifyFinished(config,env,report){
  const currentPhase=/^refs\/tags\/validation\/account-forms-(register|verify|reset)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(currentPhase&&report.phase===currentPhase[1],'FORMS_SOURCE_INVALID');
- const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
+ const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,maestroDiagnostic:report.maestroDiagnostic,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
  need(clean.status==='passed'&&report.artifactSourceCommit===config.sourceCommit&&report.automationCommit===env.GITHUB_SHA&&report.apkSha256===config.sha256&&report.buildId===config.buildId&&report.producerRun===config.producerRun&&report.producerAttempt===config.producerAttempt&&JSON.stringify(clean)===JSON.stringify(report),'FORMS_CASES_INCOMPLETE');return clean;
 }
 async function main(mode,env=process.env){

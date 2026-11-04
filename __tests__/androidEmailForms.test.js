@@ -149,22 +149,43 @@ test('failed sandbox setup with unconfirmed cleanup cannot be marked cleaned up 
 });
 async function runtimeFailure(options={}){
  const c=config(),e={...env('register'),ACCOUNT_UNIT_TEST:true,GITHUB_RUN_ID:'1'},context={phase:'register',artifactSourceCommit:c.sourceCommit,automationCommit:e.GITHUB_SHA,producerVerified:true,parentInspectionVerified:true,producerRun:c.producerRun,producerAttempt:c.producerAttempt,apkSha256:c.sha256,buildId:c.buildId,receiptSha256:guard.fingerprint(c),sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}};
- let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='';const calls=[],flows=[],privateField='Dato sintetico QA';
+ let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='',uiReads=0,clock=0;const calls=[],flows=[],privateField=options.landingRoute?env('register').ANDROID_FORMS_EMAIL:'Dato sintetico QA';
  const run=async(file,args)=>{calls.push([file,...args]);assert.equal(args.some(v=>Object.values(env('register')).includes(v)&&v!==e.GITHUB_SHA&&v!==e.GITHUB_REF),false);
   if(args[0]==='devices')return'List of devices attached\nemulator-5554\tdevice\n';const a=args.slice(2);
   if(a[0]==='shell'&&a[1]==='getprop')return'34\n';if(a[0]==='shell'&&a[1]==='pm'&&a[2]==='list')return installed?'package:'+forms.PACKAGE+'\n':'';
-  if(a[0]==='exec-out'&&a[1]==='cat')return '<hierarchy><node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="Nombre" text="'+fieldValue+'" enabled="true" bounds="[10,10][200,60]"/></hierarchy>';
+  if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'';return '<hierarchy>'+title+'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="[10,10][200,60]"/></hierarchy>';}
   if(a[0]==='install'){installed=true;if(options.partialInstall)throw new forms.FormsError('FORMS_PROCESS_FAILED');return'Success\n';}
   if(a[0]==='uninstall'){installed=false;removed=true;return'Success\n';}return'';
  };
  const create=async()=>({root:'/private/forms',probes:{ipv4RejectedWithCounter:true,adbLoopbackReachable:true},
   createPrivateFile:async(name,body)=>{assert.equal(body.includes(privateField),false);const docs=YAML.parseAllDocuments(body).map(d=>d.toJSON());assert.equal(docs[0].appId,forms.PACKAGE);assert.match(docs[0].name,/^EF[0-9]{3} private account$/);assert.ok(Array.isArray(docs[1]));flows.push({name,body});return '/private/forms/'+name;},
-  runMaestro:async(serial,args,options)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);assert.deepEqual(Object.keys(options.secretEnv),flows.length===2?['MAESTRO_ACCOUNT_FIELD_VALUE']:[]);if(options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE)fieldValue=options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0};},
+  runMaestro:async(serial,args,callOptions)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);if(options.slowLanding)assert.ok(uiReads>=3,'Maestro must not run before the real landing is visible');assert.deepEqual(Object.keys(callOptions.secretEnv),flows.length===2?['MAESTRO_ACCOUNT_FIELD_VALUE']:[]);if(options.maestroFailure&&flows.length===(options.failureAction==='input'?2:1))return options.maestroFailure;if(callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE)fieldValue=callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0,timedOut:false,stdout:'',stderr:''};},
   readPrivateFile:async filename=>{const name=filename.replace(/\.xml$/,'')+' private account';const xml='<testsuites><testsuite tests="1" failures="0"><testcase id="'+name+'" name="'+name+'" classname="'+name+'" status="SUCCESS"/></testsuite></testsuites>';return options.invalidJunit?xml.slice(0,-5):xml;},
   cleanup:async()=>{boxCleaned=true;if(options.cleanupFailed)throw new Error('private failure');}});
- const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,execute:async driver=>{if(options.realField)await driver.fill('name',privateField);throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
- return{report,installed,removed,boxCleaned,confirmed,calls,flows,privateField};
+ const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,now:()=>clock,wait:async duration=>{clock+=duration;},execute:async(driver,secret,phaseState)=>{if(options.landingRoute){forms.stage(phaseState,'reset-open');await driver.open(options.landingRoute);}if(options.realField)await driver.fill(options.landingRoute?'recoveryEmail':'name',privateField,{direction:options.landingRoute?'UP':'DOWN'});throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
+ return{report,installed,removed,boxCleaned,confirmed,calls,flows,privateField,uiReads,clock};
 }
+test('a slow StartupGate must expose the real recovery title and input before the first UP scroll or input flow',async()=>{
+ const r=await runtimeFailure({realField:true,landingRoute:'forgot-password',slowLanding:true});assert.equal(r.clock,500);assert.ok(r.uiReads>=3);assert.equal(r.flows.length,2);assert.equal(r.report.stage,'check-recoveryEmail');assert.equal(r.report.maestroDiagnostic,null);assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH']);
+});
+test('a landing that never exposes accessibility keeps the 45s limit and never starts Maestro or writes',async()=>{
+ const r=await runtimeFailure({realField:true,landingRoute:'forgot-password',slowLanding:true,neverLanding:true});assert.equal(r.clock,45000);assert.equal(r.flows.length,0);assert.equal(r.report.stage,'reset-open');assert.deepEqual(r.report.failureCodes,['FORMS_UI_TIMEOUT']);assert.equal(r.report.operationUncertain,false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+});
+test('each public landing requires its own stable header and enabled input',()=>{
+ for(const[route,header,label]of[['register','Crear cuenta','Nombre'],['forgot-password','Recuperar contraseña','Correo'],['login','Accede a tu cuenta de Sport Center.','Correo electrónico']]){const nodes=[node(header),node('',{class:'android.widget.EditText','content-desc':label})];assert.equal(forms.landingReady(route,nodes),true);assert.equal(forms.landingReady(route,nodes.slice(0,1)),false);nodes[1].enabled='false';assert.equal(forms.landingReady(route,nodes),false);}
+ assert.throws(()=>forms.landingReady('https://remote.invalid',[]),/FORMS_UI_INVALID/);
+});
+test('failed scroll, failed input and host timeout have distinct fixed diagnostics without raw child output',async()=>{
+ for(const[action,result,expected]of[['scroll',{exitCode:1,timedOut:false,stdout:'Element not found: PRIVATE_VALUE',stderr:''},'element-not-found'],['input',{exitCode:1,timedOut:false,stdout:'',stderr:'device offline PRIVATE_VALUE'},'device-offline'],['scroll',{exitCode:0,timedOut:true,stdout:'PRIVATE_VALUE',stderr:''},'timeout']]){
+  const r=await runtimeFailure({realField:true,failureAction:action,maestroFailure:result});assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);assert.deepEqual(r.report.maestroDiagnostic,{action,resultObserved:true,exitCode:result.exitCode,timedOut:result.timedOut,junitRead:false,junitValid:false,errorEnum:expected});assert.equal(JSON.stringify(r.report).includes('PRIVATE_VALUE'),false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+ }
+});
+test('diagnostic allowlist rejects extra fields, raw content and unbounded numbers and prevents fabricated success',async()=>{
+ const good={action:'scroll',resultObserved:true,exitCode:1,timedOut:false,junitRead:false,junitValid:false,errorEnum:'other'};
+ assert.deepEqual(forms.safeMaestroDiagnostic(good),good);
+ for(const bad of [{...good,stdout:'private'},{...good,exitCode:999},{...good,errorEnum:'raw-private'},{...good,timedOut:'false'}])assert.equal(forms.safeMaestroDiagnostic(bad),null);
+ const {s,c}=await completed('register');s.maestroDiagnostic=good;assert.equal(forms.publicReport(s,c).status,'failed');
+});
 test('the runtime field adapter uses real Forms YAML, private UI parsing and strict real JUnit verification before input is observed',async()=>{
  const r=await runtimeFailure({realField:true});
  assert.equal(r.flows.length,2);assert.deepEqual(r.flows.map(f=>f.name),['EF001.yaml','EF002.yaml']);
@@ -176,6 +197,7 @@ test('the runtime field adapter rejects a truncated JUnit report and cleans up w
  const r=await runtimeFailure({realField:true,invalidJunit:true});
  assert.equal(r.flows.length,1);assert.equal(r.report.stage,'field-name');assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);
  assert.equal(r.report.status,'failed');assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+ assert.deepEqual(r.report.maestroDiagnostic,{action:'scroll',resultObserved:true,exitCode:0,timedOut:false,junitRead:true,junitValid:false,errorEnum:'junit-invalid'});
 });
 test('a private input mismatch stops the phase and still removes app data, package and isolated UID',async()=>{
  const r=await runtimeFailure();assert.equal(r.report.status,'failed');assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH']);assert.equal(r.installed,false);assert.equal(r.removed,true);assert.equal(r.boxCleaned,true);assert.equal(r.confirmed,true);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});assert.equal(r.report.cases.some(c=>c.status==='passed'),false);
