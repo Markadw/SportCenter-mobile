@@ -85,14 +85,19 @@ function validateReleaseWorkflow(workflow) {
   assert.equal(job.env.keep_evidence, 'true'); assert.equal(job.env.PINNING_EPHEMERAL_AVD, 'true');
   for (const key of ['EXPO_TOKEN', 'GITHUB_TOKEN', 'GITHUB_SHA', 'GITHUB_REF']) assert.equal(job.env[key], undefined, 'No ampliar tokens ni sustituir fuente');
   let previous = -1;
-  for (const mode of ['prepare', 'view', 'download', 'inspect', 'kvm', 'release34', 'api36', 'finish']) {
+  for (const mode of ['prepare', 'view', 'download', 'inspect', 'kvm', 'release34', 'cleanup-avd34', 'api36', 'finish']) {
     const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-release.js ' + mode
       || step.with?.script === 'node scripts/android-release.js ' + mode);
     assert.equal(matches.length, 1, 'Cada fase Release se ejecuta una vez: ' + mode);
     const { step, index } = matches[0];
     assert.ok(index > previous && !step['continue-on-error'], 'Release sin fases duplicadas, omitidas o desordenadas');
-    if (['release34', 'api36', 'finish'].includes(mode)) assert.equal(step.if,
-      "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'Release conserva precondiciones e independencia de resultados por API');
+    const conditions = {
+      release34: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.disk34.outcome == 'success' }}",
+      'cleanup-avd34': "${{ !cancelled() && steps.release34.outcome == 'success' }}",
+      api36: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.avd34_cleanup.outcome == 'success' && steps.disk36.outcome == 'success' }}",
+      finish: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}",
+    };
+    if (conditions[mode]) assert.equal(step.if, conditions[mode], 'Release conserva disco, limpieza y prerrequisitos');
     else assert.ok(!step.if, 'Precondición Release no puede omitirse');
     previous = index;
   }
@@ -109,6 +114,21 @@ function validateReleaseWorkflow(workflow) {
   validateDecoder23(job, inspection, job.steps.findIndex(step => step.run === 'node scripts/android-release.js download'));
   assert.ok(job.steps.find(step => step.id === 'command_line_tools').run.includes('"build-tools;37.0.0"'));
   assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
+  const diskSteps = job.steps.filter(step => step.run === 'node scripts/prepare-android-disk.cjs');
+  assert.equal(diskSteps.length, 2, 'Un preflight de 12 GiB antes de cada AVD Release');
+  for (const [id, afterId, beforeId, condition] of [
+    ['disk34', 'kvm', 'release34', "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}"],
+    ['disk36', 'avd34_cleanup', 'pages16k', "${{ !cancelled() && steps.avd34_cleanup.outcome == 'success' }}"],
+  ]) {
+    const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
+    assert.equal(step?.run, 'node scripts/prepare-android-disk.cjs'); assert.equal(step.if, condition);
+    assert.equal(step['timeout-minutes'], 3); assert.equal(step.env, undefined);
+    assert.equal(index, job.steps.findIndex(item => item.id === beforeId) - 1, 'Disco inmediatamente antes de la AVD');
+    assert.ok(index > job.steps.findIndex(item => item.id === afterId), 'Preflight después de sus prerrequisitos');
+  }
+  const avdCleanup = job.steps.find(step => step.id === 'avd34_cleanup');
+  assert.equal(avdCleanup?.run, 'node scripts/android-release.js cleanup-avd34');
+  assert.equal(avdCleanup['timeout-minutes'], 2); assert.equal(avdCleanup.env, undefined);
   const names = new Set();
   for (const [id, api, target, name, command] of [['release34', 34, 'google_apis', 'profiles-release34', 'release34'],
     ['pages16k', 36, 'google_apis_ps16k', 'profiles16k', 'api36']]) {

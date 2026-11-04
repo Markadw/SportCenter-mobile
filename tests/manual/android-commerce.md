@@ -37,8 +37,16 @@ Ocultar un autor sólo modifica la preferencia local del emulador. El caso de pu
 
 Sólo se conservan durante 14 días `android-commerce-source.json`, `android-commerce.json` y `commerce-api.json`: identidades de fuente, estados, códigos fijos y booleanos. El agregado falla ante cualquier control incompleto, publicación incierta o limpieza no acreditada.
 
+## Resultado ejecutado
+
+[La corrida 41898074821](https://github.com/Markadw/SportCenter-mobile/actions/runs/41898074821), intento 1 de `validation/commerce-qa-v6`, terminó aprobada sobre la automatización `1c831dc88722e982af5f9e6dc464d250d7182c68`. Los tres JSON del artefacto `13358750645` se verificaron contra sus 2209 bytes y SHA256 `84963c9b292282023d44410bb6fd8b6b4cedbf885b08fa1a9928175ee19d77c3`.
+
+NC01–NC04 pasaron los cuatro controles: 13 comprobaciones de interfaz, ocho pruebas de aislamiento por UID y las cinco comprobaciones de limpieza quedaron en `true`. Los 12 contratos HTTP y ambos cierres de sesión también pasaron. No quedaron códigos de fallo ni una escritura de reseña incierta. El job confirmó además el cierre de compose. Las corridas v1–v5 conservan sus fallos originales y no se cuentan como aprobadas.
+
+Este resultado corresponde exclusivamente a la composición Debug nativa, JavaScript y backend QA fijada arriba. La actualización posterior con `develop` conserva esa etiqueta y esos informes; no amplía la lista de fuentes permitidas ni ejecuta otro tag.
+
 ## Límites
 
-Preparar este job y aprobar sus pruebas de lógica no equivale a ejecutarlo. Hasta obtener los informes de una corrida real, los controles nativos permanecen pendientes. Las fixtures acreditan la autorización, lectura y publicación sobre este backend QA; no una transacción real de Mercado Pago, una entrega logística, correos, un permiso de publicación en Google Play o aceptación física del binario final. La UI observa el rechazo de otro dueño; el código HTTP se comprueba por separado entre los 12 contratos.
+Las fixtures acreditan la autorización, lectura y publicación sobre este backend QA; no una transacción real de Mercado Pago, una entrega logística, correos, un permiso de publicación en Google Play o aceptación física del binario final. La UI observa el rechazo de otro dueño; el código HTTP se comprueba por separado entre los 12 contratos. Esta ejecución tampoco sustituye la aceptación del APK Preview o del AAB de producción.
 
 Fuentes primarias: [Expo SDK57](https://docs.expo.dev/versions/v57.0.0/), [Development builds](https://docs.expo.dev/develop/development-builds/use-development-builds/), [opciones de Expo CLI](https://docs.expo.dev/more/expo-cli/), [red del emulador Android](https://developer.android.com/studio/run/emulator-networking-address), [Network Security Configuration](https://developer.android.com/privacy-and-security/security-config).
