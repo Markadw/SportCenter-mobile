@@ -1,37 +1,28 @@
-# Validación del AAB de producción RC5
+# Validación del AAB RC6 — ejecución pública aprobada
 
-La fuente de la app está congelada en `8e8a6da3fedbb61057efaa7fe30b6923b6195595`. La revisión de automatización se identifica por separado mediante una etiqueta `validation/release-*`; sólo permite el diff explícito de guiones y documentación revisados. Cambiar código de la app, activos, configuración nativa, dependencias o parches exige otro binario y recibo.
+La fuente de app es `8831dfad7fd1b0c696d11f50c79442c5499b7cd2`. El AAB de producción `43bcc31d-8297-48e4-b91e-7f37c63d349c`, perfil `production`, mide 68959933 bytes y tiene SHA256 `8fac2e502cd1877d8fd60b7b93e5b42ae85313025dcf1cbed62f4699b8cd693a`. El recibo real `config/android-release-validation.json` fija esa identidad, versión `1.0.0`, código `1` y aplicación `com.markadw.sportcenter`.
 
-## Procedencia real
+El [run Release 41890488214](https://github.com/Markadw/SportCenter-mobile/actions/runs/41890488214), intento 1, terminó aprobado. Usó el tag `validation/release-rc6-v1` y automatización `9d13b4134eff39bdbee058826cb2652ce38ffed5`. Calidad, seguridad, ejecución AAB y agregado `Resultado de Release AAB` aprobaron. El tag conserva ese SHA; actualizar el PR con develop no cambia esta evidencia histórica ni acredita automáticamente otro SHA de automatización.
 
-- Proyecto Expo: `c608a591-dfad-47d6-98cf-e714e821c269`; Android: `com.markadw.sportcenter`.
-- Perfil `production`, Android App Bundle, versión `1.0.0`, código `1` y API HTTPS de SportCenter.
-- Build EAS terminado: `c55fd545-cff4-4758-a5be-5bc583b85589`.
-- AAB: 68959777 bytes, SHA256 `db53be0e836ff939e56a74607115ee79e482a6fd537a933ff7b0d6bcc7b54f36`.
-- Mensaje EAS: `sport-center-production-v1:8e8a6da3fedbb61057efaa7fe30b6923b6195595`.
+Los JSON y JUnit reales acreditan cuatro casos públicos por entorno, ocho ejecuciones aprobadas y ninguna omitida:
 
-El recibo `config/android-release-validation.json` registra valores medidos del archivo descargado, sin campos provisionales. Se generó un único build con EAS CLI 27.4.0, sin auto-submit y con credenciales de firma congeladas. El ejecutor de validación consulta y descarga exclusivamente ese ID; no crea builds.
+| Caso | API34 | API36, 16 KiB |
+| --- | --- | --- |
+| CP-03: catálogo público | Aprobado | Aprobado |
+| CP-04: detalle de producto | Aprobado | Aprobado |
+| L01: entrada nativa con búsqueda Unicode y signo + | Aprobado | Aprobado |
+| L02: URI malformada con retorno seguro al catálogo | Aprobado | Aprobado |
 
-El [productor Preview RC5](https://github.com/Markadw/SportCenter-mobile/actions/runs/41810909053), intento 1, corresponde exactamente al evento push y la etiqueta `candidate/android-rc5`, workflow `api-android.yml` y la misma fuente `8e8a6da`. La guardia exige ocho trabajos únicos aprobados: matriz, calidad, seguridad, contratos HTTP, inspección de guiones, APK/API34, rechazo TLS/API30 y resultado. No acepta el SHA del merge como identidad del binario ni omisiones de Android/TLS.
+Ambas AVDs x86_64 ejecutaron el APK derivado sin Metro, sin aplicación previa ni reverse de desarrollo. El proceso siguió activo y no se detectó cierre fatal del paquete en el buffer observado. API36 registró páginas de 16384 bytes antes y después, con compatibilidad de 4 KB desactivada. La inspección verificó manifiesto sin depuración, target SDK 36/min SDK 24, política compilada sin cleartext de base ni hosts Metro, alineación ZIP y las 44 bibliotecas de 64 bits con alineación LOAD mínima de 16384. La inspección compilada y la ejecución son evidencias distintas.
 
-## Comprobaciones del AAB
+La firma del archivo AAB se verificó y su certificado público coincide con el AAB RC5 íntegro: SHA256 `cdb510562d8480785383bd3f988bc19bd296c66ae4f8c54160eb2d9ef48a35ee`. El APK derivado utiliza una clave temporal exclusiva de validación; su firma también se verificó. Ninguna de estas comprobaciones acredita la identidad futura de Play App Signing. No se exportó el keystore.
 
-El modo `production-release-only` verifica origen, integridad, firma y configuración del AAB y deriva un APK universal con una clave temporal de validación. Bundletool 1.18.3, decoder23 y Build Tools37 tienen versiones e integridad fijadas. El resultado debe conservar la relación de hashes AAB→APK; la clave temporal se elimina y su firma no se presenta como Play App Signing.
+Los dos preflights de 12 GiB aprobaron. Tras los cuatro casos API34 y con su limpieza de app aprobada, `cleanup-avd34` comprobó ausencia de dispositivos ADB y procesos emulator/QEMU. Eliminó únicamente la AVD propia `profiles-release34` mediante Command-line Tools23 (`delete avd --name profiles-release34`) y acreditó ausencia de su carpeta y descriptor. API36 comenzó después de esa prueba y del nuevo preflight. La limpieza de la app en API34/API36 y la limpieza de temporales aprobaron; JUnit y capturas públicas se conservaron. El helper de disco sólo admite la VM Linux efímera de GitHub y rutas fijas sin symlinks; no se ejecutó limpieza en el equipo local.
 
-El APK derivado se ejecuta sin Metro en AVDs nuevas API34 y API36 x86_64. Cada AVD prueba catálogo, detalle y dos entradas nativas: búsqueda con Unicode/`+` y URI malformada que debe volver al catálogo sin consulta residual. Son cuatro casos repetidos en dos entornos, ocho ejecuciones. Se exige JUnit coherente, proceso correcto, ausencia de fallos fatales y limpieza confirmada.
+El artifact `android-release-evidence`, ID `13353502749`, mide 519994 bytes; su SHA256 `6c040218acda9ea6516f7c7892d16c45c7fb9d93c9c163801a3efb6c6c313ffb` coincide con el digest de GitHub. Se verificaron sus JSON/JUnit, fuentes, hash y recibo. El artifact contiene únicamente los informes, resumen y capturas públicas permitidos; no incluye AAB/APK, claves, credenciales o logcat.
 
-API36 usa la imagen de páginas de 16 KB, comprueba `PAGE_SIZE=16384` antes y después y desactiva compatibilidad de 4 KB. Los 4096M de RAM son la configuración del emulador; no acreditan poca memoria ni hardware ARM64 físico. Un fallo de limpieza bloquea las fases siguientes y el agregado conserva cualquier fallo.
+El [productor Preview 41860689069](https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2), intento 2, aprobó sus ocho trabajos obligatorios para la misma fuente de app, incluidos APK/API34 y TLS/API30. Su agregado histórico se llama `Resultado de integración`. Esa evidencia pertenece al Preview y es distinta de las ocho ejecuciones del AAB Release. Se rechazan intentos 1/3 y cualquier fallback a RC5. La allowlist histórica del sourceguard no se amplía para aceptar los archivos QA de la nueva base develop.
 
-La [validación RC5](https://github.com/Markadw/SportCenter-mobile/actions/runs/41825217994), etiqueta `validation/release-rc5-v1` y automatización `55abb893cce4d868192724838e251dee755deae6`, aprobó inspección y las ocho ejecuciones. API36 confirmó 16384 bytes antes y después con compatibilidad desactivada. Ambas AVD mantuvieron el proceso sin fallos fatales y confirmaron su limpieza. El artifact `13320530258`, 521503 bytes, SHA256 `7df6d3f0b9889755cc80c79c113912474bf035aab2f5ed152c52f2285d47b72f`, conserva esa evidencia.
+La actualización de la rama pasó lint, TypeScript y configuración. La suite global y la ejecución complementaria de la suite con mitmproxy12.3.1 real consolidan 2010 controles locales únicos aprobados, sin omisiones pendientes. Las 263 comprobaciones de la suite complementaria incluyen controles ya presentes en la global; no se suman como 263 controles nuevos. Estas pruebas locales tampoco sustituyen la ejecución nativa anterior.
 
-Sólo se publican los JSON, resumen, JUnit y capturas públicas permitidos, durante 14 días. El AAB, APK, claves, URLs firmadas, XML y logcat crudos no se suben como artifacts. El token Expo sólo llega a la consulta EAS; el token GitHub de lectura sólo a la comprobación del productor.
-
-## Alcance separado e histórico
-
-La [aceptación de cuenta RC5 en Preview](https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397) aprobó dieciséis controles, incluidos perfil/carrito con persistencia y restauración. Ese resultado identifica su propio APK, no una ejecución privada del APK derivado de este AAB.
-
-F2 conserva su [validación histórica](https://github.com/Markadw/SportCenter-mobile/actions/runs/41727765066), fuente `e15671b17615621b29f4bc4bb9c0ccfdf167e657` y AAB `2e902741-6bfd-4171-a336-2a784ae41f58`, SHA256 `7ffe6560cf3eddb41f5a595c2073cc1e5a3e07e27ffc695e18d3eb6a0635a253`. El Debug anterior conserva también su propia fuente y evidencia; no se reconstruye ni se atribuye a RC5.
-
-La validación no acredita pago, pedido con contenido/seguimiento, publicación de reseña, prueba física, documentación legal definitiva ni publicación en Google Play. Esas comprobaciones mantienen sus requisitos y evidencias independientes.
-
-La integración posterior incorpora las pruebas de cuenta ya aprobadas en develop y su documentación. Se comprobó que el árbol `src` y todos los cambios de integración corresponden exclusivamente a rutas de pruebas/documentación revisadas. Los tags históricos de validación y la fuente del binario permanecen inmutables; no se repite la compilación ni se atribuye a la revisión de documentación una ejecución nativa distinta.
+El alcance aprobado es público y sobre emuladores x86_64. No acredita ARM64 físico, cuenta privada del APK derivado, formularios de correo, pedidos, reseñas o pago con Mercado Pago. Sus pruebas se registran por separado. Identidad/documentos legales finales, Console, acceso de revisión y publicación siguen pendientes. RC5 y Debug conservan sus tags, fuentes, binarios y resultados históricos.
