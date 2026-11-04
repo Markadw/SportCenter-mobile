@@ -120,6 +120,15 @@ jobs:
         env:
           ISOLATED_DAST: 'true'
           API_BASE_URL: http://127.0.0.1:3011
+      - name: Contratos de comercio con fixtures sintéticas aisladas
+        id: commerce_local
+        env:
+          ISOLATED_TEST_ENV: 'true'
+          QA_COMMERCE: 'true'
+        run: |
+          docker compose -f tests/environment/compose.yml up -d --no-deps --force-recreate access
+          node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"
+          node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"
       - name: Mostrar resultados HTTP y motivo si no hay informe
         if: always()
         run: node scripts/write-api-summary.js
@@ -128,6 +137,7 @@ jobs:
           TEST_OUTCOME: ${{ steps.tests.outcome }}
           LOCAL_TEST_OUTCOME: ${{ steps.local_tests.outcome }}
           DAST_OUTCOME: ${{ steps.dast_local.outcome }}
+          COMMERCE_OUTCOME: ${{ steps.commerce_local.outcome }}
       - name: Conservar diagnóstico o evidencia HTTP de entrega
         if: ${{ !cancelled() && (failure() || needs.plan.outputs.evidence == 'true') }}
         uses: actions/upload-artifact@v4
@@ -138,6 +148,7 @@ jobs:
             test-results/api-summary.md
             test-results/api.json
             test-results/api-local.json
+            test-results/commerce-api.json
             test-results/local-environment.json
             test-results/security/dast-local.json
             test-results/security/dast-local-summary.md

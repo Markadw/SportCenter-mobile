@@ -26,7 +26,23 @@ function dastSummary(report, outcome) {
     (passed ? 'aprobado para seis casos locales' : 'sin aprobación acreditada') + '**.', '',
     'Informe: test-results/security/dast-local.json. Backend QA congelado; no acredita todas las rutas de Render, TLS nativo, cuentas reales o Play.', ''].join('\n');
 }
-module.exports = { apiSummary, dastSummary };
+const COMMERCE_CASES = ['IQ01_OWN_LISTS', 'IQ02_DETAIL_TIMELINE', 'IQ03_OTHER_OWNER_DENIED',
+  'IQ04_ELIGIBILITY_OWNER', 'IQ05_INELIGIBLE_POST_DENIED', 'IQ06_INVALID_RATING_DENIED',
+  'IQ07_SHORT_COMMENT_DENIED', 'IQ08_REVIEW_PERSISTED', 'IQ09_DUPLICATE_DENIED',
+  'IQ10_AFTER_PUBLICATION', 'IQ11_PUBLIC_READ_SUMMARY', 'IQ12_ADDRESS_CHECKOUT_READ_ONLY'];
+function commerceSummary(report, outcome) {
+  const step = ['success', 'failure', 'skipped', 'cancelled'].includes(outcome) ? outcome : 'sin resultado';
+  const complete = report?.schemaVersion === 1 && report.scope === 'real-local-backend-synthetic-data-not-payment' &&
+    report.status === 'passed' && report.errorCode === 'NONE' && Array.isArray(report.cases) &&
+    report.cases.length === COMMERCE_CASES.length && report.cases.every((item,index) => item.id === COMMERCE_CASES[index] && item.status === 'passed') &&
+    Array.isArray(report.logout) && report.logout.length === 2 && report.logout.every(value => value === true);
+  const approved = step === 'success' && complete;
+  return ['\n## Comercio con fixtures sintéticas aisladas', '', 'Paso: **' + step + '**. Resultado: **' +
+    (approved ? 'aprobado para doce contratos locales' : 'sin aprobación acreditada') + '**.', '',
+    'Informe: test-results/commerce-api.json. Pedidos propios, rechazo de acceso ajeno, seguimiento, elegibilidad, validaciones, publicación sintética y resumen/dirección.', '',
+    'Usa backend QA congelado y datos sintéticos; no acredita Android, compra/cobro/entrega reales, Mercado Pago ni paridad de constraints productivos.', ''].join('\n');
+}
+module.exports = { apiSummary, dastSummary, commerceSummary, COMMERCE_CASES };
 if (require.main === module) {
   const file = 'test-results/api.json';
   let text = apiSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
@@ -41,6 +57,11 @@ if (require.main === module) {
     let report;
     try { report = JSON.parse(fs.readFileSync('test-results/security/dast-local.json', 'utf8')); } catch { /* No aprobar sin informe válido. */ }
     text += dastSummary(report, process.env.DAST_OUTCOME);
+  }
+  if (process.env.COMMERCE_OUTCOME) {
+    let report;
+    try { report = JSON.parse(fs.readFileSync('test-results/commerce-api.json', 'utf8')); } catch { /* Sin aprobación cuando falte evidencia. */ }
+    text += commerceSummary(report, process.env.COMMERCE_OUTCOME);
   }
   fs.mkdirSync('test-results', { recursive: true });
   fs.writeFileSync('test-results/api-summary.md', text);
