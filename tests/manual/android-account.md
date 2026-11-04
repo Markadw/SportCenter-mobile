@@ -1,6 +1,6 @@
 # Aceptación privada de cuenta en Android
 
-Preparación privada, todavía sin ejecución Linux/Android. Los resultados unitarios del ejecutor no prueban el funcionamiento de una cuenta real. El flujo deberá publicarse únicamente después de revisión y de aprobar calidad/seguridad.
+La [ejecución real F2, intento 3](https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3) aprobó los siete controles siguientes en emulador API34, además de calidad, seguridad y limpieza. Las pruebas unitarias del ejecutor y la aceptación nativa tienen resultados separados. La prueba usa el mismo APK y no confirma pedidos ni pagos.
 
 ## Artefacto y alcance
 
@@ -86,4 +86,13 @@ No acredita dispositivo físico, pagos, creación de pedidos, publicación en Pl
 - [Netfilter owner](https://ipset.netfilter.org/iptables-extensions.man.html).
 - [Node 22.20 stdio de child_process](https://github.com/nodejs/node/blob/v22.20.0/doc/api/child_process.md#optionsstdio).
 
-Contrato móvil comprobado en `src/api/cartApi.ts`, `src/api/checkoutApi.ts`, `src/features/checkout/screens/CheckoutScreen.tsx`, pantallas de cuenta/perfil e implementación de sesión. El backend se consultó sólo en lectura; la evidencia final será la ejecución real de la app, no la suposición de que el servicio desplegado coincide con una copia de QA.
+Contrato móvil comprobado en `src/api/cartApi.ts`, `src/api/checkoutApi.ts`, `src/features/checkout/screens/CheckoutScreen.tsx`, pantallas de cuenta/perfil e implementación de sesión. El código del backend se consultó sin modificarlo; la evidencia anterior procede de la ejecución real de la app y mantiene un alcance distinto de la copia de QA.
+
+## Resultado acreditado
+
+- Run 41749782319, intento 3, automatización `8dccab9d053f426d2c9e010cd29d2ef45e8311f2`: AC01–AC07 aprobados, sin códigos de fallo. [Ejecución](https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3).
+- El chequeo auxiliar confirmó login HTTP201, contrato de sesión válido y logout HTTP201 antes de abrir la interfaz. Los campos coincidieron en memoria y la contraseña se ocultó antes del envío.
+- Limpieza de dispositivo, sandbox y sesión local confirmada. La revocación del token de la sesión UI no se observó de forma independiente en el servidor.
+- Artifact `13287617795`, 1476 bytes, SHA256 `3ac467ea7b29cc1464961e55a29a9f7380687a4fe66d23e96842823ab6f38098`; se verificaron huella, tamaño y los dos JSON exactos. No contiene datos de cuenta.
+- Los intentos 1 y 2 se conservan: rechazo de credenciales y carrito vacío respectivamente. El propietario corrigió los datos de prueba y preparó una unidad en el carrito; el ejecutor no modificó ese carrito.
+- No acredita registro/correo, edición de perfil o dirección, creación de pedido, pago, elegibilidad de reseñas, eliminación de cuenta, teléfono físico completo ni publicación en Play.
