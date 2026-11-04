@@ -18,9 +18,13 @@ const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
   artifactSha256: 'dda9576bdc03753f5ba24600b676770592a6915aa1b42792e49b87efdafef07d',
   appVersion: '1.0.0', appBuildVersion: '1' });
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
+const READ_ONLY_CHECKS = Object.freeze(['RO01', 'RO02', 'RO03', 'RO04']);
+const READ_ONLY_URLS = Object.freeze({ orders: 'sportcentermobile://orders', account: 'sportcentermobile://account',
+  profile: 'sportcentermobile://profile', checkout: 'sportcentermobile://checkout', privacy: 'sportcentermobile://privacy' });
 const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'sandbox-file-roundtrip', 'app-install', 'AC01-navigate', 'AC01-email',
   'api-auth-probe', 'AC01-password', 'AC01-input-check', 'AC01-password-hide', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
-  'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
+  'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'RO01-orders', 'RO01-return',
+  'RO02-profile-guard', 'RO03-checkout-guard', 'RO04-privacy', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
   'tests/manual/android-release.md', 'scripts/android-profiles.js', '__tests__/androidProfiles.test.js',
   '.github/workflows/android-validation.yml', '.github/workflows/ci.yml', 'scripts/validate-test-configs.js',
@@ -35,7 +39,8 @@ const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID
   'ACCOUNT_UI_ACTION_AMBIGUOUS', 'ACCOUNT_PROFILE_MISMATCH', 'ACCOUNT_MAESTRO_FAILED', 'ACCOUNT_JUNIT_INVALID',
   'ACCOUNT_PROCESS_FAILED', 'ACCOUNT_SESSION_CLEANUP_UNCONFIRMED', 'ACCOUNT_DEVICE_CLEANUP_FAILED',
   'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE', 'ACCOUNT_INPUT_MISMATCH',
-  'ACCOUNT_API_AUTH_BLOCKED', 'ACCOUNT_API_AUTH_FAILED', 'ACCOUNT_API_AUTH_CLEANUP_FAILED']);
+  'ACCOUNT_API_AUTH_BLOCKED', 'ACCOUNT_API_AUTH_FAILED', 'ACCOUNT_API_AUTH_CLEANUP_FAILED',
+  'ACCOUNT_ORDERS_READ_FAILED', 'ACCOUNT_GUEST_GUARD_FAILED', 'ACCOUNT_PRIVACY_READ_FAILED']);
 const PARENT_ERROR = 'ACCOUNT_SANDBOX_PARENT_INVALID';
 const TOOL_ERROR = 'ACCOUNT_SANDBOX_TOOL_INVALID';
 const PREFLIGHT_FILE = 'Sport Center · comprobación privada\n';
@@ -181,7 +186,27 @@ function fixtureStatus(nodes) {
   if (hasLabel(nodes, 'No pudimos cargar el carrito')) return 'error';
   return hasLabel(nodes, 'Subtotal') ? 'ready' : 'loading';
 }
-function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
+function orderListStatus(nodes) {
+  if (['No se pudo cargar', 'Carga cancelada', 'Accede a tu cuenta de Sport Center.'].some(label => hasLabel(nodes, label))) return 'error';
+  if (hasLabel(nodes, 'Cargando información')) return 'loading';
+  const header = ['Mis pedidos', 'Aquí aparecen tus pedidos que ya no están pendientes de pago.', 'Actualizar pedidos'].every(label => hasLabel(nodes, label));
+  if (!header) return 'loading';
+  const empty = hasLabel(nodes, 'Aún no tienes pedidos registrados en esta lista.');
+  const list = nodes.some(node => node.package === SOURCE.appId && node.enabled === 'true' && node.clickable === 'true' &&
+    /^Ver pedido [1-9][0-9]*$/.test(node['content-desc'] || ''));
+  if (empty && list) return 'error';
+  return empty ? 'empty' : list ? 'list' : 'loading';
+}
+function guestGuardStatus(nodes, route) {
+  need(route === 'profile' || route === 'checkout', 'ACCOUNT_GUEST_GUARD_FAILED');
+  const privateLabels = ['Has iniciado sesión en Sport Center.', 'Actualiza tus datos personales y de contacto.', 'Guardar cambios',
+    'Dirección de envío', 'Método de envío', 'Subtotal', 'Continuar a Mercado Pago'];
+  if (privateLabels.some(label => hasLabel(nodes, label))) return 'private';
+  const expected = route === 'profile' ? 'Accede a tu cuenta de Sport Center.' : 'Inicia sesión para continuar';
+  return hasLabel(nodes, expected) && hasLabel(nodes, 'Iniciar sesión') ? 'ready' : 'loading';
+}
+function privacyVisible(nodes) { return hasLabel(nodes, 'Datos y sesión en este dispositivo'); }
+function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|RO04|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
 const FLOWS = Object.freeze({
   navigate: '- launchApp:\n    clearState: true\n- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- tapOn: "^Iniciar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
   email: '- inputText: ${MAESTRO_ACCOUNT_EMAIL}',
@@ -194,6 +219,7 @@ const FLOWS = Object.freeze({
   logout: '- scrollUntilVisible:\n    element:\n      text: "^Cerrar sesión$"\n    timeout: 30000\n- tapOn: "^Cerrar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
   guest: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- assertNotVisible: "Has iniciado sesión en Sport Center."',
   guard: '- extendedWaitUntil:\n    visible: "Inicia sesión con tu cuenta de cliente para ver tus productos."\n    timeout: 45000\n- assertNotVisible: "^Subtotal$"',
+  privacy: '- extendedWaitUntil:\n    visible: "^Privacidad y términos$"\n    timeout: 45000\n- scrollUntilVisible:\n    element:\n      text: "^Abrir aviso de privacidad del sitio$"\n    timeout: 30000\n- assertVisible: "^Abrir aviso de privacidad del sitio$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir términos y condiciones del sitio$"\n    timeout: 30000\n- assertVisible: "^Abrir términos y condiciones del sitio$"\n- scrollUntilVisible:\n    element:\n      text: "^Datos y sesión en este dispositivo$"\n    timeout: 30000\n- assertVisible: "^Datos y sesión en este dispositivo$"',
 });
 function verifyJUnit(source, name, xmlTree) {
   let tree; try { tree = xmlTree(source); } catch { throw new AccountError('ACCOUNT_JUNIT_INVALID'); }
@@ -220,12 +246,15 @@ function publicReport(state) {
     apiContract: validateProbeReport(state.apiContract) ? Object.fromEntries(API_REPORT_KEYS.map(key => [key, state.apiContract[key]])) : null,
     inputObservation: safeInputObservation(state.inputObservation), loginUi: safeLoginUi(state.loginUi),
     cases: CASES.map(id => ({ id, status: ['passed', 'failed', 'blocked', 'not_run'].includes(state.cases?.[id]) ? state.cases[id] : 'not_run' })),
+    readOnlyChecks: READ_ONLY_CHECKS.map(id => ({ id, status: ['passed', 'failed', 'not_run'].includes(state.readOnlyChecks?.[id]) ? state.readOnlyChecks[id] : 'not_run' })),
+    orderListState: ['empty', 'list'].includes(state.orderListState) ? state.orderListState : null,
     cleanup: { device: state.cleanup?.device === true, sandbox: state.cleanup?.sandbox === true,
       localSession: state.cleanup?.localSession === true, serverRevocation: 'not-independently-observed' },
     failureCodes: [...new Set((state.errors || []).map(safeCode))],
     accountMutations: 'login-refresh-logout-only-no-cart-profile-address-order-payment-writes',
     physicalDevice: 'not-run', payment: 'not-run' };
-  if (clean.status === 'passed' && (!clean.cases.every(item => item.status === 'passed') || !Object.values(clean.cleanup).slice(0, 3).every(Boolean) || clean.failureCodes.length)) clean.status = 'failed';
+  if (clean.status === 'passed' && (!clean.cases.every(item => item.status === 'passed') || !clean.readOnlyChecks.every(item => item.status === 'passed') ||
+    clean.orderListState === null || !Object.values(clean.cleanup).slice(0, 3).every(Boolean) || clean.failureCodes.length)) clean.status = 'failed';
   return clean;
 }
 async function apkHash(file) { const hash = createHash('sha256'); for await (const chunk of fs.createReadStream(file)) hash.update(chunk); return hash.digest('hex'); }
@@ -238,7 +267,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     context.producerRun === SOURCE.producer && context.producerAttempt === SOURCE.attempt && context.apkSha256 === SOURCE.sha256 && context.parentInspectionVerified === true,
   'ACCOUNT_ARTIFACT_MISMATCH');
   need(await hash(apk) === SOURCE.sha256, 'ACCOUNT_ARTIFACT_MISMATCH');
-  const secret = credentials(env), state = { status: 'failed', stage: 'device-check', automationCommit: context.automationCommit, cases: {}, errors: [], cleanup: {} };
+  const secret = credentials(env), state = { status: 'failed', stage: 'device-check', automationCommit: context.automationCommit, cases: {}, readOnlyChecks: {}, errors: [], cleanup: {} };
   let box, parentContext, setupAttempted = false, loginAttempted = false, loggedOut = false, caseId = 'AC01', sequence = 0, installed = false, remoteCreated = false;
   const stdout = result => typeof result === 'string' ? result : result.stdout;
   const serialRaw = stdout(await run('adb', ['devices'], {}));
@@ -259,6 +288,10 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     need(result.exitCode === 0, 'ACCOUNT_MAESTRO_FAILED'); verifyJUnit(await box.readPrivateFile(unique + '.xml'), name, xmlTree);
   };
   const cold = async () => { await adb(['shell', 'am', 'force-stop', SOURCE.appId]); await adb(['shell', 'am', 'start', '-W', '-n', SOURCE.appId + '/.MainActivity']); };
+  const openReadOnly = async route => {
+    need(Object.hasOwn(READ_ONLY_URLS, route), 'ACCOUNT_GUEST_GUARD_FAILED');
+    await adb(['shell', 'am', 'start', '-W', '-n', SOURCE.appId + '/.MainActivity', '-a', 'android.intent.action.VIEW', '-d', READ_ONLY_URLS[route]]);
+  };
   try {
     need((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34' && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['reverse', '--list'])).trim(), 'ACCOUNT_PROCESS_FAILED');
@@ -312,15 +345,30 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     state.cases.AC03 = 'passed';
     caseId = 'AC04'; state.stage = 'AC04-summary'; await flow('AC04', FLOWS.summary); state.cases.AC04 = 'passed';
     caseId = 'AC05'; state.stage = 'AC05-restore'; await cold(); await flow('AC05', FLOWS.restored); state.cases.AC05 = 'passed';
+    caseId = 'RO01'; state.stage = 'RO01-orders'; await openReadOnly('orders');
+    const orders = orderListStatus(await waitUi(nodes => orderListStatus(nodes) !== 'loading'));
+    need(orders === 'empty' || orders === 'list', 'ACCOUNT_ORDERS_READ_FAILED'); state.orderListState = orders;
+    state.stage = 'RO01-return'; await openReadOnly('account');
+    await waitUi(nodes => hasLabel(nodes, 'Mi cuenta') && hasLabel(nodes, 'Has iniciado sesión en Sport Center.')); state.readOnlyChecks.RO01 = 'passed';
     caseId = 'AC06'; state.stage = 'AC06-logout'; await flow('AC06', FLOWS.logout); loggedOut = true; state.cases.AC06 = 'passed';
     caseId = 'AC07'; state.stage = 'AC07-guest'; await cold(); await flow('AC07', FLOWS.guest); state.stage = 'AC07-guard';
     await adb(['shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', 'sportcentermobile://cart', '-p', SOURCE.appId]);
-    await flow('AC07', FLOWS.guard); state.cases.AC07 = 'passed'; state.status = 'passed'; state.stage = 'completed';
+    await flow('AC07', FLOWS.guard); state.cases.AC07 = 'passed';
+    for (const [id, route] of [['RO02', 'profile'], ['RO03', 'checkout']]) {
+      caseId = id; state.stage = id + '-' + route + '-guard'; await openReadOnly(route);
+      const guarded = guestGuardStatus(await waitUi(nodes => guestGuardStatus(nodes, route) !== 'loading'), route);
+      need(guarded === 'ready', 'ACCOUNT_GUEST_GUARD_FAILED'); state.readOnlyChecks[id] = 'passed';
+    }
+    caseId = 'RO04'; state.stage = 'RO04-privacy'; await openReadOnly('privacy'); await flow('RO04', FLOWS.privacy);
+    need(privacyVisible(await readUi()), 'ACCOUNT_PRIVACY_READ_FAILED'); state.readOnlyChecks.RO04 = 'passed';
+    state.status = 'passed'; state.stage = 'completed';
   } catch (error) {
     const code = error?.code === 'SANDBOX_SETUP_CLEANUP_FAILED' ? 'ACCOUNT_SANDBOX_CLEANUP_FAILED' : safeCode(error);
     if (trustedSandboxError(error)) state.sandboxDiagnostic = safeSandboxDiagnostic(error);
     state.errors.push(new AccountError(code)); state.failureStage = state.stage;
-    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_API_AUTH_BLOCKED'].includes(code); state.cases[caseId] = blocked ? 'blocked' : 'failed'; state.status = blocked ? 'blocked' : 'failed';
+    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_API_AUTH_BLOCKED'].includes(code);
+    if (READ_ONLY_CHECKS.includes(caseId)) state.readOnlyChecks[caseId] = 'failed'; else state.cases[caseId] = blocked ? 'blocked' : 'failed';
+    state.status = blocked ? 'blocked' : 'failed';
   } finally {
     if (loginAttempted && !loggedOut) {
       try {
@@ -555,6 +603,8 @@ async function main(mode, env = process.env) {
     const value = JSON.parse(fs.readFileSync(files.report, 'utf8'));
     need(value.status === 'passed' && value.apkSha256 === SOURCE.sha256 && value.artifactSourceCommit === SOURCE.commit && value.automationCommit === env.GITHUB_SHA &&
       value.cases?.length === CASES.length && value.cases.every((item, index) => item.id === CASES[index] && item.status === 'passed') &&
+      value.readOnlyChecks?.length === READ_ONLY_CHECKS.length && value.readOnlyChecks.every((item, index) => item.id === READ_ONLY_CHECKS[index] && item.status === 'passed') &&
+      ['empty', 'list'].includes(value.orderListState) &&
       value.cleanup?.device === true && value.cleanup?.sandbox === true && value.cleanup?.localSession === true && value.failureCodes?.length === 0, 'ACCOUNT_UI_TIMEOUT'); return;
   }
   if (mode === 'summary') {
@@ -562,6 +612,7 @@ async function main(mode, env = process.env) {
     need(result.buildId === SOURCE.buildId && result.apkSha256 === SOURCE.sha256 && result.artifactSourceCommit === SOURCE.commit, 'ACCOUNT_ARTIFACT_MISMATCH');
     const lines = ['Prueba de cuenta dedicada del APK F2: ' + (['passed', 'blocked', 'failed'].includes(result.status) ? result.status : 'failed') + '.',
       ...CASES.map(id => id + ': ' + (result.cases?.find(item => item.id === id)?.status === 'passed' ? 'passed' : 'not-passed')),
+      ...READ_ONLY_CHECKS.map(id => id + ': ' + (result.readOnlyChecks?.find(item => item.id === id)?.status === 'passed' ? 'passed' : 'not-passed')),
       'Alcance: lectura, restauración y cierre local; sin pedido, pago, cambios de perfil/dirección/carrito ni prueba física.'];
     if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n\n') + '\n'); return;
   }
@@ -574,7 +625,7 @@ async function main(mode, env = process.env) {
   }
   throw new AccountError('ACCOUNT_AUTOMATION_SCOPE');
 }
-module.exports = { SOURCE, CASES, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
-  credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
+module.exports = { SOURCE, CASES, READ_ONLY_CHECKS, READ_ONLY_URLS, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
+  credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, orderListStatus, guestGuardStatus, privacyVisible, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
   locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };
 if (require.main === module) main(process.argv[2]).catch(error => { process.stderr.write(safeCode(error) + '\n'); process.exitCode = 1; });

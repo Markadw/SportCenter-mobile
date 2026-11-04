@@ -268,7 +268,19 @@
             "localSession": true,
             "serverRevocation": "not-independently-observed"
           },
-          "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+          "limits": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor.",
+          "readOnlyExtension": {
+            "status": "not_run",
+            "execution": "pending_explicit_new_source_account_pipeline",
+            "cases": [
+              "RO01",
+              "RO02",
+              "RO03",
+              "RO04"
+            ],
+            "scope": "Lista/vacío de pedidos propios y privacidad/protección de rutas; sin detalle/seguimiento, ediciones, solicitudes, pedido o pago.",
+            "priorAccountRunDoesNotAccreditExtension": true
+          }
         },
         "physical": {
           "status": "not_run",

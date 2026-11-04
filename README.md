@@ -202,6 +202,8 @@ El auxiliar `validation/account-*` reutiliza el Preview F2 identificado arriba. 
 
 La [guía de cuenta Android](tests/manual/android-account.md) describe los siete controles, la procedencia exigida y los límites. Maestro se ejecuta con un UID efímero y tráfico IP restringido a loopback; el emulador conserva su conexión HTTPS. Los dos informes públicos sólo contienen IDs, huellas, estados y códigos permitidos. Capturas, XML, registros y credenciales quedan fuera de los artifacts. La [aceptación real del APK, intento 3](https://github.com/Markadw/SportCenter-mobile/actions/runs/41749782319/attempts/3) aprobó los siete controles AC01–AC07, con limpieza confirmada. Los intentos anteriores permanecen como histórico: credenciales rechazadas en el primero y carrito vacío en el segundo. No acredita edición de perfil/dirección, pedidos, pagos, revocación independiente en servidor ni el recorrido completo en teléfono físico.
 
+La ampliación de regresión añade cuatro comprobaciones de lectura: lista real o estado vacío de pedidos, entradas directas a perfil y checkout tras salir, y privacidad accesible como invitado. Conserva los siete controles de cuenta y publica sólo estados y la clasificación vacía/lista, sin datos personales. Su resultado nativo se registra por separado; la aceptación base anterior no acredita automáticamente esos cuatro casos. No envía solicitudes ni abre pagos o seguimiento externo.
+
 ### Evidencia Android histórica
 
 Los resultados siguientes conservan sus commits y artefactos originales. La aceptación pública de F2 se registra por separado en los runs rc4 y Release AAB enlazados arriba; los recorridos privados y físicos mantienen su estado pendiente.

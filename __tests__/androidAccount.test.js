@@ -123,10 +123,14 @@ test('public report drops arbitrary secret/error/UI fields and never upgrades pa
   const report = account.publicReport(state); assert.equal(report.status, 'failed'); assert.ok(!JSON.stringify(report).includes(secret));
   assert.deepEqual(report.failureCodes, ['ACCOUNT_UNEXPECTED_FAILURE']); assert.equal(report.cleanup.serverRevocation, 'not-independently-observed');
 });
-test('all seven controls plus all cleanup gates are mandatory', () => {
-  const state = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])), errors: [], cleanup: { device: true, sandbox: true, localSession: true } };
+test('all seven historical controls, four read-only checks and cleanup gates are mandatory', () => {
+  const state = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])),
+    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), orderListState: 'empty', errors: [], cleanup: { device: true, sandbox: true, localSession: true } };
   assert.equal(account.publicReport(state).status, 'passed');
   for (const key of Object.keys(state.cleanup)) assert.equal(account.publicReport({ ...state, cleanup: { ...state.cleanup, [key]: false } }).status, 'failed');
+  for (const id of account.READ_ONLY_CHECKS) assert.equal(account.publicReport({ ...state, readOnlyChecks: { ...state.readOnlyChecks, [id]: 'not_run' } }).status, 'failed');
+  assert.equal(account.publicReport({ ...state, orderListState: null }).status, 'failed');
+  assert.equal(account.publicReport({ ...state, readOnlyChecks: undefined }).status, 'failed');
 });
 test('known fixed errors survive sanitization but error messages never do', () => {
   assert.equal(account.safeCode(new AccountError('ACCOUNT_FIXTURE_EMPTY')), 'ACCOUNT_FIXTURE_EMPTY');
@@ -142,13 +146,24 @@ test('report emits only fixed stages and never arbitrary private stage text', ()
 
 async function runtime(config = {}) {
   const calls = [], flows = [], files = new Map(); let installed = false, authenticated = false, stage = 'login', cleaned = false,
-    typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0;
+    typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0, clock = 0;
   const email = 'private+fixture@example.com', password = 'Private *&%s 漢字', sha = 'a'.repeat(40);
   const nodes = () => {
     if (stage === 'profile') return [{ text: config.wrongProfile ? 'other@example.com' : email, 'content-desc': 'Correo', class: 'android.widget.EditText' }];
     if (stage === 'cart') return [{ text: config.empty ? 'Tu carrito está vacío' : 'Subtotal' }];
-    if (stage === 'account') return [{ text: 'Has iniciado sesión en Sport Center.' }, { text: 'Cerrar sesión', clickable: 'true' }];
+    if (stage === 'account') return [{ text: 'Mi cuenta' }, { text: 'Has iniciado sesión en Sport Center.' }, { text: 'Cerrar sesión', clickable: 'true' }];
     if (stage === 'guest') return [{ text: 'Tu cuenta Sport Center' }];
+    if (stage === 'orders') return config.ordersError ? [{ text: 'No se pudo cargar' }] : config.ordersLoading ? [{ text: 'Cargando información' }] : [
+      { text: 'Mis pedidos' }, { text: 'Aquí aparecen tus pedidos que ya no están pendientes de pago.' }, { text: 'Actualizar pedidos', clickable: 'true' },
+      config.ordersList ? { 'content-desc': 'Ver pedido 1987654321', clickable: 'true' } : { text: 'Aún no tienes pedidos registrados en esta lista.' },
+    ];
+    if (stage === 'profile-guard') return config.exposedProfile ? [{ text: 'Actualiza tus datos personales y de contacto.' }, { text: 'Guardar cambios' }] : [
+      { text: 'Accede a tu cuenta de Sport Center.' }, { text: 'Iniciar sesión', clickable: 'true' },
+    ];
+    if (stage === 'checkout-guard') return config.exposedCheckout ? [{ text: 'Dirección de envío' }, { text: 'Subtotal' }] : [
+      { text: 'Inicia sesión para continuar' }, { text: 'Iniciar sesión', clickable: 'true' },
+    ];
+    if (stage === 'privacy') return [{ text: config.inaccessiblePrivacy ? 'No se pudo cargar' : 'Datos y sesión en este dispositivo' }];
     return [{ 'content-desc': 'Correo electrónico', text: typedEmail, class: 'android.widget.EditText', bounds: '[10,20][200,80]' },
       { 'content-desc': 'Contraseña', text: passwordVisible ? typedPassword : '••••', password: passwordVisible ? 'false' : 'true', class: 'android.widget.EditText', bounds: '[10,120][200,180]' },
       { 'content-desc': passwordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña', clickable: 'true', bounds: '[250,120][400,180]' },
@@ -169,6 +184,10 @@ async function runtime(config = {}) {
     else if (key.startsWith('shell input tap') && a.at(-2) === '325' && a.at(-1) === '150') passwordVisible = !passwordVisible;
     else if (key.startsWith('shell input tap') && a.at(-1) === '250') { authenticated = !config.rejectLoginUI; stage = authenticated ? 'account' : 'login'; }
     else if (key.includes('sportcentermobile://account')) stage = authenticated ? 'account' : 'guest';
+    else if (key.includes('sportcentermobile://orders')) stage = 'orders';
+    else if (key.includes('sportcentermobile://profile')) stage = 'profile-guard';
+    else if (key.includes('sportcentermobile://checkout')) stage = 'checkout-guard';
+    else if (key.includes('sportcentermobile://privacy')) stage = 'privacy';
     return { stdout };
   };
   const create = async options => {
@@ -206,7 +225,7 @@ async function runtime(config = {}) {
     producerVerified: true, producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true },
     apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create,
     authProbe: async value => { assert.deepEqual(value, { email, password }); apiCalls++; return config.apiReport || apiPass(); },
-    parent: () => { parentCalls++; return parentFixture(); }, xmlTree });
+    parent: () => { parentCalls++; return parentFixture(); }, xmlTree, now: () => clock, wait: async duration => { clock += duration; } });
   assert.ok(!JSON.stringify(result).includes(email) && !JSON.stringify(result).includes(password));
   return { result, calls, flows, cleaned, installed, authenticated, apiCalls, parentCalls, passwordVisible };
 }
@@ -219,6 +238,67 @@ test('runtime uses one login, preserves state for cold restore, and removes only
   assert.equal(value.calls.filter(item => item.args[2] === 'install').length, 1);
   assert.equal(value.calls.filter(item => item.args.join(' ').includes('am force-stop')).length, 3);
   assert.equal(value.apiCalls, 1); assert.deepEqual(value.result.inputObservation, { emailMatches: true, passwordMatches: true, passwordHidden: true });
+  assert.ok(value.result.cases.every(item => item.status === 'passed'));
+  assert.ok(value.result.readOnlyChecks.every(item => item.status === 'passed')); assert.equal(value.result.orderListState, 'empty');
+});
+test('a real orders list is read without opening its identifier or publishing it', async () => {
+  const value = await runtime({ ordersList: true }); assert.equal(value.result.status, 'passed'); assert.equal(value.result.orderListState, 'list');
+  assert.ok(!JSON.stringify(value.result).includes('1987654321'));
+  const routes = value.calls.filter(item => item.args.includes('android.intent.action.VIEW'));
+  assert.ok(routes.every(item => !item.args.some(arg => /orders\/\d/.test(arg))));
+  for (const route of Object.values(account.READ_ONLY_URLS)) {
+    const found = routes.find(item => item.args.includes(route)); assert.ok(found, 'all fixed read-only routes are observed');
+    assert.ok(found.args.includes(SOURCE.appId + '/.MainActivity'));
+  }
+  assert.ok(routes.every(item => !item.args.some(arg => /checkout-status|reviews|contact/.test(arg))));
+});
+test('orders errors and loading never become a passed list and fail-first still logs out and cleans', async () => {
+  for (const config of [{ ordersError: true }, { ordersLoading: true }]) {
+    const value = await runtime(config); assert.equal(value.result.status, 'failed'); assert.equal(value.result.stage, 'RO01-orders');
+    assert.equal(value.result.readOnlyChecks[0].status, 'failed'); assert.equal(value.result.orderListState, null);
+    assert.equal(value.result.cases.find(item => item.id === 'AC05').status, 'passed');
+    assert.equal(value.result.cases.find(item => item.id === 'AC06').status, 'not_run');
+    assert.ok(value.result.readOnlyChecks.slice(1).every(item => item.status === 'not_run'));
+    assert.equal(value.authenticated, false); assert.equal(value.cleaned, true); assert.ok(Object.values(value.result.cleanup).slice(0, 3).every(Boolean));
+  }
+});
+test('visible private profile or checkout after logout fails its required guard even with a guest heading', async () => {
+  for (const [config, id] of [[{ exposedProfile: true }, 'RO02'], [{ exposedCheckout: true }, 'RO03']]) {
+    const value = await runtime(config); assert.equal(value.result.status, 'failed'); assert.ok(value.result.cases.every(item => item.status === 'passed'));
+    assert.equal(value.result.readOnlyChecks.find(item => item.id === id).status, 'failed');
+    assert.deepEqual(value.result.failureCodes, ['ACCOUNT_GUEST_GUARD_FAILED']); assert.equal(value.result.readOnlyChecks.at(-1).status, 'not_run');
+    assert.equal(value.cleaned, true); assert.equal(value.authenticated, false);
+  }
+});
+test('privacy is required: a successful tool exit with inaccessible content still fails', async () => {
+  const value = await runtime({ inaccessiblePrivacy: true }); assert.equal(value.result.status, 'failed'); assert.equal(value.result.stage, 'RO04-privacy');
+  assert.equal(value.result.readOnlyChecks.at(-1).status, 'failed'); assert.deepEqual(value.result.failureCodes, ['ACCOUNT_PRIVACY_READ_FAILED']);
+  assert.equal(value.cleaned, true); assert.equal(value.installed, false); assert.equal(value.authenticated, false);
+});
+test('read-only classifiers require real owned content, consistent orders state and no protected content', () => {
+  const header = [{ text: 'Mis pedidos' }, { text: 'Aquí aparecen tus pedidos que ya no están pendientes de pago.' }, { text: 'Actualizar pedidos' }];
+  const empty = { text: 'Aún no tienes pedidos registrados en esta lista.' }, row = { 'content-desc': 'Ver pedido 17', clickable: 'true' };
+  const parse = items => account.parsePrivateUi(ui(items));
+  assert.equal(account.orderListStatus(parse([...header, empty])), 'empty');
+  assert.equal(account.orderListStatus(parse([...header, row])), 'list');
+  assert.equal(account.orderListStatus(parse([...header, empty, row])), 'error');
+  assert.equal(account.orderListStatus(parse([...header, row, { text: 'Cargando información' }])), 'loading');
+  assert.equal(account.orderListStatus(parse([...header, row, { text: 'No se pudo cargar' }])), 'error');
+  assert.equal(account.orderListStatus(parse([row])), 'loading');
+  assert.equal(account.orderListStatus(parse([...header, { ...row, package: 'other.app' }])), 'loading');
+  const login = [{ text: 'Accede a tu cuenta de Sport Center.' }, { text: 'Iniciar sesión' }];
+  assert.equal(account.guestGuardStatus(parse(login), 'profile'), 'ready');
+  assert.equal(account.guestGuardStatus(parse([...login, { text: 'Guardar cambios' }]), 'profile'), 'private');
+  assert.equal(account.guestGuardStatus(parse([{ text: 'Inicia sesión para continuar' }, { text: 'Iniciar sesión' }, { text: 'Subtotal' }]), 'checkout'), 'private');
+  assert.equal(account.guestGuardStatus(parse([{ text: 'Iniciar sesión' }]), 'profile'), 'loading');
+  assert.equal(account.privacyVisible(parse([{ text: 'Datos y sesión en este dispositivo', package: 'other.app' }])), false);
+});
+test('read-only public report rejects arbitrary states, foreign IDs and private strings', () => {
+  const report = account.publicReport({ status: 'passed', readOnlyChecks: { RO01: 'passed', RO02: 'private@example.com', SECRET: 'passed' },
+    orderListState: 'Pedido #1987654321 private@example.com' });
+  assert.equal(report.status, 'failed'); assert.equal(report.orderListState, null);
+  assert.deepEqual(report.readOnlyChecks, [{ id: 'RO01', status: 'passed' }, { id: 'RO02', status: 'not_run' }, { id: 'RO03', status: 'not_run' }, { id: 'RO04', status: 'not_run' }]);
+  assert.ok(!JSON.stringify(report).includes('private@example.com') && !JSON.stringify(report).includes('1987654321'));
 });
 test('corrupted typed password is hidden again and prevents the single UI submit', async () => {
   const value = await runtime({ corruptInput: true });
@@ -387,4 +467,17 @@ test('ADB start failure preserves process code and never claims sandbox setup or
     assert.equal(value.sandboxDiagnostic, null); assert.equal(value.cleanup.sandbox, true);
     assert.deepEqual(value.failureCodes, ['ACCOUNT_PROCESS_FAILED']); assert.ok(value.cases.every(item => item.status === 'not_run'));
   }
+});
+
+test('all seven base controls cannot approve a report without every required read-only control', () => {
+  const base = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])),
+    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), orderListState: 'empty',
+    errors: [], cleanup: { device: true, sandbox: true, localSession: true } };
+  assert.equal(account.publicReport(base).status, 'passed');
+  for (const id of account.READ_ONLY_CHECKS) {
+    const missing = { ...base.readOnlyChecks }; delete missing[id];
+    assert.equal(account.publicReport({ ...base, readOnlyChecks: missing }).status, 'failed');
+    assert.equal(account.publicReport({ ...base, readOnlyChecks: { ...base.readOnlyChecks, [id]: 'failed' } }).status, 'failed');
+  }
+  assert.equal(account.publicReport({ ...base, orderListState: null }).status, 'failed');
 });
