@@ -29,6 +29,10 @@ Las credenciales son exclusivamente las sintéticas del seed QA. Maestro se ejec
 | NC03 | B ve únicamente su propio pedido y la entrada directa al pedido de A es rechazada. |
 | NC04 | B no dispone de formulario de publicación para 68, donde no tiene compra elegible. |
 
+Los textos del detalle y de las reseñas se desplazan a la vista y se comprueban uno por uno. NC01 requiere el estado exclusivo del detalle, su título, el encabezado de seguimiento y ambos eventos; NC02 conserva todas las comprobaciones de validación, términos, confirmación y lectura.
+
+`Actualizar reseñas` ejecuta la lectura GET de la lista y mantiene `ReviewsContent` montado con su bandera local `published`. Observar el comentario en esa lista acredita la lectura posterior a la publicación. El mensaje «Ya publicaste» y la ausencia del compositor acreditan el estado local de la interfaz tras publicar. Este recorrido no acredita un remount de la pantalla ni el rechazo de un duplicado por el servidor; este último se comprueba por separado en IQ09 HTTP real con el producto sintético 68.
+
 Ocultar un autor sólo modifica la preferencia local del emulador. El caso de publicación no se reintenta automáticamente si queda incierto. Las sesiones A y B se cierran en el recorrido normal. Finalmente se detiene el app, se comprueba la ausencia de sus procesos, se eliminan sólo las cadenas propias, se borra/desinstala el paquete y se detienen Metro y el sandbox. Si no se demuestra que el app quedó detenido, no se abre su salida de red retirando reglas. Compose se cierra siempre por el job; las cuentas y compras sintéticas no pertenecen al servidor productivo.
 
 Sólo se conservan durante 14 días `android-commerce-source.json`, `android-commerce.json` y `commerce-api.json`: identidades de fuente, estados, códigos fijos y booleanos. El agregado falla ante cualquier control incompleto, publicación incierta o limpieza no acreditada.
