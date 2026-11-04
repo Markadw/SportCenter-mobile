@@ -325,6 +325,16 @@ test('la candidata no aprueba si falta el piloto nativo exigido o se ejecutó y 
   expect(evaluateChecks({ ...results, pinning: 'failure' }, false, false)).toEqual(['pinning']);
 });
 
+test('comercio aislado usa tag y resultado propios sin exigir APK al PR develop', () => {
+  const configs = workflows(), native = configs.get('android-validation.yml');
+  expect(native.on.push.tags).toContain('validation/commerce-*');
+  expect(native.jobs.commerce.environment).toBeUndefined();
+  expect(native.jobs.commerce_result.name).toBe('Resultado de comercio Android aislado');
+  expect(native.jobs.commerce_result.name).not.toBe('Resultado de integración');
+  expect(configs.get('api-android.yml').jobs.integration.name).toContain('Resultado de candidata Android');
+  expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'test/comercio' }).android).toBe(false);
+});
+
 describe('Revalidación nativa del mismo APK sin EAS build', () => {
   test.each([
     config => { config.on.push.tags = ['candidate/android-*']; },

@@ -219,6 +219,82 @@ function validateAndroidEvidence(job, allowedPaths) {
   assert.deepEqual([...paths].sort(), [...allowedPaths].sort(), 'Sólo se admite la allowlist exacta de evidencia Android; no carpetas, logs ni otros globs');
 }
 
+function validateCommerceWorkflow(workflow) {
+  const job = workflow.jobs.commerce, result = workflow.jobs.commerce_result;
+  assert.ok(job && result, 'Falta el job y agregado de comercio aislado');
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/commerce-') }}");
+  assert.deepEqual(job.needs, ['quality', 'security']);
+  assert.equal(job.environment, undefined, 'Comercio sintético no requiere entorno ni secretos de cuenta');
+  assert.equal(job['runs-on'], 'ubuntu-24.04');
+  assert.equal(job['timeout-minutes'], 40);
+  assert.deepEqual(job.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true', keep_evidence: 'true', PINNING_EPHEMERAL_AVD: 'true' });
+  assert.equal(job.steps.length, 21, 'Comercio sólo admite sus fases revisadas, sin pasos adicionales');
+  const checkout = job.steps.find(item => item.uses === 'actions/checkout@v4');
+  assert.deepEqual(checkout?.with, { 'fetch-depth': 0, 'persist-credentials': false });
+  assert.equal(job.steps.find(item => item.uses === 'actions/setup-node@v4')?.with['node-version'], '22.20.0');
+  assert.deepEqual(job.steps.find(item => item.uses === 'actions/setup-java@v4')?.with, { distribution: 'temurin', 'java-version': '17' });
+  const commands = ['node scripts/android-commerce.cjs prepare', 'npm ci --no-audit --no-fund',
+    'node scripts/android-commerce.cjs view', 'node scripts/android-commerce.cjs download',
+    'node scripts/android-commerce.cjs runtime-dir', 'node scripts/android-commerce.cjs kvm',
+    'node scripts/android-commerce.cjs host-probe', 'npm run env:start',
+    'node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"',
+    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"',
+    'node scripts/prepare-android-disk.cjs'];
+  const indices = commands.map(command => {
+    const matches = job.steps.filter(item => item.run === command);
+    assert.equal(matches.length, 1, 'Cada fase de comercio se ejecuta una sola vez: ' + command);
+    return job.steps.indexOf(matches[0]);
+  });
+  assert.ok(indices.every((index,n) => index >= 0 && (!n || index > indices[n - 1])), 'Comercio exige procedencia, dependencias, host y QA antes del AVD');
+  const prepare = job.steps[indices[0]], view = job.steps[indices[2]];
+  assert.deepEqual(prepare.env, { GITHUB_TOKEN: '${{ github.token }}' });
+  assert.deepEqual(view.env, { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' });
+  const install = job.steps.find(item => item.name?.startsWith('Instalar Maestro'));
+  assert.ok(install && job.steps.indexOf(install) > indices[4] && job.steps.indexOf(install) < indices[5]);
+  assert.ok(install.run.startsWith('set -euo pipefail\n') && install.run.includes('cli-2.12.0/maestro.zip') &&
+    install.run.includes('a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e') && install.run.includes('sha256sum --check --strict'));
+  assert.ok(install.run.includes('umask 022') && install.run.includes('$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin') && !install.run.includes('chmod'), 'Maestro público sólo en base exclusiva');
+  const adb = job.steps.find(item => item.id === 'commerce_adb_tools');
+  assert.ok(adb && job.steps.indexOf(adb) < indices[6] && adb.run.includes('test -x "$ANDROID_HOME/platform-tools/adb"') && adb.run.includes('echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"'));
+  const runtime = job.steps.find(item => item.id === 'commerce_runtime');
+  assert.equal(job.steps.filter(item => item.uses?.startsWith('reactivecircus/android-emulator-runner@')).length, 1);
+  assert.ok(job.steps.indexOf(runtime) > indices.at(-1));
+  assert.equal(runtime?.uses, 'reactivecircus/android-emulator-runner@v2');
+  assert.equal(runtime.with['api-level'], 34); assert.equal(runtime.with.arch, 'x86_64'); assert.equal(runtime.with.target, 'google_apis');
+  assert.equal(runtime.with['force-avd-creation'], true); assert.equal(runtime.with['disable-linux-hw-accel'], false);
+  assert.equal(runtime.with['ram-size'], undefined, 'API34 conserva la RAM predeterminada del escenario de cuenta');
+  assert.ok(runtime.with['emulator-options'].includes('-accel on') && runtime.with['emulator-options'].includes('-no-snapshot'));
+  assert.equal(runtime.with.script, 'node scripts/android-commerce.cjs runtime');
+  assert.equal(runtime.env, undefined, 'No credenciales de cuenta en el runtime sintético');
+  const finish = job.steps.find(item => item.run === 'node scripts/android-commerce.cjs finish');
+  const stop = job.steps.find(item => item.run === 'npm run env:stop');
+  const cleanup = job.steps.find(item => item.run === 'node scripts/android-commerce.cjs cleanup');
+  assert.ok(job.steps.indexOf(finish) > job.steps.indexOf(runtime) && job.steps.indexOf(stop) > job.steps.indexOf(finish) && job.steps.indexOf(cleanup) > job.steps.indexOf(stop));
+  assert.equal(stop?.if, 'always()'); assert.equal(cleanup?.if, 'always()');
+  for (const item of job.steps) {
+    assert.ok(!/ANDROID_TEST_EMAIL|ANDROID_TEST_PASSWORD|secrets\.(?!EXPO_TOKEN\b)/.test(JSON.stringify(item)), 'No secretos ni cuentas reales en comercio aislado');
+    if (item !== view) assert.equal(item.env?.EXPO_TOKEN, undefined);
+    if (item !== prepare) assert.equal(item.env?.GITHUB_TOKEN, undefined);
+    if (item !== prepare && item !== view) assert.equal(item.env, undefined, 'No sobrescribir ámbito o procedencia de comercio por paso');
+    assert.ok(!item.if || item === stop || item === cleanup || item.uses?.startsWith('actions/upload-artifact@'), 'No omitir fases obligatorias de comercio');
+    assert.ok(!/eas-cli[^\n]*\sbuild\s|node scripts\/eas-candidate/.test(item.run || ''), 'Comercio reutiliza Debug; no crea builds');
+  }
+  validateAndroidEvidence(job, ['test-results/android-commerce-source.json', 'test-results/android-commerce.json', 'test-results/commerce-api.json']);
+  const upload = job.steps.find(item => item.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(job.steps.indexOf(upload) > job.steps.indexOf(cleanup));
+  assert.equal(upload.with['retention-days'], 14); assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.if, "${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}");
+  assert.equal(result.name, 'Resultado de comercio Android aislado');
+  assert.equal(result.environment, undefined); assert.equal(result.env, undefined);
+  assert.equal(result['runs-on'], 'ubuntu-24.04');
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/commerce-') }}");
+  assert.deepEqual(result.needs, ['quality', 'security', 'commerce']);
+  assert.equal(result.steps.length, 1);
+  const gate = result.steps[0];
+  assert.deepEqual(gate.env, { RESULT_QUALITY: '${{ needs.quality.result }}', RESULT_SECURITY: '${{ needs.security.result }}', RESULT_COMMERCE: '${{ needs.commerce.result }}' });
+  assert.equal(gate.run.trim(), ['test "$RESULT_QUALITY" = success', 'test "$RESULT_SECURITY" = success', 'test "$RESULT_COMMERCE" = success'].join('\n'));
+}
+
 function validate16kMemory(step) {
   assert.equal(step.with['ram-size'], '4096M', 'API36 16KB requiere RAM guest fija de 4096M');
   assert.ok(!/(?:^|\s)-(?:memory|m)(?:\s|=|[0-9]|$)/i.test(step.with['emulator-options']), 'No sobrescribir RAM guest mediante opciones CLI');
@@ -226,7 +302,7 @@ function validate16kMemory(step) {
 
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
-  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*'] } }, 'Validación sólo en tags validation/android-*');
+  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*', 'validation/commerce-*'] } }, 'Validación sólo en tags explícitos de artefactos y QA aislada');
   assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'read' }, 'No elevar permisos globales');
   assert.equal(workflow.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.equal(workflow.jobs.quality.with.keep_evidence, true);
@@ -329,9 +405,9 @@ function validateWorkflows(workflows) {
   assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
     'TypeScript debe informar también cuando ESLint falle');
   const cryptoSetup = client.jobs.validate.steps.find(step => step.run === 'bash scripts/android-pinning-install.sh');
-  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
+  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-') || startsWith(github.ref, 'refs/tags/validation/commerce-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
   assert.equal(client.jobs.validate.steps.find(step => step.id === 'tests').env.PINNING_TEST_MITMDUMP,
-    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-') || startsWith(github.ref, 'refs/tags/validation/commerce-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
   const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
     'El artefacto existente debe conservar los informes estáticos');
@@ -522,6 +598,7 @@ function validateWorkflows(workflows) {
   validateProfilesWorkflow(workflows.get('android-validation.yml'));
   validateReleaseWorkflow(workflows.get('android-validation.yml'));
   validateAccountWorkflow(workflows.get('android-validation.yml'));
+  validateCommerceWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
