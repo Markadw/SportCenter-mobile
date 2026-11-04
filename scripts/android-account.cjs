@@ -1,4 +1,4 @@
-// PRIVATE PREPARATION. No CI execution or acceptance is asserted by this file.
+// Explicit native acceptance; requiring this module performs no operations.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,24 +7,41 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { setTimeout: pause } = require('node:timers/promises');
 const { createSandbox, SandboxError, SANDBOX_ERROR_CODES, safeSandboxDiagnostic, isSafeSandboxDiagnostic } = require('./account-sandbox.cjs');
-const { probeAccountAuth, validateProbeReport, REPORT_KEYS: API_REPORT_KEYS } = require('./account-auth-probe.cjs');
+const { validateProbeReport, REPORT_KEYS: API_REPORT_KEYS } = require('./account-auth-probe.cjs');
+const { TEST_NAME, STATE_KEYS, RESTORATION_KEYS, ERROR_CODES: FIXTURE_CODES, captureFixture, restoreFixture,
+  validateCaptureReport, validateRestorationReport } = require('./account-fixture.cjs');
 
-const SOURCE = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
-  commit: 'e15671b17615621b29f4bc4bb9c0ccfdf167e657', projectId: 'c608a591-dfad-47d6-98cf-e714e821c269',
-  appId: 'com.markadw.sportcenter', api: 'https://back-sport-ghxk.onrender.com',
-  buildId: 'b409ac48-41b0-4292-8e9c-df8153006f71', sha256: '092cdbbc6942fe16c941f814a0b581b26c33c8cd658ae5b0015d9c10f947d564',
-  fingerprint: '945e4f8e191f1fbf1dec5f942cee3d98bf38b203107c2f2fdddeca5803be0fd3',
-  producer: 41708999367, attempt: 2, artifact: 13272237966, artifactBytes: 176634,
-  artifactSha256: 'dda9576bdc03753f5ba24600b676770592a6915aa1b42792e49b87efdafef07d',
-  appVersion: '1.0.0', appBuildVersion: '1' });
+const SOURCE = Object.freeze({
+  "repository": "Markadw/SportCenter-mobile",
+  "commit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+  "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
+  "appId": "com.markadw.sportcenter",
+  "api": "https://back-sport-ghxk.onrender.com",
+  "buildId": "65ec0aec-31df-4305-adfe-03cab1461e0f",
+  "sha256": "895f51818410574da55c29eca493910af19a87e47ffcc7177c20c46776659542",
+  "fingerprint": "0cfb627c02154da92e1d19f466723a9ca5a1b0621f38e74d652493014d59fb8f",
+  "producer": 41810909053,
+  "attempt": 1,
+  "tag": "candidate/android-rc5",
+  "artifact": 13313681074,
+  "artifactBytes": 178005,
+  "artifactSha256": "84a1976a6af896b1efbcfafb2afdeee8f92cd7348586b00c267b5815a2176128",
+  "appVersion": "1.0.0",
+  "appBuildVersion": "1"
+});
 const CASES = Object.freeze(['AC01', 'AC02', 'AC03', 'AC04', 'AC05', 'AC06', 'AC07']);
 const READ_ONLY_CHECKS = Object.freeze(['RO01', 'RO02', 'RO03', 'RO04']);
+const MUTATION_CHECKS = Object.freeze(['MU01', 'MU02', 'MU03', 'MU04', 'MU05']);
+const MUTATION_FLAGS = Object.freeze(['profileSaved', 'profilePersisted', 'profileUiRestored', 'cartIncreased', 'cartPersisted',
+  'cartUiRestored', 'cartRemoved', 'cartReadded', 'uiStopped', ...RESTORATION_KEYS]);
 const READ_ONLY_URLS = Object.freeze({ orders: 'sportcentermobile://orders', account: 'sportcentermobile://account',
-  profile: 'sportcentermobile://profile', checkout: 'sportcentermobile://checkout', privacy: 'sportcentermobile://privacy' });
+  profile: 'sportcentermobile://profile', cart: 'sportcentermobile://cart', checkout: 'sportcentermobile://checkout', privacy: 'sportcentermobile://privacy' });
 const STAGES = Object.freeze(['preflight', 'device-check', 'probe-adb-start-server', 'sandbox-parent-verify', 'sandbox-probes', 'sandbox-tool-version', 'sandbox-file-roundtrip', 'app-install', 'AC01-navigate', 'AC01-email',
   'api-auth-probe', 'AC01-password', 'AC01-input-check', 'AC01-password-hide', 'AC01-submit', 'AC01-await-account', 'AC02-open', 'AC02-scroll', 'AC02-compare', 'AC03-open', 'AC03-fixture',
   'AC04-summary', 'AC05-restore', 'AC06-logout', 'AC07-guest', 'AC07-guard', 'RO01-orders', 'RO01-return',
-  'RO02-profile-guard', 'RO03-checkout-guard', 'RO04-privacy', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
+  'RO02-profile-guard', 'RO03-checkout-guard', 'RO04-privacy', 'MU01-profile-save', 'MU02-profile-persist', 'MU02-profile-restore',
+  'MU03-cart-increase', 'MU03-cart-persist', 'MU03-cart-restore', 'MU04-target-preflight', 'MU04-cart-remove', 'MU04-cart-readd',
+  'MU05-baseline', 'cleanup-stop-ui', 'completed', 'cleanup-session', 'cleanup-device', 'cleanup-sandbox']);
 const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json', 'scripts/android-release.js', '__tests__/androidRelease.test.js',
   'tests/manual/android-release.md', 'scripts/android-profiles.js', '__tests__/androidProfiles.test.js',
   '.github/workflows/android-validation.yml', '.github/workflows/ci.yml', 'scripts/validate-test-configs.js',
@@ -32,7 +49,7 @@ const AUTOMATION_FILES = Object.freeze(['config/android-release-validation.json'
   'docs/seguridad-candidata.md', 'tests/plan.json', 'README.md',
   'scripts/android-account.cjs', 'scripts/account-sandbox.cjs', '__tests__/androidAccount.test.js',
   '__tests__/accountSandbox.test.js', '__tests__/androidAccountWorkflow.test.js', 'tests/manual/android-account.md',
-  'scripts/account-auth-probe.cjs', '__tests__/accountAuthProbe.test.js']);
+  'scripts/account-auth-probe.cjs', '__tests__/accountAuthProbe.test.js', 'scripts/account-fixture.cjs', '__tests__/accountFixture.test.js']);
 const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID', 'ACCOUNT_FIXTURE_EMPTY',
   'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_PRODUCER_NOT_APPROVED', 'ACCOUNT_ARTIFACT_MISMATCH', 'ACCOUNT_BUILD_MISMATCH',
   'ACCOUNT_AUTOMATION_SCOPE', 'ACCOUNT_APP_TREE_CHANGED', 'ACCOUNT_UI_INVALID', 'ACCOUNT_UI_TIMEOUT',
@@ -40,7 +57,8 @@ const CODES = Object.freeze(['ACCOUNT_SECRETS_MISSING', 'ACCOUNT_FIXTURE_INVALID
   'ACCOUNT_PROCESS_FAILED', 'ACCOUNT_SESSION_CLEANUP_UNCONFIRMED', 'ACCOUNT_DEVICE_CLEANUP_FAILED',
   'ACCOUNT_SANDBOX_FAILED', 'ACCOUNT_SANDBOX_CLEANUP_FAILED', 'ACCOUNT_UNEXPECTED_FAILURE', 'ACCOUNT_INPUT_MISMATCH',
   'ACCOUNT_API_AUTH_BLOCKED', 'ACCOUNT_API_AUTH_FAILED', 'ACCOUNT_API_AUTH_CLEANUP_FAILED',
-  'ACCOUNT_ORDERS_READ_FAILED', 'ACCOUNT_GUEST_GUARD_FAILED', 'ACCOUNT_PRIVACY_READ_FAILED']);
+  'ACCOUNT_ORDERS_READ_FAILED', 'ACCOUNT_GUEST_GUARD_FAILED', 'ACCOUNT_PRIVACY_READ_FAILED',
+  'ACCOUNT_MUTATION_UI_INVALID', 'ACCOUNT_MUTATION_UI_NOT_STOPPED', 'ACCOUNT_FIXTURE_RESTORATION_FAILED']);
 const PARENT_ERROR = 'ACCOUNT_SANDBOX_PARENT_INVALID';
 const TOOL_ERROR = 'ACCOUNT_SANDBOX_TOOL_INVALID';
 const PREFLIGHT_FILE = 'Sport Center · comprobación privada\n';
@@ -59,10 +77,10 @@ const LOGIN_ERROR_CODES = Object.freeze(Object.values(LOGIN_ERRORS));
 class AccountError extends Error { constructor(code) { super(code); this.code = code; } }
 function need(value, code) { if (!value) throw new AccountError(code); }
 function trustedSandboxError(error) { return error instanceof SandboxError && SANDBOX_ERROR_CODES.includes(error.code); }
-function safeCode(error) { return [...CODES, PARENT_ERROR, TOOL_ERROR].includes(error?.code) ? error.code : trustedSandboxError(error) ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_UNEXPECTED_FAILURE'; }
+function safeCode(error) { return [...CODES, ...FIXTURE_CODES.filter(code => code !== 'NONE'), PARENT_ERROR, TOOL_ERROR].includes(error?.code) ? error.code : trustedSandboxError(error) ? 'ACCOUNT_SANDBOX_FAILED' : 'ACCOUNT_UNEXPECTED_FAILURE'; }
 function verifyProducer(run, jobs, candidate, inspection) {
   need(run?.id === SOURCE.producer && run.run_attempt === SOURCE.attempt && run.head_sha === SOURCE.commit &&
-    run.head_branch === 'candidate/android-rc4' && run.event === 'push' && run.path === '.github/workflows/api-android.yml' &&
+    run.head_branch === SOURCE.tag && run.event === 'push' && run.path === '.github/workflows/api-android.yml' &&
     run.repository?.full_name === SOURCE.repository && run.status === 'completed' && run.conclusion === 'success', 'ACCOUNT_PRODUCER_NOT_APPROVED');
   need(Array.isArray(jobs?.jobs) && jobs.total_count === jobs.jobs.length, 'ACCOUNT_PRODUCER_NOT_APPROVED');
   for (const name of ['Definir comprobaciones por evento y rama', 'Calidad previa a integración / Análisis estático y pruebas del cliente',
@@ -206,7 +224,40 @@ function guestGuardStatus(nodes, route) {
   return hasLabel(nodes, expected) && hasLabel(nodes, 'Iniciar sesión') ? 'ready' : 'loading';
 }
 function privacyVisible(nodes) { return hasLabel(nodes, 'Datos y sesión en este dispositivo'); }
-function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|RO04|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
+function fieldMatches(nodes, label, expected) { return inputMatches(nodes, label, expected); }
+function cartQuantityMatches(nodes, target, quantity) {
+  const quantities = labelled(nodes, 'Cantidad de ' + target.name + ': ' + quantity);
+  const remove = labelled(nodes, 'Eliminar ' + target.name).filter(node => node.clickable === 'true' && node.enabled === 'true');
+  return quantities.length === 1 && quantities[0].text === String(quantity) && remove.length === 1;
+}
+function targetVisible(nodes, target) {
+  return nodes.some(node => node.package === SOURCE.appId && ([node.text, node['content-desc']].includes('Eliminar ' + target.name) ||
+    (node['content-desc'] || '').startsWith('Cantidad de ' + target.name + ': ')));
+}
+function rectangle(node) {
+  const value = node?.bounds?.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/);
+  if (!value) return null;
+  const result = value.slice(1).map(Number);
+  return result[2] > result[0] && result[3] > result[1] && result.every(n => n >= 0 && n < 8192) ? result : null;
+}
+function productQuantity(nodes) {
+  const minus = labelled(nodes, 'Restar cantidad').filter(node => node.clickable === 'true');
+  const plus = labelled(nodes, 'Sumar cantidad').filter(node => node.clickable === 'true');
+  if (minus.length !== 1 || plus.length !== 1) return null;
+  const a = rectangle(minus[0]), b = rectangle(plus[0]); if (!a || !b || a[2] >= b[0]) return null;
+  const values = nodes.filter(node => node.package === SOURCE.appId && node.class === 'android.widget.TextView' && /^[1-9]\d?$/.test(node.text || '')).filter(node => {
+    const r = rectangle(node); if (!r) return false;
+    const x = (r[0] + r[2]) / 2, y = (r[1] + r[3]) / 2;
+    return x > a[2] && x < b[0] && y >= Math.max(a[1], b[1]) && y <= Math.min(a[3], b[3]);
+  });
+  return values.length === 1 ? Number(values[0].text) : null;
+}
+function mutationEvidence(value) { return Object.fromEntries(MUTATION_FLAGS.map(key => [key, value?.[key] === true])); }
+function mutationsPassed(value) {
+  return MUTATION_FLAGS.filter(key => !['mutationUncertain', 'concurrentChangeObserved'].includes(key)).every(key => value?.[key] === true) &&
+    value?.mutationUncertain === false && value?.concurrentChangeObserved === false;
+}
+function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|RO04|MU0[1-5]|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
 const FLOWS = Object.freeze({
   navigate: '- launchApp:\n    clearState: true\n- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- tapOn: "^Iniciar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
   email: '- inputText: ${MAESTRO_ACCOUNT_EMAIL}',
@@ -236,7 +287,7 @@ function verifyJUnit(source, name, xmlTree) {
     item.children.every(node => node.name === 'properties'), 'ACCOUNT_JUNIT_INVALID');
 }
 function publicReport(state) {
-  const clean = { version: 1, scope: 'dedicated-account-read-only-ui-api34', artifactSourceCommit: SOURCE.commit,
+  const clean = { version: 1, scope: 'dedicated-account-profile-cart-ui-api34', artifactSourceCommit: SOURCE.commit,
     automationCommit: /^[a-f0-9]{40}$/.test(state.automationCommit || '') ? state.automationCommit : null,
     buildId: SOURCE.buildId, apkSha256: SOURCE.sha256, producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt,
     status: ['passed', 'failed', 'blocked'].includes(state.status) ? state.status : 'failed',
@@ -247,13 +298,16 @@ function publicReport(state) {
     inputObservation: safeInputObservation(state.inputObservation), loginUi: safeLoginUi(state.loginUi),
     cases: CASES.map(id => ({ id, status: ['passed', 'failed', 'blocked', 'not_run'].includes(state.cases?.[id]) ? state.cases[id] : 'not_run' })),
     readOnlyChecks: READ_ONLY_CHECKS.map(id => ({ id, status: ['passed', 'failed', 'not_run'].includes(state.readOnlyChecks?.[id]) ? state.readOnlyChecks[id] : 'not_run' })),
+    mutationChecks: MUTATION_CHECKS.map(id => ({ id, status: ['passed', 'failed', 'not_run'].includes(state.mutationChecks?.[id]) ? state.mutationChecks[id] : 'not_run' })),
+    mutationEvidence: mutationEvidence(state.mutationEvidence),
     orderListState: ['empty', 'list'].includes(state.orderListState) ? state.orderListState : null,
     cleanup: { device: state.cleanup?.device === true, sandbox: state.cleanup?.sandbox === true,
-      localSession: state.cleanup?.localSession === true, serverRevocation: 'not-independently-observed' },
+      localSession: state.cleanup?.localSession === true, fixtureRestoration: state.cleanup?.fixtureRestoration === true, serverRevocation: 'not-independently-observed' },
     failureCodes: [...new Set((state.errors || []).map(safeCode))],
-    accountMutations: 'login-refresh-logout-only-no-cart-profile-address-order-payment-writes',
+    accountMutations: 'login-refresh-logout-profile-name-cart-target-only-no-address-order-payment-review-email-writes',
     physicalDevice: 'not-run', payment: 'not-run' };
   if (clean.status === 'passed' && (!clean.cases.every(item => item.status === 'passed') || !clean.readOnlyChecks.every(item => item.status === 'passed') ||
+    !clean.mutationChecks.every(item => item.status === 'passed') || !mutationsPassed(clean.mutationEvidence) || !clean.cleanup.fixtureRestoration ||
     clean.orderListState === null || !Object.values(clean.cleanup).slice(0, 3).every(Boolean) || clean.failureCodes.length)) clean.status = 'failed';
   return clean;
 }
@@ -261,14 +315,17 @@ async function apkHash(file) { const hash = createHash('sha256'); for await (con
 
 // Wiring deliberately accepts a source proof verified in a credential-free step.
 // The future workflow must not inject account secrets into prepare/download/inspect.
-async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, parent = sandboxParent, authProbe = probeAccountAuth, now = Date.now, wait = pause, hash = apkHash }) {
+async function runAcceptance({ env, apk, context, run, xmlTree, create = createSandbox, parent = sandboxParent, capture = captureFixture, restore = restoreFixture, now = Date.now, wait = pause, hash = apkHash }) {
   need(process.platform === 'linux' || env.ACCOUNT_UNIT_TEST === true, 'ACCOUNT_SANDBOX_FAILED');
   need(context?.artifactSourceCommit === SOURCE.commit && context.automationCommit === env.GITHUB_SHA && context.producerVerified === true &&
     context.producerRun === SOURCE.producer && context.producerAttempt === SOURCE.attempt && context.apkSha256 === SOURCE.sha256 && context.parentInspectionVerified === true,
   'ACCOUNT_ARTIFACT_MISMATCH');
   need(await hash(apk) === SOURCE.sha256, 'ACCOUNT_ARTIFACT_MISMATCH');
-  const secret = credentials(env), state = { status: 'failed', stage: 'device-check', automationCommit: context.automationCommit, cases: {}, readOnlyChecks: {}, errors: [], cleanup: {} };
-  let box, parentContext, setupAttempted = false, loginAttempted = false, loggedOut = false, caseId = 'AC01', sequence = 0, installed = false, remoteCreated = false;
+  const secret = credentials(env), state = { status: 'failed', stage: 'device-check', automationCommit: context.automationCommit, cases: {}, readOnlyChecks: {}, mutationChecks: {},
+    mutationEvidence: mutationEvidence(), errors: [], cleanup: {} };
+  const mutationState = Object.fromEntries(STATE_KEYS.map(key => [key, false]));
+  let fixture = null, box, parentContext, setupAttempted = false, loginAttempted = false, loggedOut = false, caseId = 'AC01', sequence = 0, installed = false, remoteCreated = false,
+    bodyCompleted = false, removalUiComplete = false, viewport = null;
   const stdout = result => typeof result === 'string' ? result : result.stdout;
   const serialRaw = stdout(await run('adb', ['devices'], {}));
   const devices = serialRaw.trim().split(/\r?\n/).slice(1).filter(Boolean).map(line => line.split(/\s+/));
@@ -292,13 +349,68 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     need(Object.hasOwn(READ_ONLY_URLS, route), 'ACCOUNT_GUEST_GUARD_FAILED');
     await adb(['shell', 'am', 'start', '-W', '-n', SOURCE.appId + '/.MainActivity', '-a', 'android.intent.action.VIEW', '-d', READ_ONLY_URLS[route]]);
   };
+  const scrollFor = async (label, kind = 'any') => {
+    for (const direction of ['down', 'up']) for (let attempt = 0; attempt < 12; attempt++) {
+      const nodes = await readUi(), found = labelled(nodes, label).filter(node => kind === 'input' ? node.class === 'android.widget.EditText' : kind === 'button' ? node.clickable === 'true' : true);
+      need(found.length <= 1, 'ACCOUNT_MUTATION_UI_INVALID');
+      if (found.length === 1 && rectangle(found[0])) return nodes;
+      if (!viewport) {
+        const sizes = [...(await adb(['shell', 'wm', 'size'])).matchAll(/(?:Physical|Override) size: (\d+)x(\d+)/g)];
+        need(sizes.length > 0 && sizes.length <= 2, 'ACCOUNT_MUTATION_UI_INVALID');
+        viewport = sizes.at(-1).slice(1).map(Number);
+        need(viewport.every(n => n >= 320 && n < 8192), 'ACCOUNT_MUTATION_UI_INVALID');
+      }
+      const [width, height] = viewport, x = Math.floor(width / 2), top = Math.floor(height * 0.3), bottom = Math.floor(height * 0.8);
+      await adb(['shell', 'input', 'swipe', String(x), String(direction === 'down' ? bottom : top), String(x), String(direction === 'down' ? top : bottom), '250']);
+    }
+    throw new AccountError('ACCOUNT_UI_TIMEOUT');
+  };
+  const mutationTap = async (label, flag) => {
+    const coordinate = point(await scrollFor(label, 'button'), label, 'button');
+    need(STATE_KEYS.includes(flag), 'ACCOUNT_MUTATION_UI_INVALID');
+    mutationState[flag] = true; state.mutationEvidence.mutationUncertain = true;
+    await adb(['shell', 'input', 'tap', ...coordinate.map(String)]);
+  };
+  const saveName = async (name, value) => {
+    const nodes = await scrollFor('Nombre', 'input'); point(nodes, 'Nombre', 'input'); await tap('Nombre', 'input');
+    await flow(name, '- eraseText: 100\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard', { MAESTRO_ACCOUNT_FIELD_VALUE: value });
+    need(fieldMatches(await readUi(), 'Nombre', value), 'ACCOUNT_MUTATION_UI_INVALID');
+    await mutationTap('Guardar cambios', 'profileNameAttempted');
+    await waitUi(items => hasLabel(items, 'Tu perfil se actualizó correctamente.'));
+    need(fieldMatches(await scrollFor('Nombre', 'input'), 'Nombre', value), 'ACCOUNT_MUTATION_UI_INVALID');
+  };
+  const verifyProfilePreimage = async expectedName => {
+    for (const [label, key] of [['Nombre', 'nombre'], ['Apellido paterno', 'aPaterno'], ['Apellido materno', 'aMaterno'], ['Correo', 'email'], ['Teléfono', 'telefono']]) {
+      need(fieldMatches(await scrollFor(label, 'input'), label, key === 'nombre' ? expectedName : fixture.profile[key]), 'FIXTURE_CONFLICT');
+    }
+  };
+  const cartQuantity = async quantity => {
+    await scrollFor('Eliminar ' + fixture.target.name, 'button');
+    await waitUi(nodes => cartQuantityMatches(nodes, fixture.target, quantity));
+  };
+  const prepareVariant = async () => {
+    const target = fixture.target;
+    need(Number.isSafeInteger(target.productId) && target.productId > 0, 'ACCOUNT_MUTATION_UI_INVALID');
+    await adb(['shell', 'am', 'start', '-W', '-n', SOURCE.appId + '/.MainActivity', '-a', 'android.intent.action.VIEW', '-d', 'sportcentermobile://product/' + target.productId]);
+    await scrollFor(target.selectorLabel, 'button'); await tap(target.selectorLabel, 'button');
+    const selected = await waitUi(nodes => labelled(nodes, target.selectorLabel).some(node => node.clickable === 'true' && node.checked === 'true'));
+    need(labelled(selected, target.selectorLabel).filter(node => node.clickable === 'true').length === 1, 'ACCOUNT_MUTATION_UI_INVALID');
+    await scrollFor('SKU: ' + target.sku);
+    const priced = await scrollFor('$' + target.currentPrice.toFixed(2));
+    const stock = priced.filter(node => node.package === SOURCE.appId && /^(\d+) disponibles$/.test(node.text || ''));
+    need(stock.length === 1 && Number(/^(\d+)/.exec(stock[0].text)[1]) >= target.quantity + 1, 'ACCOUNT_MUTATION_UI_INVALID');
+    const quantityNodes = await scrollFor('Sumar cantidad', 'button');
+    need(productQuantity(quantityNodes) === 1, 'ACCOUNT_MUTATION_UI_INVALID');
+    point(await scrollFor('Agregar al carrito', 'button'), 'Agregar al carrito', 'button');
+  };
   try {
     need((await adb(['shell', 'getprop', 'ro.build.version.sdk'])).trim() === '34' && (await adb(['shell', 'getprop', 'ro.product.cpu.abi'])).trim() === 'x86_64', 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['reverse', '--list'])).trim(), 'ACCOUNT_PROCESS_FAILED');
     need(!(await adb(['shell', 'pm', 'list', 'packages', SOURCE.appId])).trim(), 'ACCOUNT_PROCESS_FAILED');
-    state.stage = 'api-auth-probe'; const apiContract = await authProbe({ email: secret.email, password: secret.password });
-    need(validateProbeReport(apiContract), 'ACCOUNT_API_AUTH_FAILED'); state.apiContract = apiContract;
+    state.stage = 'api-auth-probe'; const captured = await capture({ email: secret.email, password: secret.password });
+    need(validateCaptureReport(captured), 'ACCOUNT_API_AUTH_FAILED'); const apiContract = captured.authReport; state.apiContract = apiContract;
     need(apiContract.status !== 'blocked', 'ACCOUNT_API_AUTH_BLOCKED');
+    need(captured.errorCode === 'NONE', captured.errorCode); fixture = captured.fixture;
     need(apiContract.status === 'passed' && apiContract.sessionValid === true && apiContract.logoutConfirmed === true && apiContract.uiContinueAllowed === true, 'ACCOUNT_API_AUTH_FAILED');
     state.stage = 'sandbox-parent-verify'; parentContext = parent(env); await parentContext.verifyMaestro(run);
     parentContext.confirm(false);
@@ -339,10 +451,36 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     // The field can be below the viewport; scroll only (never enter/save data).
     state.stage = 'AC02-scroll'; await flow('AC02', '- scrollUntilVisible:\n    element:\n      text: "^Correo$"\n    timeout: 30000');
     state.stage = 'AC02-compare'; need(profileMatches(await readUi(), secret.email), 'ACCOUNT_PROFILE_MISMATCH'); state.cases.AC02 = 'passed';
+    caseId = 'MU01'; state.stage = 'MU01-profile-save'; await verifyProfilePreimage(fixture.profile.nombre); await saveName('MU01', TEST_NAME);
+    state.mutationEvidence.profileSaved = true; state.mutationChecks.MU01 = 'passed';
+    caseId = 'MU02'; state.stage = 'MU02-profile-persist'; await cold(); await flow('MU02', FLOWS.restored); await flow('MU02', FLOWS.profile);
+    need(fieldMatches(await scrollFor('Nombre', 'input'), 'Nombre', TEST_NAME), 'ACCOUNT_MUTATION_UI_INVALID'); state.mutationEvidence.profilePersisted = true;
+    state.stage = 'MU02-profile-restore'; await verifyProfilePreimage(TEST_NAME); await saveName('MU02', fixture.profile.nombre);
+    await cold(); await flow('MU02', FLOWS.restored); await flow('MU02', FLOWS.profile); await verifyProfilePreimage(fixture.profile.nombre);
+    state.mutationEvidence.profileUiRestored = true; state.mutationChecks.MU02 = 'passed';
     caseId = 'AC03'; state.stage = 'AC03-open'; await flow('AC03', FLOWS.cart); state.stage = 'AC03-fixture';
     const cart = fixtureStatus(await waitUi(nodes => fixtureStatus(nodes) !== 'loading'));
     need(cart !== 'empty', 'ACCOUNT_FIXTURE_EMPTY'); need(cart !== 'stock', 'ACCOUNT_FIXTURE_STOCK'); need(cart === 'ready', 'ACCOUNT_UI_TIMEOUT');
     state.cases.AC03 = 'passed';
+    caseId = 'MU03'; state.stage = 'MU04-target-preflight'; await prepareVariant(); await openReadOnly('cart'); await cartQuantity(fixture.target.quantity);
+    state.stage = 'MU03-cart-increase'; await mutationTap('Agregar una unidad de ' + fixture.target.name, 'cartIncrementAttempted');
+    await cartQuantity(fixture.target.quantity + 1); state.mutationEvidence.cartIncreased = true;
+    state.stage = 'MU03-cart-persist'; await cold(); await flow('MU03', FLOWS.restored); await openReadOnly('cart');
+    await cartQuantity(fixture.target.quantity + 1); state.mutationEvidence.cartPersisted = true;
+    state.stage = 'MU03-cart-restore'; await mutationTap('Restar una unidad de ' + fixture.target.name, 'cartIncrementAttempted');
+    await cartQuantity(fixture.target.quantity); state.mutationEvidence.cartUiRestored = true; state.mutationChecks.MU03 = 'passed';
+    caseId = 'MU04'; state.stage = 'MU04-cart-remove'; await mutationTap('Eliminar ' + fixture.target.name, 'cartRemoveAttempted');
+    await waitUi(nodes => !targetVisible(nodes, fixture.target) && (hasLabel(nodes, 'Tu carrito') || hasLabel(nodes, 'Tu carrito está vacío')));
+    const remaining = fixture.cart.itemCount - fixture.target.quantity;
+    if (remaining === 0) await waitUi(nodes => hasLabel(nodes, 'Tu carrito está vacío'));
+    else await scrollFor(remaining + ' artículos');
+    mutationState.cartRemoveConfirmed = true; state.mutationEvidence.cartRemoved = true;
+    state.stage = 'MU04-cart-readd'; await prepareVariant();
+    for (let quantity = 1; quantity < fixture.target.quantity; quantity++) {
+      await tap('Sumar cantidad', 'button'); await waitUi(nodes => productQuantity(nodes) === quantity + 1);
+    }
+    await mutationTap('Agregar al carrito', 'cartAddAttempted'); await waitUi(nodes => hasLabel(nodes, 'Agregado al carrito.'));
+    await openReadOnly('cart'); await cartQuantity(fixture.target.quantity); state.mutationEvidence.cartReadded = true; removalUiComplete = true;
     caseId = 'AC04'; state.stage = 'AC04-summary'; await flow('AC04', FLOWS.summary); state.cases.AC04 = 'passed';
     caseId = 'AC05'; state.stage = 'AC05-restore'; await cold(); await flow('AC05', FLOWS.restored); state.cases.AC05 = 'passed';
     caseId = 'RO01'; state.stage = 'RO01-orders'; await openReadOnly('orders');
@@ -361,13 +499,16 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     }
     caseId = 'RO04'; state.stage = 'RO04-privacy'; await openReadOnly('privacy'); await flow('RO04', FLOWS.privacy);
     need(privacyVisible(await readUi()), 'ACCOUNT_PRIVACY_READ_FAILED'); state.readOnlyChecks.RO04 = 'passed';
-    state.status = 'passed'; state.stage = 'completed';
+    bodyCompleted = true; state.status = 'passed'; state.stage = 'completed';
   } catch (error) {
     const code = error?.code === 'SANDBOX_SETUP_CLEANUP_FAILED' ? 'ACCOUNT_SANDBOX_CLEANUP_FAILED' : safeCode(error);
     if (trustedSandboxError(error)) state.sandboxDiagnostic = safeSandboxDiagnostic(error);
     state.errors.push(new AccountError(code)); state.failureStage = state.stage;
-    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_API_AUTH_BLOCKED'].includes(code);
-    if (READ_ONLY_CHECKS.includes(caseId)) state.readOnlyChecks[caseId] = 'failed'; else state.cases[caseId] = blocked ? 'blocked' : 'failed';
+    const blocked = ['ACCOUNT_FIXTURE_EMPTY', 'ACCOUNT_FIXTURE_STOCK', 'ACCOUNT_API_AUTH_BLOCKED', 'FIXTURE_PROFILE_INVALID', 'FIXTURE_PROFILE_NOT_NORMALIZED',
+      'FIXTURE_EMPTY', 'FIXTURE_STOCK', 'FIXTURE_VARIANT_INVALID', 'FIXTURE_PRICE_CHANGED', 'FIXTURE_TARGET_AMBIGUOUS'].includes(code) ||
+      code === 'FIXTURE_CONFLICT' && !STATE_KEYS.some(key => key !== 'cartRemoveConfirmed' && mutationState[key]);
+    if (MUTATION_CHECKS.includes(caseId)) state.mutationChecks[caseId] = 'failed';
+    else if (READ_ONLY_CHECKS.includes(caseId)) state.readOnlyChecks[caseId] = 'failed'; else state.cases[caseId] = blocked ? 'blocked' : 'failed';
     state.status = blocked ? 'blocked' : 'failed';
   } finally {
     if (loginAttempted && !loggedOut) {
@@ -380,6 +521,29 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     } else state.cleanup.localSession = !loginAttempted || loggedOut;
     if (state.apiContract?.accessTokenReceived === true && state.apiContract.logoutConfirmed !== true) {
       state.cleanup.localSession = false; state.errors.push(new AccountError('ACCOUNT_API_AUTH_CLEANUP_FAILED')); state.failureStage ||= 'api-auth-probe';
+    }
+    const attempted = STATE_KEYS.some(key => key !== 'cartRemoveConfirmed' && mutationState[key]);
+    state.cleanup.fixtureRestoration = !attempted;
+    if (attempted) {
+      try {
+        need(state.cleanup.localSession === true && installed, 'ACCOUNT_MUTATION_UI_NOT_STOPPED');
+        await adb(['shell', 'am', 'force-stop', SOURCE.appId]);
+        const processes = (await adb(['shell', 'ps', '-A', '-o', 'NAME'])).trim().split(/\r?\n/).map(line => line.trim());
+        need(!processes.some(name => name === SOURCE.appId || name.startsWith(SOURCE.appId + ':')), 'ACCOUNT_MUTATION_UI_NOT_STOPPED');
+        state.mutationEvidence.uiStopped = true;
+        const result = await restore({ email: secret.email, password: secret.password, fixture, mutationState: { ...mutationState }, uiStopped: true });
+        need(validateRestorationReport(result), 'ACCOUNT_FIXTURE_RESTORATION_FAILED');
+        Object.assign(state.mutationEvidence, result.restoration);
+        need(result.errorCode === 'NONE' && result.restoration.baselineRestored, result.errorCode === 'NONE' ? 'ACCOUNT_FIXTURE_RESTORATION_FAILED' : result.errorCode);
+        state.cleanup.fixtureRestoration = true;
+        if (bodyCompleted && removalUiComplete) {
+          state.mutationChecks.MU04 = 'passed'; state.mutationChecks.MU05 = 'passed';
+        }
+      } catch (error) {
+        state.errors.push(new AccountError('ACCOUNT_FIXTURE_RESTORATION_FAILED'), new AccountError(safeCode(error))); state.failureStage ||= 'MU05-baseline';
+        if (bodyCompleted) { state.mutationChecks.MU05 = 'failed'; if (removalUiComplete) state.mutationChecks.MU04 = 'failed'; }
+        state.status = 'failed';
+      }
     }
     try {
       if (installed) { await adb(['shell', 'am', 'force-stop', SOURCE.appId]); await adb(['uninstall', SOURCE.appId]); }
@@ -604,16 +768,19 @@ async function main(mode, env = process.env) {
     need(value.status === 'passed' && value.apkSha256 === SOURCE.sha256 && value.artifactSourceCommit === SOURCE.commit && value.automationCommit === env.GITHUB_SHA &&
       value.cases?.length === CASES.length && value.cases.every((item, index) => item.id === CASES[index] && item.status === 'passed') &&
       value.readOnlyChecks?.length === READ_ONLY_CHECKS.length && value.readOnlyChecks.every((item, index) => item.id === READ_ONLY_CHECKS[index] && item.status === 'passed') &&
+      value.mutationChecks?.length === MUTATION_CHECKS.length && value.mutationChecks.every((item, index) => item.id === MUTATION_CHECKS[index] && item.status === 'passed') &&
+      mutationsPassed(value.mutationEvidence) && value.cleanup?.fixtureRestoration === true &&
       ['empty', 'list'].includes(value.orderListState) &&
       value.cleanup?.device === true && value.cleanup?.sandbox === true && value.cleanup?.localSession === true && value.failureCodes?.length === 0, 'ACCOUNT_UI_TIMEOUT'); return;
   }
   if (mode === 'summary') {
     let result; try { result = JSON.parse(fs.readFileSync(files.report, 'utf8')); } catch { result = publicReport({ status: 'failed' }); }
     need(result.buildId === SOURCE.buildId && result.apkSha256 === SOURCE.sha256 && result.artifactSourceCommit === SOURCE.commit, 'ACCOUNT_ARTIFACT_MISMATCH');
-    const lines = ['Prueba de cuenta dedicada del APK F2: ' + (['passed', 'blocked', 'failed'].includes(result.status) ? result.status : 'failed') + '.',
+    const lines = ['Prueba de cuenta dedicada del APK ' + SOURCE.tag + ': ' + (['passed', 'blocked', 'failed'].includes(result.status) ? result.status : 'failed') + '.',
       ...CASES.map(id => id + ': ' + (result.cases?.find(item => item.id === id)?.status === 'passed' ? 'passed' : 'not-passed')),
       ...READ_ONLY_CHECKS.map(id => id + ': ' + (result.readOnlyChecks?.find(item => item.id === id)?.status === 'passed' ? 'passed' : 'not-passed')),
-      'Alcance: lectura, restauración y cierre local; sin pedido, pago, cambios de perfil/dirección/carrito ni prueba física.'];
+      ...MUTATION_CHECKS.map(id => id + ': ' + (result.mutationChecks?.find(item => item.id === id)?.status === 'passed' ? 'passed' : 'not-passed')),
+      'Alcance: lectura, sesión y cambios reversibles de nombre y una línea del carrito; sin dirección, pedido, pago, correo, reseña ni prueba física.'];
     if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n\n') + '\n'); return;
   }
   if (mode === 'cleanup') {
@@ -625,7 +792,8 @@ async function main(mode, env = process.env) {
   }
   throw new AccountError('ACCOUNT_AUTOMATION_SCOPE');
 }
-module.exports = { SOURCE, CASES, READ_ONLY_CHECKS, READ_ONLY_URLS, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
-  credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, orderListStatus, guestGuardStatus, privacyVisible, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
+module.exports = { SOURCE, CASES, READ_ONLY_CHECKS, MUTATION_CHECKS, MUTATION_FLAGS, READ_ONLY_URLS, STAGES, AUTOMATION_FILES, CODES, PREFLIGHT_FILE, LOGIN_ERROR_CODES, AccountError, safeCode, verifyProducer, verifyBuild, verifyAutomation,
+  credentials, parsePrivateUi, hasLabel, point, profileMatches, inputMatches, classifyLoginUi, fixtureStatus, orderListStatus, guestGuardStatus, privacyVisible,
+  fieldMatches, cartQuantityMatches, targetVisible, productQuantity, mutationEvidence, mutationsPassed, yaml, FLOWS, verifyJUnit, publicReport, runAcceptance,
   locations, prepare, validateParentProof, assertParentCleanup, runtimeDirectory, sandboxParent, probe, main };
 if (require.main === module) main(process.argv[2]).catch(error => { process.stderr.write(safeCode(error) + '\n'); process.exitCode = 1; });

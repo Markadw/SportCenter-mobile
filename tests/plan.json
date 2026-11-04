@@ -1055,5 +1055,158 @@
       }
     },
     "scope": "Procedencia, inspección, aceptación pública y siete controles de cuenta del Preview F2 verificados; edición, pedidos/pagos, aceptación física completa y publicación en Play pendientes."
+  },
+  "cartReloadRegression": {
+    "pr": "https://github.com/Markadw/SportCenter-mobile/pull/60",
+    "issue": 59,
+    "sourceCommit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+    "developMerge": "42cc14a46608ac81b1fca34894721a5ceb4bb458",
+    "status": "passed_local_and_github",
+    "scope": "Recarga al volver durante peticion; una lectura posterior sin repetir mutaciones; cancelacion al desmontar. La aceptacion nativa RC5 se registra por separado."
+  },
+  "realEmailAcceptance": {
+    "version": 1,
+    "scope": "isolated-registration-mail-recovery-real-http",
+    "status": "partial",
+    "httpSequenceCompleted": true,
+    "nativeAcceptance": false,
+    "ordersCreated": false,
+    "paymentsAttempted": false,
+    "accountDeletionConfirmed": false,
+    "accountVerified": true,
+    "passwordChangedConfirmed": true,
+    "phaseCount": 6,
+    "phases": [
+      {
+        "phase": "register",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "wrongverify",
+        "status": "passed",
+        "httpStatus": 400,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "resend",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "verify",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": true,
+        "logoutConfirmed": true,
+        "authReport": {
+          "status": "passed",
+          "loginHttpStatus": 201,
+          "logoutHttpStatus": 201,
+          "sessionValid": true,
+          "accessTokenReceived": true,
+          "logoutAttempted": true,
+          "logoutConfirmed": true,
+          "uiContinueAllowed": true,
+          "errorCode": "NONE"
+        }
+      },
+      {
+        "phase": "request-reset",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": false,
+        "logoutConfirmed": false,
+        "authReport": null
+      },
+      {
+        "phase": "reset",
+        "status": "passed",
+        "httpStatus": 201,
+        "errorCode": "NONE",
+        "messageConfirmed": true,
+        "loginConfirmed": true,
+        "logoutConfirmed": true,
+        "authReport": {
+          "status": "passed",
+          "loginHttpStatus": 201,
+          "logoutHttpStatus": 201,
+          "sessionValid": true,
+          "accessTokenReceived": true,
+          "logoutAttempted": true,
+          "logoutConfirmed": true,
+          "uiContinueAllowed": true,
+          "errorCode": "NONE"
+        }
+      }
+    ],
+    "realInboxEvidence": {
+      "recoverySubjectConfirmed": true,
+      "initialEmailReceived": true,
+      "resendSubjectConfirmed": true,
+      "resendNewMessageReceived": true,
+      "codesFromBackendResponseUsed": false,
+      "codesReadFromOwnMailbox": true,
+      "recoveryNewMessageReceived": true
+    }
+  },
+  "accountMutationAcceptance": {
+    "status": "pending_native_runtime",
+    "source": {
+      "repository": "Markadw/SportCenter-mobile",
+      "commit": "8e8a6da3fedbb61057efaa7fe30b6923b6195595",
+      "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
+      "appId": "com.markadw.sportcenter",
+      "api": "https://back-sport-ghxk.onrender.com",
+      "buildId": "65ec0aec-31df-4305-adfe-03cab1461e0f",
+      "sha256": "895f51818410574da55c29eca493910af19a87e47ffcc7177c20c46776659542",
+      "fingerprint": "0cfb627c02154da92e1d19f466723a9ca5a1b0621f38e74d652493014d59fb8f",
+      "producer": 41810909053,
+      "attempt": 1,
+      "tag": "candidate/android-rc5",
+      "artifact": 13313681074,
+      "artifactBytes": 178005,
+      "artifactSha256": "84a1976a6af896b1efbcfafb2afdeee8f92cd7348586b00c267b5815a2176128",
+      "appVersion": "1.0.0",
+      "appBuildVersion": "1"
+    },
+    "cases": [
+      "AC01",
+      "AC02",
+      "AC03",
+      "AC04",
+      "AC05",
+      "AC06",
+      "AC07",
+      "RO01",
+      "RO02",
+      "RO03",
+      "RO04",
+      "MU01",
+      "MU02",
+      "MU03",
+      "MU04",
+      "MU05"
+    ],
+    "restorationRequired": true,
+    "scope": "Sesion, lecturas y cambios reversibles de Nombre y una linea del carrito en API34. Sin direccion persistida, pedido, pago, publicacion de resena ni dispositivo fisico."
   }
 }

@@ -7,7 +7,7 @@ const path = require('node:path').posix;
 
 const MAX_OUTPUT = 8 * 1024 * 1024;
 const CONTROL_TIMEOUT = 15000;
-const SECRET_KEYS = Object.freeze(['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD']);
+const SECRET_KEYS = Object.freeze(['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD', 'MAESTRO_ACCOUNT_FIELD_VALUE']);
 const PATH_DEFAULT = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 // Explicit publication vocabulary. Never turn arbitrary errors or child output into report fields.
 const SANDBOX_ERROR_CODES = Object.freeze([

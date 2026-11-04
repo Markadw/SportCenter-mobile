@@ -5,6 +5,15 @@ const { createSandbox, planSandbox, firewallPlan, assertFirstOwnerRule, assertCh
   parseRejectCounter, privatePath, secretSubset, capturedRun, SandboxError, SANDBOX_ERROR_CODES,
   safeSandboxDiagnostic, isSafeSandboxDiagnostic, UID_PROCESS_WRAPPER, PRIVATE_FILE_WRITER } = require(require('node:path').join(process.env.ACCOUNT_PREP_DIR || require('node:path').join(__dirname, '..', 'scripts'), 'account-sandbox.cjs'));
 
+test('profile field values use the same private bounded environment without accepting other credentials', () => {
+  const value = 'María 漢字 $ & %s " \' ${NOT_INTERPOLATED}';
+  assert.deepEqual(secretSubset({ MAESTRO_ACCOUNT_FIELD_VALUE: value }), { MAESTRO_ACCOUNT_FIELD_VALUE: value });
+  for (const key of ['EXPO_TOKEN', 'GITHUB_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'MAESTRO_OTHER_VALUE']) {
+    assert.throws(() => secretSubset({ [key]: value }), /PRIVATE_ENV_KEY_REJECTED/);
+  }
+  assert.throws(() => secretSubset({ MAESTRO_ACCOUNT_FIELD_VALUE: 'x'.repeat(8193) }), /PRIVATE_ENV_VALUE_INVALID/);
+});
+
 function mockRuntime(config = {}) {
   const calls = [], rules = new Map(), output = { iptables: ['-A OUTPUT -j ACCEPT'], ip6tables: ['-A OUTPUT -j ACCEPT'] };
   const files = new Map();

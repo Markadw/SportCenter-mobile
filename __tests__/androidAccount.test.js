@@ -1,3 +1,4 @@
+/** @jest-environment node */
 'use strict';
 const test = globalThis.test || require('node:test').test;
 const assert = require('node:assert/strict');
@@ -7,13 +8,32 @@ const { SandboxError } = require(path.join(process.env.ACCOUNT_PREP_DIR || path.
 const REPO = process.env.ACCOUNT_REPO_ROOT || path.join(__dirname, '..');
 const { xmlTree } = require(path.join(REPO, 'scripts/android-pinning.js'));
 const { SOURCE, AccountError } = account;
+const fixtureTools = require(path.join(process.env.ACCOUNT_PREP_DIR || path.join(__dirname, '..', 'scripts'), 'account-fixture.cjs'));
+const { ReadableStream } = require('node:stream/web');
+const mutationSuccess = () => ({ mutationChecks: Object.fromEntries(account.MUTATION_CHECKS.map(id => [id, 'passed'])),
+  mutationEvidence: Object.fromEntries(account.MUTATION_FLAGS.map(key => [key, !['mutationUncertain', 'concurrentChangeObserved'].includes(key)])) });
+async function capturedFixture(email, password) {
+  const body = (value, status = 200) => ({ status, ok: status < 300, headers: { get: () => 'application/json' },
+    body: new ReadableStream({ start(controller) { controller.enqueue(Buffer.from(JSON.stringify(value))); controller.close(); } }) });
+  const result = await fixtureTools.captureFixture({ email, password, fetchImpl: async value => {
+    const endpoint = new URL(value).pathname;
+    if (endpoint === '/users/login-user') return body({ accessToken: 'access-fixture', refreshToken: 'refresh-fixture', sessionId: 'session-fixture', accessTokenExpiresIn: '15m' }, 201);
+    if (endpoint === '/users/logout') return body({ message: 'ok' }, 201);
+    if (endpoint === '/users/profile') return body({ nombre: 'Original SC', aPaterno: 'Prueba', aMaterno: 'Reserva', email, telefono: '5551234567' });
+    if (endpoint === '/products/cart') return body({ id_carrito: 1, items: [{ id_variante: 12, id_producto: 7, nombre: 'Producto Uno', sku: 'RED',
+      cantidad: 1, precio_unitario: 100, stock: 3, activo: true, atributos: { Color: 'Rojo' } }], summary: { subtotal: 100, itemCount: 1 } });
+    if (endpoint === '/products/get-product-details/7') return body([{ id_producto: 7, variantes: [{ id_variante: 12, stock: 3, precio: 100, sku: 'RED', atributos: { Color: 'Rojo' } }] }]);
+    throw new Error('Unexpected fixture transport');
+  } });
+  assert.equal(result.errorCode, 'NONE'); return result;
+}
 const jobsNames = ['Definir comprobaciones por evento y rama', 'Calidad previa a integración / Análisis estático y pruebas del cliente',
   'Seguridad previa a integración y APK / Dependencias y SAST CodeQL', 'Integración HTTP real y regresión de contratos',
   'Comprobar configuración de rendimiento y estrés / Inspeccionar guiones sin ejecutar carga', 'Compilar y aceptar APK candidato',
   'Rechazo nativo bajo MITM y recuperación del mismo APK', 'Resultado de integración'];
-function producer() { return { id: SOURCE.producer, run_attempt: 2, head_sha: SOURCE.commit, head_branch: 'candidate/android-rc4', event: 'push',
+function producer() { return { id: SOURCE.producer, run_attempt: SOURCE.attempt, head_sha: SOURCE.commit, head_branch: SOURCE.tag, event: 'push',
   path: '.github/workflows/api-android.yml', repository: { full_name: SOURCE.repository }, status: 'completed', conclusion: 'success' }; }
-function jobs() { return { total_count: jobsNames.length, jobs: jobsNames.map(name => ({ name, run_id: SOURCE.producer, run_attempt: 2, status: 'completed', conclusion: 'success' })) }; }
+function jobs() { return { total_count: jobsNames.length, jobs: jobsNames.map(name => ({ name, run_id: SOURCE.producer, run_attempt: SOURCE.attempt, status: 'completed', conclusion: 'success' })) }; }
 function candidate() { return { buildId: SOURCE.buildId, commit: SOURCE.commit, api: SOURCE.api, sha256: SOURCE.sha256, emulatorApi: 34, maestro: '2.12.0' }; }
 function inspection() { return { status: 'passed_for_static_scope', package: SOURCE.appId, checks: {
   candidate: { status: 'passed', evidence: { buildId: SOURCE.buildId, commit: SOURCE.commit, sha256: SOURCE.sha256 } },
@@ -32,16 +52,16 @@ function parentFixture() { return { path: '/tmp/sportcenter-account-AbC123', con
 function apiPass() { return { status: 'passed', loginHttpStatus: 201, logoutHttpStatus: 201, sessionValid: true,
   accessTokenReceived: true, logoutAttempted: true, logoutConfirmed: true, uiContinueAllowed: true, errorCode: 'NONE' }; }
 
-test('exact approved attempt2 plus immutable APK evidence is accepted', () => assert.equal(account.verifyProducer(producer(), jobs(), candidate(), inspection()).producerVerified, true));
+test('exact approved producer attempt plus immutable APK evidence is accepted', () => assert.equal(account.verifyProducer(producer(), jobs(), candidate(), inspection()).producerVerified, true));
 for (const [label, mutate] of [
-  ['attempt1', run => run.run_attempt = 1], ['different source', run => run.head_sha = 'b'.repeat(40)], ['pending', run => run.status = 'in_progress'],
+  ['attempt1', run => run.run_attempt = SOURCE.attempt + 1], ['different source', run => run.head_sha = 'b'.repeat(40)], ['pending', run => run.status = 'in_progress'],
   ['failure', run => run.conclusion = 'failure'], ['other repository', run => run.repository.full_name = 'other/repo'], ['other tag', run => run.head_branch = 'develop'],
 ]) test('producer rejects ' + label, () => { const run = producer(); mutate(run); assert.throws(() => account.verifyProducer(run, jobs(), candidate(), inspection()), /ACCOUNT_PRODUCER/); });
 for (const state of ['skipped', 'failure', 'cancelled', null]) test('producer does not accept required job ' + state, () => {
   const value = jobs(); value.jobs[0].conclusion = state; assert.throws(() => account.verifyProducer(producer(), value, candidate(), inspection()), /ACCOUNT_PRODUCER/);
 });
 test('producer rejects incomplete/duplicate jobs and attempt mismatch', () => {
-  for (const mutate of [value => value.total_count++, value => value.jobs.push(value.jobs[0]), value => value.jobs[0].run_attempt = 1]) {
+  for (const mutate of [value => value.total_count++, value => value.jobs.push(value.jobs[0]), value => value.jobs[0].run_attempt = SOURCE.attempt + 1]) {
     const value = jobs(); mutate(value); assert.throws(() => account.verifyProducer(producer(), value, candidate(), inspection()), /ACCOUNT_PRODUCER/);
   }
 });
@@ -125,12 +145,14 @@ test('public report drops arbitrary secret/error/UI fields and never upgrades pa
 });
 test('all seven historical controls, four read-only checks and cleanup gates are mandatory', () => {
   const state = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])),
-    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), orderListState: 'empty', errors: [], cleanup: { device: true, sandbox: true, localSession: true } };
+    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), ...mutationSuccess(), orderListState: 'empty', errors: [], cleanup: { device: true, sandbox: true, localSession: true, fixtureRestoration: true } };
   assert.equal(account.publicReport(state).status, 'passed');
   for (const key of Object.keys(state.cleanup)) assert.equal(account.publicReport({ ...state, cleanup: { ...state.cleanup, [key]: false } }).status, 'failed');
   for (const id of account.READ_ONLY_CHECKS) assert.equal(account.publicReport({ ...state, readOnlyChecks: { ...state.readOnlyChecks, [id]: 'not_run' } }).status, 'failed');
   assert.equal(account.publicReport({ ...state, orderListState: null }).status, 'failed');
   assert.equal(account.publicReport({ ...state, readOnlyChecks: undefined }).status, 'failed');
+  for (const id of account.MUTATION_CHECKS) assert.equal(account.publicReport({ ...state, mutationChecks: { ...state.mutationChecks, [id]: 'not_run' } }).status, 'failed');
+  assert.equal(account.publicReport({ ...state, mutationEvidence: { ...state.mutationEvidence, mutationUncertain: true } }).status, 'failed');
 });
 test('known fixed errors survive sanitization but error messages never do', () => {
   assert.equal(account.safeCode(new AccountError('ACCOUNT_FIXTURE_EMPTY')), 'ACCOUNT_FIXTURE_EMPTY');
@@ -146,11 +168,36 @@ test('report emits only fixed stages and never arbitrary private stage text', ()
 
 async function runtime(config = {}) {
   const calls = [], flows = [], files = new Map(); let installed = false, authenticated = false, stage = 'login', cleaned = false,
-    typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0, clock = 0;
+    typedEmail = '', typedPassword = '', passwordVisible = false, apiCalls = 0, parentCalls = 0, clock = 0, restoreCalls = 0,
+    profileName = 'Original SC', draftName = 'Original SC', savedName = false, cartQty = 1, productQty = 1, selected = false, processRunning = false, restoredState = null;
   const email = 'private+fixture@example.com', password = 'Private *&%s 漢字', sha = 'a'.repeat(40);
+  const captured = config.apiReport ? { authReport: config.apiReport, fixture: null, errorCode: config.apiReport.logoutConfirmed ? 'FIXTURE_AUTH_FAILED' : 'FIXTURE_AUTH_CLEANUP_FAILED' } : await capturedFixture(email, password);
   const nodes = () => {
-    if (stage === 'profile') return [{ text: config.wrongProfile ? 'other@example.com' : email, 'content-desc': 'Correo', class: 'android.widget.EditText' }];
-    if (stage === 'cart') return [{ text: config.empty ? 'Tu carrito está vacío' : 'Subtotal' }];
+    if (stage === 'profile') return [
+      { text: config.wrongProfile ? 'other@example.com' : email, 'content-desc': 'Correo', class: 'android.widget.EditText', bounds: '[10,120][200,180]' },
+      { text: config.changedPreimage ? 'Concurrent name' : draftName, 'content-desc': 'Nombre', class: 'android.widget.EditText', bounds: '[10,20][200,80]' },
+      { text: 'Prueba', 'content-desc': 'Apellido paterno', class: 'android.widget.EditText', bounds: '[10,90][200,110]' },
+      { text: 'Reserva', 'content-desc': 'Apellido materno', class: 'android.widget.EditText', bounds: '[10,190][200,210]' },
+      { text: '5551234567', 'content-desc': 'Teléfono', class: 'android.widget.EditText', bounds: '[10,285][200,305]' },
+      { text: 'Guardar cambios', clickable: 'true', bounds: '[10,320][200,380]' },
+      ...(savedName ? [{ text: 'Tu perfil se actualizó correctamente.' }] : []),
+    ];
+    if (stage === 'cart') return [{ text: 'Tu carrito' }, ...(config.empty || cartQty === 0 ? [{ text: 'Tu carrito está vacío' }] : [
+      { text: 'Subtotal' }, { text: cartQty + ' artículos' }, { text: String(cartQty), 'content-desc': 'Cantidad de Producto Uno: ' + cartQty, bounds: '[10,120][200,180]' },
+      { text: 'Agregar una unidad de Producto Uno', clickable: 'true', bounds: '[250,120][400,180]' },
+      { text: 'Restar una unidad de Producto Uno', clickable: 'true', bounds: '[10,220][200,280]' },
+      { text: 'Eliminar Producto Uno', clickable: 'true', bounds: '[10,320][200,380]' },
+    ])];
+    if (stage === 'product') return [
+      { text: 'Color: Rojo', clickable: 'true', checked: String(selected), bounds: '[10,20][200,80]' },
+      ...(config.ambiguousVariant ? [{ text: 'Color: Rojo', clickable: 'true', checked: 'false', bounds: '[220,20][400,80]' }] : []),
+      { text: 'SKU: RED' }, { text: config.changedPrice ? '$101.00' : '$100.00' }, { text: '3 disponibles' },
+      { text: 'Restar cantidad', clickable: 'true', bounds: '[10,220][60,280]' },
+      { text: 'Sumar cantidad', clickable: 'true', bounds: '[160,220][210,280]' },
+      { text: String(productQty), bounds: '[85,230][135,270]' },
+      { text: 'Agregar al carrito', clickable: 'true', bounds: '[10,320][200,380]' },
+      ...(config.added ? [{ text: 'Agregado al carrito.' }] : []),
+    ];
     if (stage === 'account') return [{ text: 'Mi cuenta' }, { text: 'Has iniciado sesión en Sport Center.' }, { text: 'Cerrar sesión', clickable: 'true' }];
     if (stage === 'guest') return [{ text: 'Tu cuenta Sport Center' }];
     if (stage === 'orders') return config.ordersError ? [{ text: 'No se pudo cargar' }] : config.ordersLoading ? [{ text: 'Cargando información' }] : [
@@ -174,13 +221,32 @@ async function runtime(config = {}) {
     calls.push({ file, args }); assert.equal(file, 'adb');
     if (args[0] === 'devices') return { stdout: 'List of devices attached\nemulator-5554\tdevice\n' };
     const a = args.slice(2), key = a.join(' ');
+    if (key.startsWith('shell am start')) processRunning = true;
     let stdout = '';
     if (key.includes('ro.build.version.sdk')) stdout = '34';
     else if (key.includes('ro.product.cpu.abi')) stdout = 'x86_64';
+    else if (key === 'shell wm size') stdout = 'Physical size: 1080x1920';
+    else if (key === 'shell ps -A -o NAME') stdout = 'NAME\n' + (config.runningAfterStop ? SOURCE.appId : '');
     else if (key.startsWith('shell pm list packages')) stdout = installed ? 'package:' + SOURCE.appId : '';
-    else if (a[0] === 'install') installed = true;
+    else if (a[0] === 'install') { installed = true; processRunning = true; }
     else if (a[0] === 'uninstall') installed = false;
     else if (key.startsWith('exec-out cat')) stdout = ui(nodes());
+    else if (key.startsWith('shell am force-stop')) {
+      processRunning = false;
+      if (config.lostProfilePersist) profileName = 'Original SC';
+      else if (config.lostOriginalPersist && profileName === 'Original SC') profileName = 'Prueba SC';
+    }
+    else if (key.startsWith('shell input tap') && stage === 'profile' && a.at(-1) === '350') { profileName = draftName; savedName = !config.saveUnconfirmed; }
+    else if (key.startsWith('shell input tap') && stage === 'cart') {
+      if (a.at(-1) === '150') { if (!config.failIncrement) cartQty++; }
+      else if (a.at(-1) === '250') cartQty--;
+      else if (a.at(-1) === '350') cartQty = 0;
+    }
+    else if (key.startsWith('shell input tap') && stage === 'product') {
+      if (a.at(-1) === '50') selected = true;
+      else if (a.at(-2) === '185') productQty++;
+      else if (a.at(-1) === '350') { if (!config.failAdd) { cartQty += productQty; config.added = true; } }
+    }
     else if (key.startsWith('shell input tap') && a.at(-2) === '325' && a.at(-1) === '150') passwordVisible = !passwordVisible;
     else if (key.startsWith('shell input tap') && a.at(-1) === '250') { authenticated = !config.rejectLoginUI; stage = authenticated ? 'account' : 'login'; }
     else if (key.includes('sportcentermobile://account')) stage = authenticated ? 'account' : 'guest';
@@ -188,6 +254,8 @@ async function runtime(config = {}) {
     else if (key.includes('sportcentermobile://profile')) stage = 'profile-guard';
     else if (key.includes('sportcentermobile://checkout')) stage = 'checkout-guard';
     else if (key.includes('sportcentermobile://privacy')) stage = 'privacy';
+    else if (key.includes('sportcentermobile://cart')) stage = authenticated ? 'cart' : 'guest';
+    else if (key.includes('sportcentermobile://product/7')) { stage = 'product'; productQty = 1; selected = false; config.added = false; }
     return { stdout };
   };
   const create = async options => {
@@ -203,7 +271,7 @@ async function runtime(config = {}) {
       const flowPath = argv.at(-1), body = files.get(flowPath), name = body.match(/\nname: ([^\n]+) private account\n/)[1];
       flows.push({ name, body, env: options.secretEnv, argv });
       const keys = Object.keys(options.secretEnv);
-      assert.ok(keys.every(key => ['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD'].includes(key)));
+      assert.ok(keys.every(key => ['MAESTRO_ACCOUNT_EMAIL', 'MAESTRO_ACCOUNT_PASSWORD', 'MAESTRO_ACCOUNT_FIELD_VALUE'].includes(key)));
       assert.ok(!argv.some(arg => arg.includes(email) || arg.includes(password)));
       if (name === 'AC01-navigate') stage = 'login';
       else if (name === 'AC01-email') typedEmail = email;
@@ -213,6 +281,11 @@ async function runtime(config = {}) {
       else if (name === 'AC05') { assert.equal(authenticated, true); stage = 'account'; }
       else if (name === 'AC06' || name === 'cleanup') { authenticated = false; stage = 'guest'; }
       else if (name === 'AC07') { assert.equal(authenticated, false); stage = 'guest'; }
+      else if (name === 'MU02' || name === 'MU03') {
+        if (body.includes('tapOn: "^Cuenta$"')) { assert.equal(authenticated, true); stage = 'account'; }
+        else if (body.includes('tapOn: "^Mi perfil$"')) { stage = 'profile'; draftName = profileName; savedName = false; }
+      }
+      if (Object.hasOwn(options.secretEnv, 'MAESTRO_ACCOUNT_FIELD_VALUE')) draftName = config.corruptMutationInput ? 'different' : options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;
       const output = argv[argv.indexOf('--output') + 1]; files.set(output, junit(name));
       return { exitCode: config.failPhase === name || config.rejectLoginUI && name === 'AC01' ? 1 : 0, stdout: password, stderr: email };
     },
@@ -222,24 +295,35 @@ async function runtime(config = {}) {
   };
   const result = await account.runAcceptance({ env: { ACCOUNT_UNIT_TEST: true, GITHUB_RUN_ID: '123', GITHUB_SHA: sha, RUNNER_TEMP: '/tmp',
     ANDROID_TEST_EMAIL: email, ANDROID_TEST_PASSWORD: password }, context: { artifactSourceCommit: SOURCE.commit, automationCommit: sha,
-    producerVerified: true, producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true },
+    producerVerified: true, producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true },
     apk: '/private/candidate.apk', hash: async () => SOURCE.sha256, run, create,
-    authProbe: async value => { assert.deepEqual(value, { email, password }); apiCalls++; return config.apiReport || apiPass(); },
+    capture: async value => { assert.deepEqual(value, { email, password }); apiCalls++; return captured; },
+    restore: async value => {
+      restoreCalls++; assert.equal(value.fixture, captured.fixture); assert.equal(authenticated, false); assert.equal(processRunning, false); assert.equal(value.uiStopped, true);
+      restoredState = value.mutationState;
+      const uncertain = !!config.failAdd, conflict = !!config.restoreConflict;
+      if (!uncertain && !conflict) { profileName = 'Original SC'; cartQty = 1; }
+      return { authReport: apiPass(), restoration: { profileRestored: true, cartRestored: !uncertain && !conflict,
+        otherProfileFieldsUnchanged: true, otherCartLinesUnchanged: !conflict, baselineRestored: !uncertain && !conflict,
+        mutationUncertain: uncertain, concurrentChangeObserved: conflict }, errorCode: uncertain ? 'FIXTURE_MUTATION_UNCERTAIN' : conflict ? 'FIXTURE_CONFLICT' : 'NONE' };
+    },
     parent: () => { parentCalls++; return parentFixture(); }, xmlTree, now: () => clock, wait: async duration => { clock += duration; } });
-  assert.ok(!JSON.stringify(result).includes(email) && !JSON.stringify(result).includes(password));
-  return { result, calls, flows, cleaned, installed, authenticated, apiCalls, parentCalls, passwordVisible };
+  assert.ok([email, password, 'Original SC', 'Producto Uno', 'Color: Rojo'].every(value => !JSON.stringify(result).includes(value)));
+  return { result, calls, flows, cleaned, installed, authenticated, apiCalls, parentCalls, passwordVisible, restoreCalls, profileName, cartQty, restoredState };
 }
 test('runtime uses one login, preserves state for cold restore, and removes only its installed app', async () => {
   const value = await runtime(); assert.equal(value.result.status, 'passed'); assert.equal(value.cleaned, true);
   assert.equal(value.installed, false); assert.equal(value.authenticated, false);
   assert.equal(value.flows.filter(item => item.name === 'AC01-password').length, 1);
-  assert.equal(value.flows.filter(item => Object.keys(item.env).length).length, 2);
+  assert.equal(value.flows.filter(item => Object.keys(item.env).length).length, 4);
   assert.ok(value.calls.every(item => !item.args.includes('clear') && !item.args.includes('curl')));
   assert.equal(value.calls.filter(item => item.args[2] === 'install').length, 1);
-  assert.equal(value.calls.filter(item => item.args.join(' ').includes('am force-stop')).length, 3);
+  assert.equal(value.calls.filter(item => item.args.join(' ').includes('am force-stop')).length, 7);
   assert.equal(value.apiCalls, 1); assert.deepEqual(value.result.inputObservation, { emailMatches: true, passwordMatches: true, passwordHidden: true });
   assert.ok(value.result.cases.every(item => item.status === 'passed'));
   assert.ok(value.result.readOnlyChecks.every(item => item.status === 'passed')); assert.equal(value.result.orderListState, 'empty');
+  assert.ok(value.result.mutationChecks.every(item => item.status === 'passed')); assert.equal(value.restoreCalls, 1);
+  assert.equal(value.result.cleanup.fixtureRestoration, true); assert.equal(value.profileName, 'Original SC'); assert.equal(value.cartQty, 1);
 });
 test('a real orders list is read without opening its identifier or publishing it', async () => {
   const value = await runtime({ ordersList: true }); assert.equal(value.result.status, 'passed'); assert.equal(value.result.orderListState, 'list');
@@ -372,7 +456,7 @@ test('setup factory cleanup failure remains explicitly unconfirmed without a san
 test('credential-free probe starts only the ADB server and records coded proof after cleanup', async () => {
   const calls = [], writes = [], reports = [];
   const context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
-    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+    producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
   await account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
     parent: parentFixture,
     readSource: () => context, writeSource: (file, value) => writes.push({ file, value }), writeReport: (...args) => reports.push(args),
@@ -397,7 +481,7 @@ test('probe refuses credentials and never starts an emulator or account on failu
   await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
     parent: parentFixture,
     readSource: () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
-      producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
+      producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
     run: async (file, args) => { calls.push({ file, args }); return { stdout: '' }; },
     create: async () => { throw Object.assign(new Error('private-person@example.com'), { code: 'private-password' }); },
     writeSource: () => assert.fail('cannot approve source proof on failed setup'), writeReport: (file, value) => reports.push(value),
@@ -422,7 +506,7 @@ test('dedicated parent proof requires exact /tmp identity, owner and 0711 withou
 });
 test('probe marks parent active before sandbox creation and confirms only after cleanup', async () => {
   const calls = [], reports = [], context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
-    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+    producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
   await account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
     parent: () => ({ path: '/tmp/sportcenter-account-AbC123', verifyMaestro: async () => calls.push('verify-tool'), confirm: value => calls.push('confirmed:' + value) }),
     readSource: () => context, writeSource: () => calls.push('source-pass'), writeReport: (file, value) => reports.push(value),
@@ -439,7 +523,7 @@ test('preflight file mismatch fails before AVD/account and still records confirm
   await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
     parent: parentFixture,
     readSource: () => ({ artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
-      producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
+      producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true }),
     run: async () => ({ exitCode: 0, stdout: '' }),
     create: async () => ({ probes: { ipv4RejectedWithCounter: true, adbLoopbackReachable: true },
       runAs: async () => ({ exitCode: 0, stdout: '2.12.0\n' }), createPrivateFile: async () => {},
@@ -452,7 +536,7 @@ test('preflight file mismatch fails before AVD/account and still records confirm
 test('ADB start failure preserves process code and never claims sandbox setup or cleanup failed', async () => {
   const reports = [], calls = [];
   const context = { artifactSourceCommit: SOURCE.commit, automationCommit: 'a'.repeat(40), producerVerified: true,
-    producerRun: SOURCE.producer, producerAttempt: 2, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
+    producerRun: SOURCE.producer, producerAttempt: SOURCE.attempt, apkSha256: SOURCE.sha256, parentInspectionVerified: true };
   for (const throws of [true, false]) {
     await assert.rejects(account.probe({ RUNNER_TEMP: '/tmp', GITHUB_RUN_ID: '123', GITHUB_SHA: 'a'.repeat(40) }, {
       readSource: () => context,
@@ -471,8 +555,8 @@ test('ADB start failure preserves process code and never claims sandbox setup or
 
 test('all seven base controls cannot approve a report without every required read-only control', () => {
   const base = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])),
-    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), orderListState: 'empty',
-    errors: [], cleanup: { device: true, sandbox: true, localSession: true } };
+    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), ...mutationSuccess(), orderListState: 'empty',
+    errors: [], cleanup: { device: true, sandbox: true, localSession: true, fixtureRestoration: true } };
   assert.equal(account.publicReport(base).status, 'passed');
   for (const id of account.READ_ONLY_CHECKS) {
     const missing = { ...base.readOnlyChecks }; delete missing[id];
@@ -480,4 +564,77 @@ test('all seven base controls cannot approve a report without every required rea
     assert.equal(account.publicReport({ ...base, readOnlyChecks: { ...base.readOnlyChecks, [id]: 'failed' } }).status, 'failed');
   }
   assert.equal(account.publicReport({ ...base, orderListState: null }).status, 'failed');
+});
+
+test('profile input corruption fails before save and never starts a restorative API session unnecessarily', async () => {
+  const value = await runtime({ corruptMutationInput: true });
+  assert.equal(value.result.stage, 'MU01-profile-save'); assert.equal(value.result.mutationChecks[0].status, 'failed');
+  assert.equal(value.profileName, 'Original SC'); assert.equal(value.restoreCalls, 0);
+  assert.equal(value.result.cleanup.fixtureRestoration, true); assert.equal(value.result.status, 'failed');
+});
+test('a changed profile preimage blocks before editing or saving any field', async () => {
+  const value = await runtime({ changedPreimage: true });
+  assert.equal(value.result.status, 'blocked'); assert.equal(value.result.stage, 'MU01-profile-save');
+  assert.equal(value.restoreCalls, 0); assert.equal(value.profileName, 'Original SC');
+  assert.ok(!value.flows.some(flow => Object.hasOwn(flow.env, 'MAESTRO_ACCOUNT_FIELD_VALUE')));
+  assert.deepEqual(value.result.failureCodes, ['FIXTURE_CONFLICT']);
+});
+test('a lost profile change after cold start is not rescued into a passing UI case by API cleanup', async () => {
+  const value = await runtime({ lostProfilePersist: true });
+  assert.equal(value.result.stage, 'MU02-profile-persist'); assert.equal(value.result.mutationChecks[1].status, 'failed');
+  assert.equal(value.result.mutationEvidence.profilePersisted, false); assert.equal(value.result.cleanup.fixtureRestoration, true);
+  assert.equal(value.result.status, 'failed'); assert.equal(value.restoreCalls, 1);
+});
+test('API fallback cannot certify restoration UI when the original name did not persist after a cold start', async () => {
+  const value = await runtime({ lostOriginalPersist: true });
+  assert.equal(value.result.stage, 'MU02-profile-restore'); assert.equal(value.result.mutationChecks[1].status, 'failed');
+  assert.equal(value.result.mutationEvidence.profileUiRestored, false); assert.equal(value.result.cleanup.fixtureRestoration, true);
+  assert.equal(value.result.mutationChecks.at(-1).status, 'not_run'); assert.equal(value.result.status, 'failed');
+});
+test('ambiguous variant selectors or changed rendered prices prevent every cart mutation', async () => {
+  for (const config of [{ ambiguousVariant: true }, { changedPrice: true }]) {
+    const value = await runtime(config); assert.equal(value.result.status, 'failed');
+    assert.equal(value.result.stage, 'MU04-target-preflight');
+    assert.equal(value.restoredState.cartIncrementAttempted, false); assert.equal(value.restoredState.cartRemoveAttempted, false);
+    assert.equal(value.restoredState.cartAddAttempted, false); assert.equal(value.cartQty, 1);
+    assert.equal(value.result.cleanup.fixtureRestoration, true);
+  }
+});
+test('a failed additive attempt remains uncertain and cannot receive a cleanup PASS or be replayed', async () => {
+  const value = await runtime({ failAdd: true });
+  assert.equal(value.result.stage, 'MU04-cart-readd'); assert.equal(value.result.status, 'failed');
+  assert.equal(value.restoredState.cartRemoveConfirmed, true); assert.equal(value.restoredState.cartAddAttempted, true);
+  assert.equal(value.result.mutationEvidence.mutationUncertain, true); assert.equal(value.result.cleanup.fixtureRestoration, false);
+  assert.equal(value.cartQty, 0); assert.equal(value.restoreCalls, 1); assert.equal(value.result.cleanup.device, true);
+});
+test('a concurrent baseline change prevents MU04 MU05 and global acceptance even when all UI steps passed', async () => {
+  const value = await runtime({ restoreConflict: true });
+  assert.equal(value.result.status, 'failed'); assert.ok(value.result.cases.every(item => item.status === 'passed'));
+  assert.ok(value.result.readOnlyChecks.every(item => item.status === 'passed'));
+  assert.deepEqual(value.result.mutationChecks.slice(3).map(item => item.status), ['failed', 'failed']);
+  assert.equal(value.result.mutationEvidence.concurrentChangeObserved, true); assert.equal(value.result.cleanup.fixtureRestoration, false);
+});
+test('restoration cannot start until logout and process absence are both observed', async () => {
+  const value = await runtime({ runningAfterStop: true });
+  assert.equal(value.restoreCalls, 0); assert.equal(value.result.cleanup.fixtureRestoration, false);
+  assert.equal(value.result.mutationEvidence.uiStopped, false); assert.equal(value.result.status, 'failed');
+  assert.ok(value.result.failureCodes.includes('ACCOUNT_MUTATION_UI_NOT_STOPPED'));
+});
+test('mutation evidence exports fixed booleans only and every additional gate is mandatory', () => {
+  const state = { status: 'passed', cases: Object.fromEntries(account.CASES.map(id => [id, 'passed'])),
+    readOnlyChecks: Object.fromEntries(account.READ_ONLY_CHECKS.map(id => [id, 'passed'])), ...mutationSuccess(), orderListState: 'empty',
+    errors: [], cleanup: { device: true, sandbox: true, localSession: true, fixtureRestoration: true } };
+  assert.equal(account.publicReport(state).status, 'passed');
+  for (const id of account.MUTATION_CHECKS) assert.equal(account.publicReport({ ...state, mutationChecks: { ...state.mutationChecks, [id]: 'failed' } }).status, 'failed');
+  const value = account.publicReport({ ...state, mutationEvidence: { profileSaved: 'private@example.com', arbitrary: 'private-name' } });
+  assert.equal(value.status, 'failed'); assert.ok(Object.values(value.mutationEvidence).every(item => typeof item === 'boolean'));
+  assert.ok(!JSON.stringify(value).includes('private-name') && !JSON.stringify(value).includes('private@example.com'));
+  assert.equal(account.publicReport({ ...state, cleanup: { ...state.cleanup, fixtureRestoration: false } }).status, 'failed');
+});
+test('product quantity is accepted only for one numeric TextView between its labelled step controls', () => {
+  const controls = [{ text: 'Restar cantidad', clickable: 'true', bounds: '[10,220][60,280]' }, { text: 'Sumar cantidad', clickable: 'true', bounds: '[160,220][210,280]' }];
+  const quantity = { text: '2', bounds: '[85,230][135,270]' };
+  assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, quantity]))), 2);
+  assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, quantity, quantity]))), null);
+  assert.equal(account.productQuantity(account.parsePrivateUi(ui([...controls, { ...quantity, bounds: '[300,230][350,270]' }]))), null);
 });
