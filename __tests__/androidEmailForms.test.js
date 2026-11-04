@@ -119,7 +119,7 @@ test('secret validation is phase-specific, requires independent new password and
  for(const code of['000000','999999','654321']){assert.match(forms.wrongCode(code),/^\d{6}$/);assert.notEqual(forms.wrongCode(code),code);}
 });
 test('Maestro receives only a whitelisted public label, while field values use the existing private environment',()=>{
- assert.match(forms.scrollBody('phone'),/Teléfono/);assert.match(forms.scrollBody('verification'),/centerElement: true/);assert.throws(()=>forms.scrollBody('${PRIVATE_VALUE}'),/FORMS_UI_INVALID/);assert.throws(()=>forms.scrollBody('phone','LEFT'),/FORMS_UI_INVALID/);assert.throws(()=>forms.noFormSecrets(env('register')),/FORMS_SOURCE_INVALID/);forms.noFormSecrets({PATH:'/usr/bin'});
+ assert.match(forms.scrollBody('phone'),/Teléfono/);assert.match(forms.scrollBody('verification'),/visibilityPercentage: 100\n    centerElement: false/);assert.throws(()=>forms.scrollBody('${PRIVATE_VALUE}'),/FORMS_UI_INVALID/);assert.throws(()=>forms.scrollBody('phone','LEFT'),/FORMS_UI_INVALID/);assert.throws(()=>forms.noFormSecrets(env('register')),/FORMS_SOURCE_INVALID/);forms.noFormSecrets({PATH:'/usr/bin'});
 });
 test('Forms YAML uses its own exact IDs and rejects injected IDs, inline values and capture commands',()=>{
  const body=forms.scrollBody('name');
@@ -149,17 +149,18 @@ test('failed sandbox setup with unconfirmed cleanup cannot be marked cleaned up 
 });
 async function runtimeFailure(options={}){
  const c=config(),e={...env('register'),ACCOUNT_UNIT_TEST:true,GITHUB_RUN_ID:'1'},context={phase:'register',artifactSourceCommit:c.sourceCommit,automationCommit:e.GITHUB_SHA,producerVerified:true,parentInspectionVerified:true,producerRun:c.producerRun,producerAttempt:c.producerAttempt,apkSha256:c.sha256,buildId:c.buildId,receiptSha256:guard.fingerprint(c),sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}};
- let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='',uiReads=0,clock=0;const calls=[],flows=[],privateField=options.landingRoute?env('register').ANDROID_FORMS_EMAIL:'Dato sintetico QA';
+ let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='',uiReads=0,clock=0,revealed=options.controlVisible===true;const calls=[],flows=[],privateField=options.landingRoute?env('register').ANDROID_FORMS_EMAIL:'Dato sintetico QA';
  const run=async(file,args)=>{calls.push([file,...args]);assert.equal(args.some(v=>Object.values(env('register')).includes(v)&&v!==e.GITHUB_SHA&&v!==e.GITHUB_REF),false);
   if(args[0]==='devices')return'List of devices attached\nemulator-5554\tdevice\n';const a=args.slice(2);
   if(a[0]==='shell'&&a[1]==='getprop')return'34\n';if(a[0]==='shell'&&a[1]==='pm'&&a[2]==='list')return installed?'package:'+forms.PACKAGE+'\n':'';
-  if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'';return '<hierarchy>'+title+'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="[10,10][200,60]"/></hierarchy>';}
+  if(a[0]==='shell'&&a[1]==='wm'&&a[2]==='size')return'Physical size: 360x800\n';
+  if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'',bounds=revealed?(options.edgeBounds||'[10,10][200,60]'):'[10,850][200,900]';return '<hierarchy>'+title+(options.controlAbsent?'':'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="'+bounds+'"/>')+'</hierarchy>';}
   if(a[0]==='install'){installed=true;if(options.partialInstall)throw new forms.FormsError('FORMS_PROCESS_FAILED');return'Success\n';}
   if(a[0]==='uninstall'){installed=false;removed=true;return'Success\n';}return'';
  };
  const create=async()=>({root:'/private/forms',probes:{ipv4RejectedWithCounter:true,adbLoopbackReachable:true},
   createPrivateFile:async(name,body)=>{assert.equal(body.includes(privateField),false);const docs=YAML.parseAllDocuments(body).map(d=>d.toJSON());assert.equal(docs[0].appId,forms.PACKAGE);assert.match(docs[0].name,/^EF[0-9]{3} private account$/);assert.ok(Array.isArray(docs[1]));flows.push({name,body});return '/private/forms/'+name;},
-  runMaestro:async(serial,args,callOptions)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);if(options.slowLanding)assert.ok(uiReads>=3,'Maestro must not run before the real landing is visible');assert.deepEqual(Object.keys(callOptions.secretEnv),flows.length===2?['MAESTRO_ACCOUNT_FIELD_VALUE']:[]);if(options.maestroFailure&&flows.length===(options.failureAction==='input'?2:1))return options.maestroFailure;if(callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE)fieldValue=callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0,timedOut:false,stdout:'',stderr:''};},
+  runMaestro:async(serial,args,callOptions)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);if(options.slowLanding)assert.ok(uiReads>=3,'Maestro must not run before the real landing is visible');const action=flows.at(-1).body.includes('inputText:')?'input':'scroll';assert.deepEqual(Object.keys(callOptions.secretEnv),action==='input'?['MAESTRO_ACCOUNT_FIELD_VALUE']:[]);if(options.maestroFailure&&action===(options.failureAction||'scroll'))return options.maestroFailure;if(action==='scroll')revealed=true;if(callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE)fieldValue=callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0,timedOut:false,stdout:'',stderr:''};},
   readPrivateFile:async filename=>{const name=filename.replace(/\.xml$/,'')+' private account';const xml='<testsuites><testsuite tests="1" failures="0"><testcase id="'+name+'" name="'+name+'" classname="'+name+'" status="SUCCESS"/></testsuite></testsuites>';return options.invalidJunit?xml.slice(0,-5):xml;},
   cleanup:async()=>{boxCleaned=true;if(options.cleanupFailed)throw new Error('private failure');}});
  const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,now:()=>clock,wait:async duration=>{clock+=duration;},execute:async(driver,secret,phaseState)=>{if(options.landingRoute){forms.stage(phaseState,'reset-open');await driver.open(options.landingRoute);}if(options.realField)await driver.fill(options.landingRoute?'recoveryEmail':'name',privateField,{direction:options.landingRoute?'UP':'DOWN'});throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
@@ -175,15 +176,34 @@ test('each public landing requires its own stable header and enabled input',()=>
  for(const[route,header,label]of[['register','Crear cuenta','Nombre'],['forgot-password','Recuperar contraseña','Correo'],['login','Accede a tu cuenta de Sport Center.','Correo electrónico']]){const nodes=[node(header),node('',{class:'android.widget.EditText','content-desc':label})];assert.equal(forms.landingReady(route,nodes),true);assert.equal(forms.landingReady(route,nodes.slice(0,1)),false);nodes[1].enabled='false';assert.equal(forms.landingReady(route,nodes),false);}
  assert.throws(()=>forms.landingReady('https://remote.invalid',[]),/FORMS_UI_INVALID/);
 });
+test('fully visible controls at the top and bottom edges bypass scroll CLI but still require valid measured input',async()=>{
+ for(const bounds of ['[0,0][100,40]','[0,760][100,800]']){
+  const r=await runtimeFailure({realField:true,controlVisible:true,edgeBounds:bounds});assert.equal(r.flows.length,1);assert.match(r.flows[0].body,/inputText:/);assert.equal(r.report.stage,'check-name');assert.equal(r.report.maestroDiagnostic,null);
+ }
+});
+test('a missing control still scrolls and cannot be entered after a fabricated successful scroll',async()=>{
+ const r=await runtimeFailure({realField:true,controlAbsent:true});assert.equal(r.flows.length,1);assert.match(r.flows[0].body,/visibilityPercentage: 100\n    centerElement: false/);assert.deepEqual(r.report.failureCodes,['FORMS_UI_INVALID']);assert.equal(r.calls.some(c=>c.includes('input')&&c.includes('tap')),false);assert.equal(r.report.operationUncertain,false);
+});
+test('point visibility rejects partial, missing or ambiguous controls and honors the actual screen size',()=>{
+ const make=bounds=>[node('',{class:'android.widget.EditText','content-desc':'Nombre',bounds})],viewport={width:360,height:800};
+ assert.deepEqual(forms.visiblePoint(make('[0,0][100,40]'),'Nombre','input',viewport),[50,20]);assert.deepEqual(forms.visiblePoint(make('[0,760][100,800]'),'Nombre','input',viewport),[50,780]);
+ for(const bounds of ['[0,780][100,820]','[-1,0][100,40]','[0,0][400,40]','broken'])assert.equal(forms.visiblePoint(make(bounds),'Nombre','input',viewport),null);
+ assert.equal(forms.visiblePoint([],'Nombre','input',viewport),null);assert.throws(()=>forms.visiblePoint([...make('[0,0][100,40]'),...make('[0,80][100,120]')],'Nombre','input',viewport),/FORMS_UI_INVALID/);
+ assert.deepEqual(forms.screenSize('Physical size: 1080x1920\nOverride size: 360x800\n'),viewport);for(const raw of ['','Physical size: 0x800','Physical size: 9999x800','Physical size: 360x800\nprivate extra'])assert.throws(()=>forms.screenSize(raw),/FORMS_PROCESS_FAILED/);
+});
+test('exception diagnostics classify only public JVM/transport classes or a fixed Maestro enum',()=>{
+ for(const[raw,expected]of [['io.grpc.StatusRuntimeException: PRIVATE','grpc-status'],['java.net.ConnectException: PRIVATE','java-connect'],['java.lang.IllegalStateException: PRIVATE','java-illegal-state'],['maestro.orchestra.PublicFailure: PRIVATE','maestro-public-error'],['com.private.CustomerException: PRIVATE','none']]){const value=forms.maestroExceptionEnum({stderr:raw});assert.equal(value,expected);assert.equal(value.includes('PRIVATE'),false);}
+ assert.equal(forms.maestroErrorEnum({stderr:'No visible element found: PRIVATE'}),'element-not-found');
+});
 test('failed scroll, failed input and host timeout have distinct fixed diagnostics without raw child output',async()=>{
  for(const[action,result,expected]of[['scroll',{exitCode:1,timedOut:false,stdout:'Element not found: PRIVATE_VALUE',stderr:''},'element-not-found'],['input',{exitCode:1,timedOut:false,stdout:'',stderr:'device offline PRIVATE_VALUE'},'device-offline'],['scroll',{exitCode:0,timedOut:true,stdout:'PRIVATE_VALUE',stderr:''},'timeout']]){
-  const r=await runtimeFailure({realField:true,failureAction:action,maestroFailure:result});assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);assert.deepEqual(r.report.maestroDiagnostic,{action,resultObserved:true,exitCode:result.exitCode,timedOut:result.timedOut,junitRead:false,junitValid:false,errorEnum:expected});assert.equal(JSON.stringify(r.report).includes('PRIVATE_VALUE'),false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+  const r=await runtimeFailure({realField:true,failureAction:action,maestroFailure:result});assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);assert.deepEqual(r.report.maestroDiagnostic,{action,resultObserved:true,exitCode:result.exitCode,timedOut:result.timedOut,junitRead:false,junitValid:false,errorEnum:expected,exceptionEnum:'none'});assert.equal(JSON.stringify(r.report).includes('PRIVATE_VALUE'),false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
  }
 });
 test('diagnostic allowlist rejects extra fields, raw content and unbounded numbers and prevents fabricated success',async()=>{
- const good={action:'scroll',resultObserved:true,exitCode:1,timedOut:false,junitRead:false,junitValid:false,errorEnum:'other'};
+ const good={action:'scroll',resultObserved:true,exitCode:1,timedOut:false,junitRead:false,junitValid:false,errorEnum:'other',exceptionEnum:'none'};
  assert.deepEqual(forms.safeMaestroDiagnostic(good),good);
- for(const bad of [{...good,stdout:'private'},{...good,exitCode:999},{...good,errorEnum:'raw-private'},{...good,timedOut:'false'}])assert.equal(forms.safeMaestroDiagnostic(bad),null);
+ for(const bad of [{...good,stdout:'private'},{...good,exitCode:999},{...good,errorEnum:'raw-private'},{...good,exceptionEnum:'private.CustomerException'},{...good,timedOut:'false'}])assert.equal(forms.safeMaestroDiagnostic(bad),null);
  const {s,c}=await completed('register');s.maestroDiagnostic=good;assert.equal(forms.publicReport(s,c).status,'failed');
 });
 test('the runtime field adapter uses real Forms YAML, private UI parsing and strict real JUnit verification before input is observed',async()=>{
@@ -197,7 +217,7 @@ test('the runtime field adapter rejects a truncated JUnit report and cleans up w
  const r=await runtimeFailure({realField:true,invalidJunit:true});
  assert.equal(r.flows.length,1);assert.equal(r.report.stage,'field-name');assert.deepEqual(r.report.failureCodes,['FORMS_MAESTRO_FAILED']);
  assert.equal(r.report.status,'failed');assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
- assert.deepEqual(r.report.maestroDiagnostic,{action:'scroll',resultObserved:true,exitCode:0,timedOut:false,junitRead:true,junitValid:false,errorEnum:'junit-invalid'});
+ assert.deepEqual(r.report.maestroDiagnostic,{action:'scroll',resultObserved:true,exitCode:0,timedOut:false,junitRead:true,junitValid:false,errorEnum:'junit-invalid',exceptionEnum:'none'});
 });
 test('a private input mismatch stops the phase and still removes app data, package and isolated UID',async()=>{
  const r=await runtimeFailure();assert.equal(r.report.status,'failed');assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH']);assert.equal(r.installed,false);assert.equal(r.removed,true);assert.equal(r.boxCleaned,true);assert.equal(r.confirmed,true);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});assert.equal(r.report.cases.some(c=>c.status==='passed'),false);

@@ -35,14 +35,14 @@ function credentials(env,phase){
 function wrongCode(value){need(/^\d{6}$/.test(value),'FORMS_FIXTURE_INVALID');return value.slice(0,5)+(Number(value[5])+1)%10;}
 function scrollBody(key,direction='DOWN'){
  need(Object.hasOwn(LABELS,key)&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
- return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+LABELS[key].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+'\n    direction: '+direction+'\n    timeout: 30000\n    centerElement: true';
+ return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+LABELS[key].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+'\n    direction: '+direction+'\n    timeout: 30000\n    visibilityPercentage: 100\n    centerElement: false';
 }
 const FIELD_BODY='- eraseText: 256\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard';
 const BUTTONS=Object.freeze(['Acepto el tratamiento necesario para mi cuenta','Crear cuenta','Reenviar código','Ya tengo un código','Verificar cuenta','Enviar código','Ya tengo un código de recuperación','Actualizar contraseña','Iniciar sesión','Cerrar sesión']);
 function tapBody(label){
  need(BUTTONS.includes(label),'FORMS_UI_INVALID');
  const below=label==='Crear cuenta'?'Leer privacidad y términos':label==='Iniciar sesión'?'Contraseña':null;
- return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+(below?'\n      below:\n        text: '+JSON.stringify('^'+below+'$'):'')+'\n    direction: DOWN\n    timeout: 30000\n    centerElement: true';
+ return '- scrollUntilVisible:\n    element:\n      text: '+JSON.stringify('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')+(below?'\n      below:\n        text: '+JSON.stringify('^'+below+'$'):'')+'\n    direction: DOWN\n    timeout: 30000\n    visibilityPercentage: 100\n    centerElement: false';
 }
 const FLOW_BODIES=new Set([FIELD_BODY,...Object.keys(LABELS).flatMap(key=>['UP','DOWN'].map(direction=>scrollBody(key,direction))),...BUTTONS.map(tapBody)]);
 function formsYaml(name,body){
@@ -56,17 +56,37 @@ function landingReady(route,nodes){
  if(route==='login')return account.hasLabel(nodes,'Accede a tu cuenta de Sport Center.')&&field('Correo electrónico');
  throw new FormsError('FORMS_UI_INVALID');
 }
-const MAESTRO_KEYS=Object.freeze(['action','resultObserved','exitCode','timedOut','junitRead','junitValid','errorEnum']);
+function screenSize(text){
+ need(typeof text==='string'&&text.length<=4096,'FORMS_PROCESS_FAILED');
+ const lines=text.trim().split(/\r?\n/),physical=/^Physical size: ([1-9][0-9]{0,3})x([1-9][0-9]{0,3})$/.exec(lines[0]),override=lines.length===2?/^Override size: ([1-9][0-9]{0,3})x([1-9][0-9]{0,3})$/.exec(lines[1]):null;
+ need(physical&&lines.length<=2&&(lines.length===1||override),'FORMS_PROCESS_FAILED');
+ const match=override||physical,width=Number(match[1]),height=Number(match[2]);need(width<=8192&&height<=8192,'FORMS_PROCESS_FAILED');return{width,height};
+}
+function visiblePoint(nodes,label,kind,viewport){
+ need(viewport&&Number.isInteger(viewport.width)&&Number.isInteger(viewport.height)&&viewport.width>0&&viewport.height>0,'FORMS_UI_INVALID');
+ const found=nodes.filter(node=>node.package===PACKAGE&&[node.text,node['content-desc']].includes(label)&&node.enabled==='true'&&(kind==='input'?node.class==='android.widget.EditText':node.clickable==='true'));
+ need(found.length<=1,'FORMS_UI_INVALID');if(!found.length)return null;
+ const bounds=/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/.exec(found[0].bounds||'');
+ if(!bounds||Number(bounds[3])>viewport.width||Number(bounds[4])>viewport.height)return null;
+ try{const point=account.point(nodes,label,kind);return point[0]>=0&&point[0]<viewport.width&&point[1]>=0&&point[1]<viewport.height?point:null;}catch{return null;}
+}
+const MAESTRO_KEYS=Object.freeze(['action','resultObserved','exitCode','timedOut','junitRead','junitValid','errorEnum','exceptionEnum']);
+const EXCEPTIONS=Object.freeze({'io.grpc.StatusRuntimeException':'grpc-status','java.net.ConnectException':'java-connect','java.net.SocketTimeoutException':'java-socket-timeout','java.io.IOException':'java-io','java.lang.IllegalStateException':'java-illegal-state','java.lang.IllegalArgumentException':'java-illegal-argument','java.util.concurrent.TimeoutException':'java-timeout','java.lang.OutOfMemoryError':'java-out-of-memory'});
+function maestroExceptionEnum(result){
+ const text=[result?.stdout,result?.stderr].filter(value=>typeof value==='string').map(value=>value.slice(0,1048576)).join('\n');
+ for(const[name,code]of Object.entries(EXCEPTIONS))if(text.includes(name))return code;
+ return /\bmaestro\.[A-Za-z0-9_.$]*(?:Exception|Error|Failure)\b/.test(text)?'maestro-public-error':'none';
+}
 function safeMaestroDiagnostic(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==MAESTRO_KEYS.length||!MAESTRO_KEYS.every(key=>Object.hasOwn(value,key)))return null;
- if(!['scroll','input'].includes(value.action)||!['resultObserved','timedOut','junitRead','junitValid'].every(key=>typeof value[key]==='boolean')||!(value.exitCode===null||Number.isInteger(value.exitCode)&&value.exitCode>=-1&&value.exitCode<=255)||!['none','element-not-found','device-offline','timeout','junit-invalid','process-error','other'].includes(value.errorEnum))return null;
+ if(!['scroll','input'].includes(value.action)||!['resultObserved','timedOut','junitRead','junitValid'].every(key=>typeof value[key]==='boolean')||!(value.exitCode===null||Number.isInteger(value.exitCode)&&value.exitCode>=-1&&value.exitCode<=255)||!['none','element-not-found','device-offline','timeout','junit-invalid','process-error','other'].includes(value.errorEnum)||!['none','maestro-public-error',...Object.values(EXCEPTIONS)].includes(value.exceptionEnum))return null;
  return Object.fromEntries(MAESTRO_KEYS.map(key=>[key,value[key]]));
 }
 function maestroErrorEnum(result){
  if(result?.timedOut===true)return'timeout';
  const text=[result?.stdout,result?.stderr].filter(value=>typeof value==='string').map(value=>value.slice(0,1048576)).join('\n');
  if(/device[^\r\n]*(?:offline|not found)|no devices\/emulators|device disconnected/i.test(text))return'device-offline';
- if(/element[^\r\n]*not found|no (?:matching )?elements? found|unable to find[^\r\n]*element/i.test(text))return'element-not-found';
+ if(/element[^\r\n]*not found|no (?:(?:matching|visible) )?elements? found|unable to find[^\r\n]*element/i.test(text))return'element-not-found';
  if(/timed? out|timeout|deadline exceeded/i.test(text))return'timeout';
  return'other';
 }
@@ -146,27 +166,27 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  provenance.verifyConfig(config);need(process.platform==='linux'||env.ACCOUNT_UNIT_TEST===true,'FORMS_SANDBOX_FAILED');
  need(context.artifactSourceCommit===config.sourceCommit&&context.automationCommit===env.GITHUB_SHA&&context.apkSha256===config.sha256&&context.producerVerified===true&&context.parentInspectionVerified===true&&context.producerRun===config.producerRun&&context.producerAttempt===config.producerAttempt&&context.buildId===config.buildId&&context.receiptSha256===provenance.fingerprint(config)&&context.sandboxPreflight?.status==='passed'&&['ipv4RejectedWithCounter','adbLoopbackReachable','maestroVersionVerified','privateFileRoundtripVerified','cleanupConfirmed'].every(key=>context.sandboxPreflight[key]===true),'FORMS_SOURCE_INVALID');need(await hash(apk)===config.sha256,'FORMS_SOURCE_INVALID');
  const phase=context.phase,secret=credentials(env,phase),state={phase,status:'failed',stage:'device-check',automationCommit:context.automationCommit,cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false};
- let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,sequence=0;
+ let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,viewport,sequence=0;
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
  const adb=async args=>stdout(await run('adb',['-s',serial,...args],{}));
  const readUi=async()=>{try{await adb(['shell','uiautomator','dump',remote+'/ui.xml']);return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml']));}finally{await adb(['shell','rm','-f',remote+'/ui.xml']);}};
  const flow=async(body,value)=>{
-  const diagnostic={action:body===FIELD_BODY?'input':'scroll',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error'};
+  const diagnostic={action:body===FIELD_BODY?'input':'scroll',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error',exceptionEnum:'none'};
   try{
    const name='EF'+String(++sequence).padStart(3,'0'),file=await box.createPrivateFile(name+'.yaml',formsYaml(name,body)),output=path.posix.join(box.root,name+'.xml');
    const result=await box.runMaestro(serial,['test','--format','junit','--output',output,file],{secretEnv:value===undefined?{}:{MAESTRO_ACCOUNT_FIELD_VALUE:value}});
-   diagnostic.resultObserved=true;diagnostic.exitCode=Number.isInteger(result?.exitCode)&&result.exitCode>=-1&&result.exitCode<=255?result.exitCode:null;diagnostic.timedOut=result?.timedOut===true;diagnostic.errorEnum=maestroErrorEnum(result);
+   diagnostic.resultObserved=true;diagnostic.exitCode=Number.isInteger(result?.exitCode)&&result.exitCode>=-1&&result.exitCode<=255?result.exitCode:null;diagnostic.timedOut=result?.timedOut===true;diagnostic.errorEnum=maestroErrorEnum(result);diagnostic.exceptionEnum=maestroExceptionEnum(result);
    need(result?.exitCode===0&&!diagnostic.timedOut,'FORMS_MAESTRO_FAILED');
    diagnostic.errorEnum='junit-invalid';const junit=await box.readPrivateFile(name+'.xml');diagnostic.junitRead=true;account.verifyJUnit(junit,name,xmlTree);diagnostic.junitValid=true;
-  }catch(error){state.maestroDiagnostic=diagnostic;throw error;}
+  }catch(error){if(!diagnostic.resultObserved)diagnostic.exceptionEnum=maestroExceptionEnum(error);state.maestroDiagnostic=diagnostic;throw error;}
  };
- const measured=async(label,kind)=>account.point(await readUi(),label,kind);
- const reveal=async label=>flow(tapBody(label));
+ const measured=async(label,kind)=>{const point=visiblePoint(await readUi(),label,kind,viewport);need(point,'FORMS_UI_INVALID');return point;};
+ const reveal=async label=>{if(visiblePoint(await readUi(),label,'button',viewport))return;await flow(tapBody(label));await measured(label,'button');};
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
   async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
   async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
-  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
+  async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);if(!visiblePoint(await readUi(),LABELS[key],'input',viewport))await flow(scrollBody(key,direction));const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
    try{const p=await measured(show,'button');await adb(['shell','input','tap',...p.map(String)]);shown=true;need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');}
@@ -174,7 +194,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
   }
  };
  try{
-  const devices=stdout(await run('adb',['devices'],{})).trim().split(/\r?\n/).slice(1).filter(Boolean).map(v=>v.split(/\s+/));need(devices.length===1&&/^emulator-[0-9]+$/.test(devices[0][0])&&devices[0][1]==='device','FORMS_PROCESS_FAILED');serial=devices[0][0];need((await adb(['shell','getprop','ro.build.version.sdk'])).trim()==='34','FORMS_PROCESS_FAILED');need(!(await adb(['shell','pm','list','packages',PACKAGE])).trim(),'FORMS_DEVICE_CLEANUP_FAILED');
+  const devices=stdout(await run('adb',['devices'],{})).trim().split(/\r?\n/).slice(1).filter(Boolean).map(v=>v.split(/\s+/));need(devices.length===1&&/^emulator-[0-9]+$/.test(devices[0][0])&&devices[0][1]==='device','FORMS_PROCESS_FAILED');serial=devices[0][0];need((await adb(['shell','getprop','ro.build.version.sdk'])).trim()==='34','FORMS_PROCESS_FAILED');viewport=screenSize(await adb(['shell','wm','size']));need(!(await adb(['shell','pm','list','packages',PACKAGE])).trim(),'FORMS_DEVICE_CLEANUP_FAILED');
   stage(state,'sandbox-parent');parentContext=parent(env);await parentContext.verifyMaestro(run);parentContext.confirm(false);stage(state,'sandbox-probes');setupAttempted=true;box=await create({runnerTemp:parentContext.path,runId:env.GITHUB_RUN_ID,env});
   need(box.probes?.ipv4RejectedWithCounter===true&&box.probes?.adbLoopbackReachable===true,'FORMS_SANDBOX_FAILED');remoteCreated=true;await adb(['shell','mkdir','-p',remote]);
   stage(state,'app-install');installAttempted=true;need(/Success/.test(await adb(['install','--no-streaming',apk])),'FORMS_PROCESS_FAILED');await execute(driver,secret,state);stage(state,'completed');state.status='passed';
@@ -187,7 +207,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,landingReady,safeMaestroDiagnostic,maestroErrorEnum,waitForUi,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,scrollBody,formsYaml,landingReady,screenSize,visiblePoint,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}
