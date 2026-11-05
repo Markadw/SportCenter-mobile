@@ -1,0 +1,46 @@
+{
+  "status": "draft_not_uploaded",
+  "package": "com.markadw.sportcenter",
+  "text": {
+    "title": "Sport Center: tienda deportiva",
+    "short_description": "Explora artículos deportivos, compra y consulta tus pedidos desde tu celular.",
+    "full_description": "Encuentra artículos deportivos y organiza tus compras con Sport Center.\n\nExplora el catálogo sin crear una cuenta. Busca productos y filtra por deporte, categoría, marca o precio. Revisa las imágenes, la descripción y las opciones disponibles para elegir la variante que necesitas.\n\nInicia sesión para agregar productos al carrito, ajustar cantidades y continuar tu compra. Indica tu dirección de envío, elige entre los métodos disponibles y revisa el resumen antes de continuar. Puedes aplicar códigos de promoción vigentes cuando estén disponibles.\n\nEl pago continúa en Mercado Pago. Al volver a la app puedes consultar el estado del pedido; cerrar el navegador no confirma ni cancela el pago.\n\nDesde tu cuenta puedes actualizar tu perfil y consultar tus pedidos y su seguimiento. Si olvidas tu contraseña, solicita un código de recuperación por correo.\n\nLee las opiniones de otros compradores. Si tienes una compra entregada y cumples los requisitos del producto, puedes publicar una calificación y un comentario. También puedes reportar una reseña a atención y ocultar las reseñas de un autor en este dispositivo. El reporte se envía a atención; la app no retira contenido automáticamente.\n\nEn Privacidad y términos encontrarás información sobre el uso de tus datos y una opción para solicitar la eliminación de tu cuenta y los datos asociados. La solicitud se envía a atención y requiere seguimiento manual; recibir un folio no significa que la eliminación ya se haya realizado.\n\nLas compras corresponden a productos físicos. La disponibilidad, las promociones y las condiciones de envío pueden variar. Consulta los importes y las condiciones de tu pedido antes de pagar.\n\nSoporte: sportcentersoporte@gmail.com"
+  },
+  "character_counts": {
+    "title": 30,
+    "short_description": 77,
+    "full_description": 1715
+  },
+  "character_limits": {
+    "title": 30,
+    "short_description": 80,
+    "full_description": 4000
+  },
+  "support": "sportcentersoporte@gmail.com",
+  "releaseEvidence": {
+    "currentValidatedAppSource": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+    "developCommit": "9d71d41f0e4dcfd6bacad2d9d4d1da86b56e4e5b",
+    "releaseBuild": "43bcc31d-8297-48e4-b91e-7f37c63d349c",
+    "releaseRun": 41890488214,
+    "releaseRunUrl": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41890488214",
+    "versionName": "1.0.0",
+    "versionCode": 1,
+    "aabBytes": 68959933,
+    "aabSha256": "8fac2e502cd1877d8fd60b7b93e5b42ae85313025dcf1cbed62f4699b8cd693a",
+    "scope": "Validación técnica y ocho ejecuciones públicas API34/API36 del AAB RC6. No acredita aceptación privada completa, dispositivo físico, Play App Signing ni publicación."
+  },
+  "approval": {
+    "owner_approved": false,
+    "legal_documents_ready": false,
+    "full_functional_acceptance": false,
+    "submitted": false
+  },
+  "remaining": [
+    "Cerrar aceptación funcional pendiente de la fuente final; conservar vínculo fuente/binario si no cambia la app",
+    "Finalizar compra/pedido/reseña con datos autorizados y proveedor comprobado",
+    "Confirmar ficha/capturas definitivas del binario final",
+    "Resolver #52 y completar Console"
+  ],
+  "resourcesManifest": "recursos.json",
+  "resourcesDirectory": "recursos/"
+}

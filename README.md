@@ -53,6 +53,8 @@ El registro exige aceptar sin premarcar el tratamiento necesario de la cuenta. C
 
 Privacidad y solicitud de eliminación están disponibles sin sesión. El formulario registra una solicitud manual y un folio; no afirma que borre una cuenta. Los avisos web tienen datos de contacto inconsistentes y requieren corrección por el responsable. Los borradores de docs/public/ no están publicados. Véase [la revisión de privacidad](docs/privacy-review.md) para los pendientes que impiden declarar lista la publicación.
 
+La [preparación de Google Play — REL-002](docs/google-play/README.md) reúne el inventario de datos, el procedimiento propuesto de eliminación, la ficha, los recursos y las guías para la cuenta personal, los revisores y la prueba cerrada. Distingue los materiales preparados de los requisitos todavía pendientes y conserva la identidad del AAB RC6 validado. La cuenta de Console aún no está creada y la app no se ha enviado a Google Play.
+
 ## Carrito, dirección y checkout
 
 El carrito usa los servicios de cliente para consultar, agregar una variante, ajustar su cantidad o eliminarla. Precio, existencias y subtotal proceden del servidor. Una reducción de stock permite ajustar la cantidad disponible; los productos inactivos o sin existencias suficientes impiden continuar. La app no repite automáticamente las adiciones.
