@@ -2,7 +2,7 @@
 
 Material para revisar y completar [REL-002, #52](https://github.com/Markadw/SportCenter-mobile/issues/52). No es una declaración enviada a Google ni acredita publicación. La cuenta personal sigue sin crearse, según confirmó el titular. Sus datos legales adicionales permanecen aplazados.
 
-La documentación se prepara desde `develop` `9d71d41f0e4dcfd6bacad2d9d4d1da86b56e4e5b`. No modifica la app, el backend o la base de datos. La moderación y la migración del backend continúan pendientes por decisión del usuario.
+La preparación inicial partió de `develop` `9d71d41f0e4dcfd6bacad2d9d4d1da86b56e4e5b`; esta actualización concilia la evidencia QA sobre la base `54552a80e31b47a38c527c3efc8d6ff92e08a6cc`. No modifica la app, el backend o la base de datos. La moderación y la migración del backend continúan pendientes por decisión del usuario.
 
 ## Archivos que se pueden utilizar
 
@@ -36,7 +36,7 @@ Esta preparación no cambia las casillas del tablero. Sólo P07 tiene aprobació
 | L03 | Publicar el recurso específico de eliminación y comprobar acceso sin sesión ni app instalada. |
 | L04 | Ejecutar y acreditar validación, eliminación o anonimización que corresponda, retención justificada y comunicación del resultado. El procedimiento escrito no lo cumple por sí solo. |
 | D01 | Inventario preparado; confirmar proveedores activos, funciones y conservación efectiva. |
-| D02 | Contrastar datos de compra/pago con la operación autorizada. La compra real sigue pendiente. |
+| D02 | Incorporar la evidencia del pago aprobado entre cuentas TEST y su reconciliación local QA. OTHE sigue en procesamiento; retorno Android, notificación automática y operación desplegada conservan sus pendientes. |
 | D03 | Convertir el inventario confirmado en respuestas finales de Seguridad de los datos, aprobadas por el responsable. |
 | D04 | Conciliar permisos, SDKs y tráfico de la versión distribuida, distinguiendo pruebas públicas, privadas y revisión de código. |
 | P01 | Crear cuenta personal y completar verificaciones del titular y dispositivo. |

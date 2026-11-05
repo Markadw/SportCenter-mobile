@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "scope": "hu07-approved-provider-test-accounts-local-reconciliation",
+  "mobileBaseCommit": "54552a80e31b47a38c527c3efc8d6ff92e08a6cc",
+  "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "qaSchema": {
+    "file": "tests/environment/checkout-payment-fixtures.sql",
+    "applied": true,
+    "sqlExplainPassed": true,
+    "productionParity": false,
+    "initialAppliedSha256": "22baaf292a471ea6a384bc036458fd989772496e4b1836ff4606ff1b1b9c1ba8",
+    "currentSourceSha256": "fe2941c9bc01afcefbe87c87297d59c694423181831944facc44ded7e46a79fa",
+    "currentSourceValidatedOnSeparatePendingCopy": true
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "scope": "real-test-account-creation-receipt-reconciliation-observed-live-mode-true",
+    "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+    "sourceHashes": {
+      "src/modules/products/services/product-checkout.service.ts": "8f550ffb4ced5094f5bb41b368b1c2647ac744574f8dd63968fdf3b4c2ef5a6a",
+      "src/modules/products/dto/checkout/create-checkout-order.dto.ts": "b3505f45baf86a7ff6f353ad6de357474a490471ad49403ce8e5a00740ece502"
+    },
+    "status": "passed",
+    "cases": [
+      {
+        "id": "PV01_QA_SOURCE",
+        "status": "passed"
+      },
+      {
+        "id": "PV02_REAL_TEST_PAYMENT_MATCHES",
+        "status": "passed"
+      },
+      {
+        "id": "PV03_PENDING_BASELINE",
+        "status": "passed"
+      },
+      {
+        "id": "PV04_FIRST_LOCAL_NOTIFICATION",
+        "status": "passed"
+      },
+      {
+        "id": "PV05_EXPECTED_ORDER_PAYMENT",
+        "status": "passed"
+      },
+      {
+        "id": "PV06_EXPECTED_INVENTORY_MOVEMENT",
+        "status": "passed"
+      },
+      {
+        "id": "PV07_EXPECTED_CART",
+        "status": "passed"
+      },
+      {
+        "id": "PV08_REAL_ID_REPLAY",
+        "status": "passed"
+      },
+      {
+        "id": "PV09_IDEMPOTENT_STATE",
+        "status": "passed"
+      }
+    ],
+    "flags": {
+      "databaseConfirmed": true,
+      "sourcePinned": true,
+      "sellerTestVerified": true,
+      "buyerTestVerified": true,
+      "realTestPaymentVerified": true,
+      "firstReconciliationVerified": true,
+      "inventoryVerified": true,
+      "cartVerified": true,
+      "idempotencyVerified": true
+    },
+    "observedProviderStatus": "approved",
+    "observedLiveMode": true,
+    "sandboxLiveModeFalseVerified": false,
+    "localWebhookPosts": 2,
+    "operationUncertain": false,
+    "preferenceCreatedByVerifier": false,
+    "paymentSubmittedByVerifier": false,
+    "automaticWebhookDeliveryVerified": false,
+    "mobileReturnVerified": false,
+    "emailDeliveryVerified": false,
+    "databaseClosed": true,
+    "errorCode": "NONE",
+    "buyerTestEvidence": "official-creation-receipt-and-public-id-site"
+  },
+  "priorAttempts": {
+    "liveModeFalseCheck": "failed-live-mode-true-observed",
+    "publicBuyerTagsCheck": "failed-field-not-exposed",
+    "firstLocalNotification": "rolled-back-missing-qa-order-discounts",
+    "rollbackConfirmed": true,
+    "originalReportsPreserved": true,
+    "cartReturn": "failed-qa-cart-id-default-missing-corrected-and-retried"
+  },
+  "provider": {
+    "newPaymentsSubmitted": 1,
+    "newPreferencesForScenario": 1,
+    "testBuyerCreatedByOfficialApi": true,
+    "buyerCredentialsStored": "windows-dpapi-current-user",
+    "observedStatus": "approved",
+    "observedLiveMode": true,
+    "sandboxLiveModeFalseVerified": false,
+    "interpretation": "verified-test-accounts-context-kept-separate-from-live-mode-false"
+  },
+  "limits": {
+    "automaticWebhook": false,
+    "androidReturn": false,
+    "rejectedCase": false,
+    "sharedDatabaseContacted": false,
+    "backendSourceModified": false,
+    "mainModified": false
+  },
+  "cleanup": {
+    "pending": false,
+    "dockerCleanupConfirmed": true,
+    "finalDumpSaved": true,
+    "originalDumpPreserved": true,
+    "metroClosed": true,
+    "testBuyerSessionClosed": true
+  },
+  "mobileWeb": {
+    "scope": "expo-web-client-real-qa-http-not-android",
+    "status": "passed",
+    "paidOrderReadFromBackend": true,
+    "screenTitle": "Pago confirmado",
+    "cartEmptyAfterBackendCreatesNewCart": true,
+    "screenshotSha256": "fd5171facd1a5eaceaa7818e74bfb70efaa222da556a5a2e8c4cd757fd8e62d3"
+  },
+  "qaCartReturn": {
+    "status": "passed",
+    "scope": "qa-only-missing-cart-id-default",
+    "sqlSha256": "09bffed2ff1daf7a070868b5f10c991c34061bc48f5d12150054a32670e948d8",
+    "existingRowsModified": false,
+    "existingSequencesRestarted": false,
+    "cartInsertedByRepair": false,
+    "webhookOrPaymentSubmitted": false
+  },
+  "localValidation": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "testConfiguration": "passed",
+    "suitesPassed": 86,
+    "testsPassed": 2337,
+    "testsSkipped": 1
+  }
+}
