@@ -17,7 +17,7 @@ const IDENTITY = Object.freeze({ repository: 'Markadw/SportCenter-mobile',
 const CONFIG_KEYS = Object.freeze(['version', 'repository', 'sourceCommit', 'projectId', 'appId', 'api',
   'buildId', 'sha256', 'bytes', 'fingerprint', 'producerRun', 'producerAttempt', 'producerTag',
   'artifactId', 'artifactBytes', 'artifactSha256', 'appVersion', 'appBuildVersion', 'easCliVersion', 'maestroVersion']);
-const PHASES = Object.freeze({ register: 'register', verify: 'verify', reset: 'reset' });
+const PHASES = Object.freeze({ register: 'register', verify: 'verify', reset: 'reset', request: 'request' });
 const REQUIRED_JOBS = Object.freeze(['Definir comprobaciones por evento y rama',
   'Calidad previa a integración / Análisis estático y pruebas del cliente',
   'Seguridad previa a integración y APK / Dependencias y SAST CodeQL',
@@ -178,7 +178,7 @@ function verifyBuild(config, build, nowMs) {
 }
 function verifyAutomation(config, { sha, head, ref, repository, changed, dirty } = {}) {
   const c = verifyConfig(config);
-  const tag = exactTag(ref, /^refs\/tags\/validation\/account-forms-(register|verify|reset)-([A-Za-z0-9][A-Za-z0-9_.-]{0,79})$/);
+  const tag = exactTag(ref, /^refs\/tags\/validation\/account-forms-(register|verify|reset|request)-([A-Za-z0-9][A-Za-z0-9_.-]{0,79})$/);
   need(hex(sha, 40) && sha !== c.sourceCommit && typeof head === 'string' && head.trim() === sha
     && repository === c.repository && tag && typeof dirty === 'string' && !dirty.trim(),
     'EMAIL_FORMS_AUTOMATION_SCOPE');

@@ -160,7 +160,7 @@ test('automation derives one exact phase and stable receipt proof without accept
   for (const filename of ['scripts/prepare-android-disk.cjs', '__tests__/androidDisk.test.js']) {
     assert.doesNotThrow(() => guard.verifyAutomation(config(), { ...automation('register'), changed: filename + '\n' }));
   }
-  for (const phase of ['register', 'verify', 'reset']) {
+  for (const phase of ['register', 'verify', 'reset', 'request']) {
     const c = config(), result = guard.verifyAutomation(c, automation(phase));
     assert.equal(result.phase, phase); assert.equal(result.receiptSha256, guard.fingerprint(c));
     assert.equal(result.artifactSourceCommit, c.sourceCommit); assert.equal(result.automationCommit, 'c'.repeat(40));

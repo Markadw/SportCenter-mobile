@@ -225,7 +225,9 @@ function validateEmailFormsWorkflow(workflow) {
   assert.equal(runtime.with['disable-linux-hw-accel'], false);
   assert.ok(runtime.with['emulator-options'].includes('-no-snapshot') && runtime.with['emulator-options'].includes('-accel on'));
   assert.equal(runtime.with.script, 'node scripts/android-email-forms.cjs runtime');
-  assert.deepEqual(runtime.env, { ANDROID_FORMS_EMAIL: '${{ secrets.ANDROID_FORMS_EMAIL }}', ANDROID_FORMS_PASSWORD: '${{ secrets.ANDROID_FORMS_PASSWORD }}', ANDROID_FORMS_PHONE: '${{ secrets.ANDROID_FORMS_PHONE }}', ANDROID_FORMS_CODE: '${{ secrets.ANDROID_FORMS_CODE }}', ANDROID_FORMS_NEW_PASSWORD: '${{ secrets.ANDROID_FORMS_NEW_PASSWORD }}' });
+  const runtimeSecrets = { ANDROID_FORMS_EMAIL: '${{ secrets.ANDROID_FORMS_EMAIL }}' };
+  for (const name of ['ANDROID_FORMS_PASSWORD', 'ANDROID_FORMS_PHONE', 'ANDROID_FORMS_CODE', 'ANDROID_FORMS_NEW_PASSWORD']) runtimeSecrets[name] = "${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets." + name + " || '' }}";
+  assert.deepEqual(runtime.env, runtimeSecrets, 'La fase request sólo recibe el correo; no contraseña, teléfono o códigos');
   for (const step of job.steps) {
     if (step !== runtime) assert.ok(!/ANDROID_(?:TEST|FORMS)_/.test(JSON.stringify(step)), 'Cuenta sólo en runtime');
     const expectedEnv = step === runtime ? runtime.env : step === prepare ? { GITHUB_TOKEN: '${{ github.token }}' }

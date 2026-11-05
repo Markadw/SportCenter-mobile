@@ -9,9 +9,9 @@ const account=require(path.join(repo,'scripts','android-account.cjs'));
 const {xmlTree}=require(path.join(repo,'scripts','android-pinning.js'));
 const YAML=require('yaml');
 const config=()=>({version:1,...guard.IDENTITY,sourceCommit:guard.EXPECTED_SOURCE,buildId:'11111111-2222-4333-8444-555555555555',sha256:'b'.repeat(64),bytes:10,fingerprint:'c'.repeat(64),producerRun:guard.EXPECTED_PRODUCER,producerAttempt:guard.EXPECTED_ATTEMPT,producerTag:guard.EXPECTED_PRODUCER_TAG,artifactId:202,artifactBytes:10,artifactSha256:'d'.repeat(64)});
-const env=phase=>({ANDROID_FORMS_EMAIL:'qa+forms@example.com',ANDROID_FORMS_PASSWORD:'AnteriorSegura456!',ANDROID_FORMS_PHONE:'5551234567',ANDROID_FORMS_CODE:'654321',ANDROID_FORMS_NEW_PASSWORD:'NuevaSegura789!',GITHUB_SHA:'e'.repeat(40),GITHUB_REF:'refs/tags/validation/account-forms-'+phase+'-fixture'});
+const env=phase=>({ANDROID_FORMS_EMAIL:'qa+forms@example.com',...(phase==='request'?{}:{ANDROID_FORMS_PASSWORD:'AnteriorSegura456!',ANDROID_FORMS_PHONE:'5551234567',ANDROID_FORMS_CODE:'654321',ANDROID_FORMS_NEW_PASSWORD:'NuevaSegura789!'}),GITHUB_SHA:'e'.repeat(40),GITHUB_REF:'refs/tags/validation/account-forms-'+phase+'-fixture'});
 const node=(text,extra={})=>({package:forms.PACKAGE,text,enabled:'true',clickable:'true',...extra});
-const state=phase=>({phase,status:'failed',stage:'preflight',automationCommit:'e'.repeat(40),cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false});
+const state=phase=>({phase,status:'failed',stage:'preflight',automationCommit:'e'.repeat(40),cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false,...(phase==='request'?{syntaxDiagnostic:{invalidReads:0,lastFailure:'none'}}:{})});
 function driverFor(phase,secret,options={}){
  let screen='',notice='',checked=false,loggedIn=false,resetViewport='code';const fields={},calls=[],counters={registration:0,resend:0,recovery:0,reset:0,login:0,logout:0};
  const nodes=()=>{
@@ -45,6 +45,7 @@ function driverFor(phase,secret,options={}){
    else throw new Error('unexpected public test action');
   },
   async wait(predicate){if(!predicate(nodes()))throw new forms.FormsError('FORMS_UI_TIMEOUT');return nodes();},
+  async pause(duration){assert.equal(duration,65000);calls.push(['pause',duration]);if(options.settleFailed)throw new forms.FormsError('FORMS_PROCESS_FAILED');},
  };
  return{driver,calls,counters};
 }
@@ -61,6 +62,36 @@ test('reset consumes the existing code before login, stable guest logout and exa
  assert.ok(guest>logout&&request>guest);assert.deepEqual(result.report.cases.map(c=>c.id),['EF06','EF07','EF08','EF09','EF05']);
  assert.deepEqual(result.report.recoveryUi,{codeObserved:true,updateButtonObserved:true,lastCodeVisible:false,lastUpdateButtonVisible:true});
 });
+test('request-only uses only email, sends once, settles for exactly 65s and requires both recovery form controls',async()=>{
+ const result=await completed('request');assert.equal(result.report.status,'passed');assert.deepEqual(result.report.cases,[{id:'EF05',status:'passed'}]);assert.deepEqual(result.counters,{registration:0,resend:0,recovery:1,reset:0,login:0,logout:0});
+ assert.deepEqual(result.calls.filter(v=>v[0]==='open'),[['open','forgot-password']]);assert.deepEqual(result.calls.filter(v=>v[0]==='fill'),[['fill','recoveryEmail']]);assert.deepEqual(result.calls.filter(v=>v[0]==='tap'),[['tap','Enviar código']]);assert.deepEqual(result.calls.filter(v=>v[0]==='pause'),[['pause',65000]]);
+ assert.ok(result.calls.findIndex(v=>v[0]==='pause')>result.calls.findIndex(v=>v[0]==='tap'));assert.ok(result.calls.findIndex(v=>v[0]==='reveal')>result.calls.findIndex(v=>v[0]==='pause'));
+ assert.equal(result.report.evidence.recoveryRequested,true);assert.ok(Object.entries(result.report.evidence).every(([key,value])=>value===(key==='recoveryRequested')));assert.deepEqual(result.report.syntaxDiagnostic,{invalidReads:0,lastFailure:'none'});assert.equal(forms.verifyFinished(result.c,env('request'),result.report).status,'passed');
+});
+
+test('request-only cannot receive passwords, phone or OTP and never requires those secret values',()=>{
+ const value=forms.credentials(env('request'),'request');assert.deepEqual(value,{email:env('request').ANDROID_FORMS_EMAIL,password:null,phone:null,code:null,newPassword:null});
+ for(const key of ['ANDROID_FORMS_PASSWORD','ANDROID_FORMS_PHONE','ANDROID_FORMS_CODE','ANDROID_FORMS_NEW_PASSWORD']){assert.throws(()=>forms.credentials({...env('request'),[key]:'private-forbidden'},'request'),/FORMS_SOURCE_INVALID/);assert.doesNotThrow(()=>forms.credentials({...env('request'),[key]:''},'request'));}
+});
+
+test('request-only preserves uncertain submission without replay when settle, response or either required control fails',async()=>{
+ for(const options of [{settleFailed:true},{recoveryUnconfirmed:true},{missingUpdateButton:true}]){
+  const s=state('request'),secret=forms.credentials(env('request'),'request'),d=driverFor('request',secret,options);await assert.rejects(forms.executePhase(d.driver,secret,s));assert.equal(s.operationUncertain,true);assert.equal(s.cases.EF05,undefined);assert.equal(d.counters.recovery,1);assert.equal(d.counters.reset,0);assert.equal(d.counters.login,0);assert.equal(d.calls.filter(v=>v[0]==='pause').length,1);
+ }
+});
+
+test('syntax diagnosis exposes only a fixed enum and never accepts a rejected XML snapshot',()=>{
+ const cases=[['','type-size'],['<!DOCTYPE hierarchy><hierarchy/>','doctype'],['<?unsafe?><hierarchy/>','instruction'],['<hierarchy>private-text</hierarchy>','text'],['<hierarchy><node></hierarchy>','nesting'],['<hierarchy><private/></hierarchy>','tag'],['<hierarchy><node text="private" text="other"/></hierarchy>','attribute'],['<hierarchy><node text="&private;"/></hierarchy>','entity'],['<hierarchy><node text="&#10;"/></hierarchy>','codepoint'],['<node/>','root'],['<hierarchy><hierarchy/></hierarchy>','tag-placement'],['<hierarchy>'+'<node/>'.repeat(4097)+'</hierarchy>','node-limit'],['<hierarchy>'+'<node>'.repeat(66)+'</node>'.repeat(66)+'</hierarchy>','depth-limit']];
+ for(const[xml,expected]of cases){assert.equal(forms.classifyUiSyntax(xml),expected);assert.throws(()=>forms.parseFormsUi(xml),/ACCOUNT_UI_INVALID/);assert.equal(forms.classifyUiSyntax(xml).includes('private'),false);}
+ assert.equal(forms.classifyUiSyntax('<hierarchy/>'),'unclassified');assert.deepEqual(forms.safeSyntaxDiagnostic({invalidReads:2,lastFailure:'entity'}),{invalidReads:2,lastFailure:'entity'});
+ for(const value of [{invalidReads:0,lastFailure:'entity'},{invalidReads:1,lastFailure:'none'},{invalidReads:1001,lastFailure:'root'},{invalidReads:1,lastFailure:'private@example.com'},{invalidReads:1,lastFailure:'root',xml:'private'}])assert.equal(forms.safeSyntaxDiagnostic(value),null);
+});
+
+test('request report cannot pass with another account operation or missing or arbitrary syntax evidence',async()=>{
+ const {s,c}=await completed('request');
+ for(const mutate of [v=>{v.evidence.passwordUpdated=true;},v=>{v.syntaxDiagnostic=null;},v=>{v.syntaxDiagnostic={invalidReads:1,lastFailure:'private@example.com'};}]){const value=structuredClone(s);mutate(value);const report=forms.publicReport(value,c);assert.equal(report.status,'failed');assert.equal(JSON.stringify(report).includes('private@example.com'),false);}
+});
+
 test('recovery requires both real labels in successive viewports and missing the button cannot pass or submit reset',async()=>{
  const s=state('reset'),secret=forms.credentials(env('reset'),'reset'),d=driverFor('reset',secret,{missingUpdateButton:true});
  await assert.rejects(forms.executePhase(d.driver,secret,s),/FORMS_UI_TIMEOUT/);assert.equal(s.stage,'reset-resume');assert.equal(s.operationUncertain,false);assert.equal(d.counters.reset,0);assert.equal(d.counters.recovery,0);
@@ -148,12 +179,13 @@ test('failed sandbox setup with unconfirmed cleanup cannot be marked cleaned up 
  assert.equal(report.cleanup.sandbox,false);assert.equal(report.status,'failed');
 });
 async function runtimeFailure(options={}){
- const c=config(),e={...env('register'),ACCOUNT_UNIT_TEST:true,GITHUB_RUN_ID:'1'},context={phase:'register',artifactSourceCommit:c.sourceCommit,automationCommit:e.GITHUB_SHA,producerVerified:true,parentInspectionVerified:true,producerRun:c.producerRun,producerAttempt:c.producerAttempt,apkSha256:c.sha256,buildId:c.buildId,receiptSha256:guard.fingerprint(c),sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}};
+ const phase=options.phase||'register',c=config(),e={...env(phase),ACCOUNT_UNIT_TEST:true,GITHUB_RUN_ID:'1'},context={phase,artifactSourceCommit:c.sourceCommit,automationCommit:e.GITHUB_SHA,producerVerified:true,parentInspectionVerified:true,producerRun:c.producerRun,producerAttempt:c.producerAttempt,apkSha256:c.sha256,buildId:c.buildId,receiptSha256:guard.fingerprint(c),sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}};
  let installed=false,removed=false,boxCleaned=false,confirmed=false,fieldValue='',uiReads=0,clock=0,revealed=options.controlVisible===true,revealedReads=0;const calls=[],flows=[],swipes=[],privateField=options.landingRoute?env('register').ANDROID_FORMS_EMAIL:'Dato sintetico QA';
  const run=async(file,args)=>{calls.push([file,...args]);assert.equal(args.some(v=>Object.values(env('register')).includes(v)&&v!==e.GITHUB_SHA&&v!==e.GITHUB_REF),false);
   if(args[0]==='devices')return'List of devices attached\nemulator-5554\tdevice\n';const a=args.slice(2);
   if(a[0]==='shell'&&a[1]==='getprop')return'34\n';if(a[0]==='shell'&&a[1]==='pm'&&a[2]==='list')return installed?'package:'+forms.PACKAGE+'\n':'';
   if(a[0]==='shell'&&a[1]==='wm'&&a[2]==='size')return'Physical size: 360x800\n';
+  if(a[0]==='exec-out'&&a[1]==='cat'&&options.invalidUi){uiReads++;return options.invalidUi;}
   if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';if(revealed)revealedReads++;const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'',bounds=revealed?(options.edgeBounds||'[40,10][320,60]'):'[40,850][320,900]';return '<hierarchy><node package="'+forms.PACKAGE+'" class="android.widget.ScrollView" enabled="true" bounds="[0,0][360,800]"><node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="Campo auxiliar" enabled="true" bounds="[40,100][320,150]"/>'+title+(options.controlAbsent||options.disappearAfterFind&&revealedReads>1?'':'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="'+bounds+'"/>')+'</node></hierarchy>';}
   if(a[0]==='shell'&&a[1]==='input'&&a[2]==='swipe'){if(options.slowLanding)assert.ok(uiReads>=3);swipes.push(a.slice(3));revealed=true;clock+=400;return'';}
   if(a[0]==='install'){installed=true;if(options.partialInstall)throw new forms.FormsError('FORMS_PROCESS_FAILED');return'Success\n';}
@@ -164,7 +196,7 @@ async function runtimeFailure(options={}){
   runMaestro:async(serial,args,callOptions)=>{assert.equal(serial,'emulator-5554');assert.equal(args.includes(privateField),false);if(options.slowLanding)assert.ok(uiReads>=3,'Maestro must not run before the real landing is visible');assert.equal(flows.at(-1).body.includes('scrollUntilVisible'),false);assert.deepEqual(Object.keys(callOptions.secretEnv),['MAESTRO_ACCOUNT_FIELD_VALUE']);if(options.maestroFailure)return options.maestroFailure;fieldValue=callOptions.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;return{exitCode:0,timedOut:false,stdout:'',stderr:''};},
   readPrivateFile:async filename=>{const name=filename.replace(/\.xml$/,'')+' private account';const xml='<testsuites><testsuite tests="1" failures="0"><testcase id="'+name+'" name="'+name+'" classname="'+name+'" status="SUCCESS"/></testsuite></testsuites>';return options.invalidJunit?xml.slice(0,-5):xml;},
   cleanup:async()=>{boxCleaned=true;if(options.cleanupFailed)throw new Error('private failure');}});
- const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,now:()=>clock,wait:async duration=>{clock+=duration;},execute:async(driver,secret,phaseState)=>{if(options.landingRoute){forms.stage(phaseState,'reset-open');await driver.open(options.landingRoute);}if(options.realField)await driver.fill(options.landingRoute?'recoveryEmail':'name',privateField,{direction:options.landingRoute?'UP':'DOWN'});throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
+ const report=await forms.runPhase({env:e,config:c,context,apk:'/private/fixture.apk',run,create,parent:()=>({path:'/tmp/private-fixture',verifyMaestro:async()=>{},confirm:v=>{confirmed=v;}}),hash:async()=>c.sha256,xmlTree,now:()=>clock,wait:async duration=>{clock+=duration;},execute:async(driver,secret,phaseState)=>{if(options.landingRoute){forms.stage(phaseState,phase==='request'?'recovery-open':'reset-open');await driver.open(options.landingRoute);}if(options.realField)await driver.fill(options.landingRoute?'recoveryEmail':'name',privateField,{direction:options.landingRoute?'UP':'DOWN'});throw new forms.FormsError('FORMS_INPUT_MISMATCH');}});
  return{report,installed,removed,boxCleaned,confirmed,calls,flows,swipes,privateField,uiReads,clock};
 }
 test('a slow StartupGate must expose the real recovery title and input before the first UP scroll or input flow',async()=>{
@@ -173,6 +205,10 @@ test('a slow StartupGate must expose the real recovery title and input before th
 });
 test('a landing that never exposes accessibility keeps the 45s limit and never starts Maestro or writes',async()=>{
  const r=await runtimeFailure({realField:true,landingRoute:'forgot-password',slowLanding:true,neverLanding:true});assert.equal(r.clock,45000);assert.equal(r.flows.length,0);assert.equal(r.report.stage,'reset-open');assert.deepEqual(r.report.failureCodes,['FORMS_UI_TIMEOUT']);assert.equal(r.report.operationUncertain,false);assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});
+});
+
+test('request runtime diagnoses rejected private XML with enums only and still removes the app and private sandbox',async()=>{
+ const r=await runtimeFailure({phase:'request',landingRoute:'forgot-password',realField:true,invalidUi:'<hierarchy><node text="&private;"/></hierarchy>'});assert.equal(r.report.status,'failed');assert.deepEqual(r.report.syntaxDiagnostic,{invalidReads:3,lastFailure:'entity'});assert.deepEqual(r.report.cleanup,{device:true,sandbox:true,localSession:true});assert.equal(r.flows.length,0);assert.equal(r.calls.some(c=>c.includes('tap')),false);assert.equal(JSON.stringify(r.report).includes('&private;'),false);
 });
 test('each public landing requires its own stable header and enabled input',()=>{
  for(const[route,header,label]of[['register','Crear cuenta','Nombre'],['forgot-password','Recuperar contraseña','Correo'],['login','Accede a tu cuenta de Sport Center.','Correo electrónico']]){const nodes=[node(header),node('',{class:'android.widget.EditText','content-desc':label})];assert.equal(forms.landingReady(route,nodes),true);assert.equal(forms.landingReady(route,nodes.slice(0,1)),false);nodes[1].enabled='false';assert.equal(forms.landingReady(route,nodes),false);}

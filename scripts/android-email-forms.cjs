@@ -5,12 +5,12 @@ const account=require('./android-account.cjs');
 const {createSandbox,SandboxError,safeSandboxDiagnostic,isSafeSandboxDiagnostic}=require('./account-sandbox.cjs');
 const provenance=require('./android-email-forms-source.cjs');
 const PACKAGE='com.markadw.sportcenter';
-const PHASE_CASES=Object.freeze({register:Object.freeze(['EF01','EF02']),verify:Object.freeze(['EF03','EF04','EF05']),reset:Object.freeze(['EF06','EF07','EF08','EF09','EF05'])});
+const PHASE_CASES=Object.freeze({register:Object.freeze(['EF01','EF02']),verify:Object.freeze(['EF03','EF04','EF05']),reset:Object.freeze(['EF06','EF07','EF08','EF09','EF05']),request:Object.freeze(['EF05'])});
 const LABELS=Object.freeze({name:'Nombre',surname:'Apellido paterno',secondSurname:'Apellido materno',registrationEmail:'Correo electrónico',phone:'Teléfono',password:'Contraseña',confirmation:'Confirmar contraseña',verification:'Código de verificación',recoveryEmail:'Correo',recovery:'Código de recuperación',newPassword:'Nueva contraseña'});
 const EVIDENCE=Object.freeze(['registered','resent','invalidVerificationDidNotComplete','verified','recoveryRequested','resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut']);
-const REQUIRED_EVIDENCE=Object.freeze({register:['registered','resent'],verify:['invalidVerificationDidNotComplete','verified','recoveryRequested'],reset:['resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut','recoveryRequested']});
+const REQUIRED_EVIDENCE=Object.freeze({register:['registered','resent'],verify:['invalidVerificationDidNotComplete','verified','recoveryRequested'],reset:['resumedWithoutRequest','invalidResetDidNotComplete','passwordUpdated','newPasswordLogin','loggedOut','recoveryRequested'],request:['recoveryRequested']});
 const CODES=Object.freeze(['FORMS_SECRETS_MISSING','FORMS_FIXTURE_INVALID','FORMS_SOURCE_INVALID','FORMS_PROCESS_FAILED','FORMS_UI_INVALID','FORMS_UI_TIMEOUT','FORMS_MAESTRO_FAILED','FORMS_INPUT_MISMATCH','FORMS_SANDBOX_FAILED','FORMS_SANDBOX_CLEANUP_FAILED','FORMS_DEVICE_CLEANUP_FAILED','FORMS_CASES_INCOMPLETE','FORMS_UNEXPECTED_FAILURE']);
-const STAGES=Object.freeze(['preflight','device-check','probe-adb-start-server','sandbox-parent','sandbox-probes','app-install','register-open','register-consent','register-submit','register-response','resend-submit','resend-response','verify-open','verify-resume','verify-invalid-submit','verify-invalid-response','verify-submit','verify-response','recovery-open','recovery-submit','recovery-response','reset-open','reset-resume','reset-invalid-submit','reset-invalid-response','reset-submit','reset-response','login-open','login-submit','login-response','logout-submit','logout-response','cleanup-device','cleanup-sandbox','completed',...Object.keys(LABELS).flatMap(k=>['field-'+k,'check-'+k])]);
+const STAGES=Object.freeze(['preflight','device-check','probe-adb-start-server','sandbox-parent','sandbox-probes','app-install','register-open','register-consent','register-submit','register-response','resend-submit','resend-response','verify-open','verify-resume','verify-invalid-submit','verify-invalid-response','verify-submit','verify-response','recovery-open','recovery-submit','recovery-settle','recovery-response','reset-open','reset-resume','reset-invalid-submit','reset-invalid-response','reset-submit','reset-response','login-open','login-submit','login-response','logout-submit','logout-response','cleanup-device','cleanup-sandbox','completed',...Object.keys(LABELS).flatMap(k=>['field-'+k,'check-'+k])]);
 const NOTICE_RESENT='Enviamos un código nuevo a tu correo. Revisa también la carpeta de spam; el código anterior deja de servir.';
 const RESET_ERROR='No pudimos cambiar la contraseña. Revisa el código y la nueva contraseña; solicita otro código si venció o agotaste los intentos.';
 class FormsError extends Error{constructor(code){super(code);this.code=code;}}
@@ -24,7 +24,10 @@ function safeCode(error){
 function credentials(env,phase){
  need(Object.hasOwn(PHASE_CASES,phase),'FORMS_SOURCE_INVALID');
  const email=env.ANDROID_FORMS_EMAIL,password=env.ANDROID_FORMS_PASSWORD,phone=env.ANDROID_FORMS_PHONE,code=env.ANDROID_FORMS_CODE,newPassword=env.ANDROID_FORMS_NEW_PASSWORD;
- need(typeof email==='string'&&typeof password==='string','FORMS_SECRETS_MISSING');
+ need(typeof email==='string','FORMS_SECRETS_MISSING');
+ need(email===email.trim().toLowerCase()&&email.length<=100&&/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email),'FORMS_FIXTURE_INVALID');
+ if(phase==='request'){need([password,phone,code,newPassword].every(value=>value===undefined||value===''),'FORMS_SOURCE_INVALID');return{email,password:null,phone:null,code:null,newPassword:null};}
+ need(typeof password==='string','FORMS_SECRETS_MISSING');
  const validPassword=v=>typeof v==='string'&&v.length<=256&&/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!#$%&¿?@*_/-])[A-Za-z\d!#$%&¿?@*_/-]{12,}$/.test(v);
  need(email===email.trim().toLowerCase()&&email.length<=100&&/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)&&validPassword(password),'FORMS_FIXTURE_INVALID');
  if(phase==='register')need(typeof phone==='string'&&/^\d{10}$/.test(phone),'FORMS_FIXTURE_INVALID');
@@ -85,6 +88,33 @@ function parseFormsUi(source){
  const pending=[...root.children[0].children];let index=0;
  while(pending.length){const item=pending.shift();item.attrs=nodes[index++];const ancestors=[];for(let parent=item.parent;parent;parent=parent.parent)if(parent.attrs)ancestors.push(parent.attrs);UI_ANCESTORS.set(item.attrs,ancestors);pending.push(...item.children);}
  need(index===nodes.length,'FORMS_UI_INVALID');return nodes;
+}
+const SYNTAX_FAILURES=Object.freeze(['none','type-size','doctype','instruction','lexical','text','nesting','tag','node-limit','depth-limit','attribute','entity','codepoint','root','tag-placement','unclassified']);
+// Diagnostic replay only: never accepts a snapshot rejected by the historical parser.
+function classifyUiSyntax(source){
+ if(typeof source!=='string'||source.length===0||source.length>512*1024)return'type-size';if(source.includes('<!'))return'doctype';
+ const input=source.replace(/^<\?xml version=['"]1\.0['"](?: encoding=['"]UTF-8['"])?(?: standalone=['"]yes['"])?\s*\?>/,'');if(input.includes('<?'))return'instruction';
+ const root={name:'#root',children:[]},stack=[root];let offset=0,count=0;
+ for(const match of input.matchAll(/<[^>]+>|[^<]+/g)){
+  if(match.index!==offset)return'lexical';offset+=match[0].length;const token=match[0];
+  if(!token.startsWith('<')){if(token.trim())return'text';continue;}
+  if(token.startsWith('</')){if(stack.length<=1||token!=='</'+stack.at(-1).name+'>')return'nesting';stack.pop();continue;}
+  const opening=/^<(hierarchy|node)([\s\S]*?)(\/?)>$/.exec(token);if(!opening)return'tag';if(++count>4096)return'node-limit';if(stack.length>64)return'depth-limit';
+  let tail=opening[2];const names=new Set();
+  while(tail.trim()){
+   const attr=/^\s+([\w:.-]+)\s*=\s*(?:"([^"<]*)"|'([^'<]*)')/.exec(tail);if(!attr||names.has(attr[1]))return'attribute';names.add(attr[1]);const raw=attr[2]??attr[3];
+   if(raw.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);/g,'').includes('&'))return'entity';
+   for(const entity of raw.matchAll(/&([^;]+);/g)){const item=entity[1];if(['amp','lt','gt','quot','apos'].includes(item))continue;const code=item[1]==='x'?parseInt(item.slice(2),16):Number(item.slice(1));if(!Number.isSafeInteger(code)||code<32||code>0x10ffff||code>=0xd800&&code<=0xdfff)return'codepoint';}
+   tail=tail.slice(attr[0].length);
+  }
+  const node={name:opening[1],children:[]};stack.at(-1).children.push(node);if(!opening[3])stack.push(node);
+ }
+ if(offset!==input.length)return'lexical';if(stack.length!==1||root.children.length!==1||root.children[0].name!=='hierarchy')return'root';
+ const pending=[...root.children[0].children];while(pending.length){const node=pending.shift();if(node.name!=='node')return'tag-placement';pending.push(...node.children);}return'unclassified';
+}
+function safeSyntaxDiagnostic(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==2||!Object.hasOwn(value,'invalidReads')||!Object.hasOwn(value,'lastFailure')||!Number.isInteger(value.invalidReads)||value.invalidReads<0||value.invalidReads>1000||!SYNTAX_FAILURES.includes(value.lastFailure)||((value.invalidReads===0)!==(value.lastFailure==='none')))return null;
+ return{invalidReads:value.invalidReads,lastFailure:value.lastFailure};
 }
 const RECOVERY_ANCHORS=Object.freeze([{label:'Código de recuperación',kind:'input',strong:true},{label:'Nueva contraseña',kind:'input',strong:true},{label:'Correo',kind:'input',strong:false},{label:'Actualizar contraseña',kind:'button',strong:false}].map(Object.freeze));
 function selectedRegion(nodes,regions,viewport,{label,kind,route}={}){
@@ -203,7 +233,9 @@ async function executePhase(driver,secret,state){
  };
  const requestRecovery=async()=>{
   stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});
-  stage(state,'recovery-submit');state.operationUncertain=true;await driver.tap('Enviar código');stage(state,'recovery-response');
+  stage(state,'recovery-submit');state.operationUncertain=true;await driver.tap('Enviar código');
+  if(state.phase==='request'){stage(state,'recovery-settle');await driver.pause(65000);}
+  stage(state,'recovery-response');
   await recoveryForm();state.operationUncertain=false;mark('EF05','recoveryRequested');
  };
  if(state.phase==='register'){
@@ -228,7 +260,8 @@ async function executePhase(driver,secret,state){
   await driver.open('account');await driver.wait(nodes=>account.hasLabel(nodes,'Inicia sesión con tu cuenta verificada o regístrate para comenzar.')&&!account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));
   state.operationUncertain=false;state.evidence.loggedOut=true;state.cases.EF09='passed';
   await requestRecovery();
- }else throw new FormsError('FORMS_SOURCE_INVALID');
+ }else if(state.phase==='request')await requestRecovery();
+ else throw new FormsError('FORMS_SOURCE_INVALID');
 }
 function publicReport(state,config){
  const phase=Object.hasOwn(PHASE_CASES,state.phase)?state.phase:null;
@@ -240,10 +273,13 @@ function publicReport(state,config){
   scrollDiagnostic:safeScrollDiagnostic(state.scrollDiagnostic),
   cleanup:{device:state.cleanup?.device===true,sandbox:state.cleanup?.sandbox===true,localSession:state.cleanup?.localSession===true},sandboxDiagnostic:isSafeSandboxDiagnostic(state.sandboxDiagnostic)?state.sandboxDiagnostic:null,failureCodes:[...new Set((state.errors||[]).map(safeCode))],
   gmailDelivery:'not-observed-by-runner',serverRevocation:'not-independently-observed',physicalDevice:'not-run',payment:'not-run'};
+ if(phase==='request')report.syntaxDiagnostic=safeSyntaxDiagnostic(state.syntaxDiagnostic);
  if(report.status==='passed'&&(!phase||report.stage!=='completed'||!report.cases.length||!report.cases.every(c=>c.status==='passed')||!REQUIRED_EVIDENCE[phase].every(key=>report.evidence[key])||!Object.values(report.cleanup).every(Boolean)||report.operationUncertain||report.failureCodes.length))report.status='failed';
  if(report.status==='passed'&&phase!=='register'&&(!report.recoveryUi.codeObserved||!report.recoveryUi.updateButtonObserved))report.status='failed';
  if(report.status==='passed'&&report.maestroDiagnostic!==null)report.status='failed';
  if(report.status==='passed'&&report.scrollDiagnostic&&!['found','already-visible'].includes(report.scrollDiagnostic.result))report.status='failed';
+ if(report.status==='passed'&&phase==='request'&&report.syntaxDiagnostic===null)report.status='failed';
+ if(report.status==='passed'&&phase==='request'&&EVIDENCE.some(key=>report.evidence[key]!== (key==='recoveryRequested')))report.status='failed';
  return report;
 }
 async function strictRun(file,args,options={}){try{return(await promisify(execFile)(file,args,{encoding:'utf8',timeout:45000,maxBuffer:1024*1024,windowsHide:true,...options})).stdout;}catch{throw new FormsError('FORMS_PROCESS_FAILED');}}
@@ -252,11 +288,11 @@ async function apkHash(file){const digest=createHash('sha256');for await(const p
 async function runPhase({env,config,context,apk,run=strictRun,create=createSandbox,parent=account.sandboxParent,hash=apkHash,now=Date.now,wait=pause,xmlTree,execute=executePhase}){
  provenance.verifyConfig(config);need(process.platform==='linux'||env.ACCOUNT_UNIT_TEST===true,'FORMS_SANDBOX_FAILED');
  need(context.artifactSourceCommit===config.sourceCommit&&context.automationCommit===env.GITHUB_SHA&&context.apkSha256===config.sha256&&context.producerVerified===true&&context.parentInspectionVerified===true&&context.producerRun===config.producerRun&&context.producerAttempt===config.producerAttempt&&context.buildId===config.buildId&&context.receiptSha256===provenance.fingerprint(config)&&context.sandboxPreflight?.status==='passed'&&['ipv4RejectedWithCounter','adbLoopbackReachable','maestroVersionVerified','privateFileRoundtripVerified','cleanupConfirmed'].every(key=>context.sandboxPreflight[key]===true),'FORMS_SOURCE_INVALID');need(await hash(apk)===config.sha256,'FORMS_SOURCE_INVALID');
- const phase=context.phase,secret=credentials(env,phase),state={phase,status:'failed',stage:'device-check',automationCommit:context.automationCommit,cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false};
+ const phase=context.phase,secret=credentials(env,phase),state={phase,status:'failed',stage:'device-check',automationCommit:context.automationCommit,cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false,...(phase==='request'?{syntaxDiagnostic:{invalidReads:0,lastFailure:'none'}}:{})};
  let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,viewport,currentRoute,sequence=0;
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
  const adb=async(args,options={})=>stdout(await run('adb',['-s',serial,...args],options));
- const readUi=async deadline=>{const options=()=>{if(deadline===undefined)return{};const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');return{timeout:Math.min(10000,remaining)};};try{await adb(['shell','uiautomator','dump',remote+'/ui.xml'],options());return parseFormsUi(await adb(['exec-out','cat',remote+'/ui.xml'],options()));}finally{await adb(['shell','rm','-f',remote+'/ui.xml'],{timeout:5000});}};
+ const readUi=async deadline=>{const options=()=>{if(deadline===undefined)return{};const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');return{timeout:Math.min(10000,remaining)};};try{await adb(['shell','uiautomator','dump',remote+'/ui.xml'],options());const source=await adb(['exec-out','cat',remote+'/ui.xml'],options());try{return parseFormsUi(source);}catch(error){if(phase==='request'&&['ACCOUNT_UI_INVALID','FORMS_UI_INVALID'].includes(error?.code)){state.syntaxDiagnostic.invalidReads=Math.min(1000,state.syntaxDiagnostic.invalidReads+1);state.syntaxDiagnostic.lastFailure=classifyUiSyntax(source);}throw error;}}finally{await adb(['shell','rm','-f',remote+'/ui.xml'],{timeout:5000});}};
  const flow=async(body,value)=>{
   const diagnostic={action:'input',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error',exceptionEnum:'none'};
   try{
@@ -273,7 +309,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
   async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');currentRoute=route;await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
-  async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
+  async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,async pause(duration){need(phase==='request'&&duration===65000,'FORMS_SOURCE_INVALID');await wait(duration);},
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await revealControl(LABELS[key],'input',direction,'input-'+key);const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    const fieldNodes=async()=>scopedFormNodes(await readUi(),viewport,{label:LABELS[key],kind:'input',route:currentRoute});
    if(!secure){need(account.fieldMatches(await fieldNodes(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
@@ -296,14 +332,14 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,formsYaml,landingReady,screenSize,visiblePoint,parseFormsUi,scrollGeometry,scrollControl,safeScrollDiagnostic,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,formsYaml,landingReady,screenSize,visiblePoint,parseFormsUi,classifyUiSyntax,safeSyntaxDiagnostic,scrollGeometry,scrollControl,safeScrollDiagnostic,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}
 function writeJson(file,value){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(value,null,2)+'\n',{mode:0o600});}
 async function boundedBody(response,maximum){need(response.ok&&response.body,'FORMS_SOURCE_INVALID');const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;need(size<=maximum,'FORMS_SOURCE_INVALID');chunks.push(Buffer.from(chunk));}return Buffer.concat(chunks);}
 async function readGithub(env,endpoint){need(typeof env.GITHUB_TOKEN==='string'&&env.GITHUB_TOKEN.length>0,'FORMS_SOURCE_INVALID');const response=await fetch('https://api.github.com/repos/Markadw/SportCenter-mobile'+endpoint,{redirect:'error',headers:{Authorization:'Bearer '+env.GITHUB_TOKEN,Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(30000)});return JSON.parse((await boundedBody(response,1024*1024)).toString('utf8'));}
-function readContext(config,env){const proof=JSON.parse(fs.readFileSync(PROOF_FILE,'utf8'));const phase=/^refs\/tags\/validation\/account-forms-(register|verify|reset)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(phase&&proof.phase===phase[1],'FORMS_SOURCE_INVALID');need(proof.artifactSourceCommit===config.sourceCommit&&proof.automationCommit===env.GITHUB_SHA&&proof.receiptSha256===provenance.fingerprint(config)&&proof.producerVerified===true&&proof.parentInspectionVerified===true&&proof.apkSha256===config.sha256&&proof.buildId===config.buildId&&proof.producerRun===config.producerRun&&proof.producerAttempt===config.producerAttempt,'FORMS_SOURCE_INVALID');return proof;}
+function readContext(config,env){const proof=JSON.parse(fs.readFileSync(PROOF_FILE,'utf8'));const phase=/^refs\/tags\/validation\/account-forms-(register|verify|reset|request)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(phase&&proof.phase===phase[1],'FORMS_SOURCE_INVALID');need(proof.artifactSourceCommit===config.sourceCommit&&proof.automationCommit===env.GITHUB_SHA&&proof.receiptSha256===provenance.fingerprint(config)&&proof.producerVerified===true&&proof.parentInspectionVerified===true&&proof.apkSha256===config.sha256&&proof.buildId===config.buildId&&proof.producerRun===config.producerRun&&proof.producerAttempt===config.producerAttempt,'FORMS_SOURCE_INVALID');return proof;}
 async function prepareForms(config,env,run=strictRun){
  noFormSecrets(env);const files=filesFor(env);fs.mkdirSync(files.scratch,{recursive:true,mode:0o700});
  const context=provenance.verifyAutomation(config,{sha:env.GITHUB_SHA,ref:env.GITHUB_REF,repository:env.GITHUB_REPOSITORY,head:stdout(await run('git',['rev-parse','HEAD'])),changed:stdout(await run('git',['diff','--name-only','--no-renames',config.sourceCommit,'HEAD'])),dirty:stdout(await run('git',['status','--porcelain','--untracked-files=all']))});await run('git',['merge-base','--is-ancestor',config.sourceCommit,'HEAD']);
@@ -326,8 +362,8 @@ async function probeForms(config,env,{run=strictRun,create=createSandbox,parent=
  save(PROOF_FILE,{...context,sandboxPreflight:{status:'passed',ipv4RejectedWithCounter:true,adbLoopbackReachable:true,maestroVersionVerified:true,privateFileRoundtripVerified:true,cleanupConfirmed:true}});
 }
 function verifyFinished(config,env,report){
- const currentPhase=/^refs\/tags\/validation\/account-forms-(register|verify|reset)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(currentPhase&&report.phase===currentPhase[1],'FORMS_SOURCE_INVALID');
- const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,maestroDiagnostic:report.maestroDiagnostic,scrollDiagnostic:report.scrollDiagnostic,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
+ const currentPhase=/^refs\/tags\/validation\/account-forms-(register|verify|reset|request)-[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.exec(env.GITHUB_REF||'');need(currentPhase&&report.phase===currentPhase[1],'FORMS_SOURCE_INVALID');
+ const clean=publicReport({phase:report.phase,status:report.status,stage:report.stage,automationCommit:report.automationCommit,cases:Object.fromEntries(report.cases.map(c=>[c.id,c.status])),evidence:report.evidence,operationUncertain:report.operationUncertain,recoveryUi:report.recoveryUi,maestroDiagnostic:report.maestroDiagnostic,scrollDiagnostic:report.scrollDiagnostic,syntaxDiagnostic:report.syntaxDiagnostic,cleanup:report.cleanup,errors:report.failureCodes.map(code=>new FormsError(code)),sandboxDiagnostic:report.sandboxDiagnostic},config);
  need(clean.status==='passed'&&report.artifactSourceCommit===config.sourceCommit&&report.automationCommit===env.GITHUB_SHA&&report.apkSha256===config.sha256&&report.buildId===config.buildId&&report.producerRun===config.producerRun&&report.producerAttempt===config.producerAttempt&&JSON.stringify(clean)===JSON.stringify(report),'FORMS_CASES_INCOMPLETE');return clean;
 }
 async function main(mode,env=process.env){

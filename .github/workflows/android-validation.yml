@@ -689,10 +689,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ANDROID_FORMS_EMAIL: ${{ secrets.ANDROID_FORMS_EMAIL }}
-          ANDROID_FORMS_PASSWORD: ${{ secrets.ANDROID_FORMS_PASSWORD }}
-          ANDROID_FORMS_PHONE: ${{ secrets.ANDROID_FORMS_PHONE }}
-          ANDROID_FORMS_CODE: ${{ secrets.ANDROID_FORMS_CODE }}
-          ANDROID_FORMS_NEW_PASSWORD: ${{ secrets.ANDROID_FORMS_NEW_PASSWORD }}
+          ANDROID_FORMS_PASSWORD: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_PASSWORD || '' }}
+          ANDROID_FORMS_PHONE: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_PHONE || '' }}
+          ANDROID_FORMS_CODE: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_CODE || '' }}
+          ANDROID_FORMS_NEW_PASSWORD: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_NEW_PASSWORD || '' }}
         with:
           api-level: 34
           arch: x86_64
