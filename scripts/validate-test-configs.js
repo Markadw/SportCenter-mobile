@@ -442,15 +442,30 @@ function validateWorkflows(workflows) {
   'Comercio se ejecuta después de DAST y antes del teardown');
   assert.equal(apiSteps[teardownIndex].if, 'always()', 'Comercio conserva cleanup siempre');
   assert.ok(!integration.env?.QA_COMMERCE && !integration.jobs.api.env?.QA_COMMERCE, 'No habilitar comercio globalmente');
-  for (const item of apiSteps.filter(item => item !== commerceStep)) {
-    assert.equal(item.env?.QA_COMMERCE, undefined, 'La flag de comercio sólo pertenece a su paso');
+  const reportSteps = apiSteps.filter(item => item.id === 'review_report_local');
+  assert.equal(reportSteps.length, 1, 'El recibo de reporte requiere un único paso HTTP');
+  const reportStep = reportSteps[0];
+  assert.deepEqual(reportStep.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true', QA_REVIEW_REPORT: 'true' });
+  assert.equal(reportStep.if, undefined, 'No omitir el contrato de recibo');
+  assert.equal(reportStep['continue-on-error'], undefined, 'No ignorar un fallo del recibo');
+  assert.equal(reportStep.run, 'node tests/environment/review-report-isolated.cjs');
+  assert.ok(apiSteps.indexOf(reportStep) > apiSteps.indexOf(commerceStep) && apiSteps.indexOf(reportStep) < teardownIndex,
+    'El recibo exige fixtures previas y teardown posterior');
+  for (const item of apiSteps.filter(item => item !== commerceStep && item !== reportStep)) {
+    assert.equal(item.env?.QA_COMMERCE, undefined, 'La flag de comercio sólo pertenece a sus dos pasos QA');
   }
+  for (const item of apiSteps.filter(item => item !== reportStep)) {
+    assert.equal(item.env?.QA_REVIEW_REPORT, undefined, 'La escritura de contacto sólo pertenece a su paso aislado');
+  }
+  assert.ok(!integration.env?.QA_REVIEW_REPORT && !integration.jobs.api.env?.QA_REVIEW_REPORT);
   const httpSummary = apiSteps.find(item => item.run === 'node scripts/write-api-summary.js');
   assert.equal(httpSummary?.env.COMMERCE_OUTCOME, '${{ steps.commerce_local.outcome }}', 'El resumen evalúa el resultado real de comercio');
+  assert.equal(httpSummary?.env.REVIEW_REPORT_OUTCOME, '${{ steps.review_report_local.outcome }}');
   const httpArtifacts = apiSteps.filter(item => item.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(httpArtifacts.length, 1, 'Comercio reutiliza el único artefacto HTTP');
   assert.equal(httpArtifacts[0].with.name, 'api-evidence');
   assert.ok(httpArtifacts[0].with.path.trim().split('\n').includes('test-results/commerce-api.json'), 'Falta informe compacto de comercio');
+  assert.ok(httpArtifacts[0].with.path.trim().split('\n').includes('test-results/review-report-api.json'), 'Falta recibo compacto en el artefacto existente');
   const security = workflows.get('security.yml');
   assert.ok(security, 'Falta el workflow de seguridad obligatorio');
   assert.deepEqual(Object.keys(security.on), ['workflow_call'], 'Seguridad sólo debe reutilizarse desde integración');
