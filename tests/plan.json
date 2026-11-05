@@ -144,9 +144,10 @@
         "tests/api/public-contracts.test.js",
         "tests/integration/Registration.test.tsx",
         "tests/integration/Login.test.tsx",
-        "tests/integration/AuthenticationFlow.test.tsx"
+        "tests/integration/AuthenticationFlow.test.tsx",
+        "tests/integration/MobileJourney.test.tsx"
       ],
-      "scope": "Vistas, contextos y servicios con transporte controlado, incluida sesión persistente/restauración/renovación. Contratos HTTP públicos reales y seis casos dinámicos de lectura en copia local congelada; no autentican cuentas reales ni prueban todas las rutas de Render.",
+      "scope": "Vistas, contextos y servicios con transporte controlado, incluida sesión persistente/restauración/renovación y recorrido con Expo Router real entre módulos. Contratos HTTP públicos reales y seis casos dinámicos de lectura en copia local congelada; la integración cliente no acredita por sí sola Android, cuenta real ni compra con Mercado Pago.",
       "environment": {
         "source": "tests/environment/backend-source.json",
         "configuration": "tests/environment/compose.yml",
@@ -394,9 +395,9 @@
       "iteration": "I1",
       "expected": "Registro con campos requeridos, validación antes del envío, API real, errores comprensibles y verificación exigida por el backend.",
       "status": "partial",
-      "reason": "Registro, verificación y reenvío implementados y probados con transporte controlado. La evidencia manual anterior se conserva; falta la aceptación privada/física final de F2.",
+      "reason": "Registro, reenvío, código incorrecto y verificación acreditados en el Preview RC6; la suite física completa de QA-002 permanece pendiente.",
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/7",
-      "available": "Validaciones y recorridos con transporte simulado; registro, correo real, rechazo de código incorrecto, reenvío y verificación confirmados por el usuario en Android.",
+      "available": "Cliente y contratos cubiertos; los controles nativos EF01–EF04 están acreditados con correo real y la fuente RC6 identificada.",
       "manualAcceptance": {
         "status": "passed_user_reported",
         "environment": "Android físico con Expo Go compatible con SDK 57",
@@ -407,7 +408,7 @@
         "commit": "a2a9676aa259538ff208a7af27d831ac79dd60a5"
       },
       "pending": [
-        "Comprobar en Android final registro, verificación, reenvío e inicio; validación manual aplazada por el usuario."
+        "Suite física de QA-002 aplazada por el usuario; no repetir los controles de correo RC6 ya acreditados por rutina."
       ],
       "updateBase": "d4f095d65956f2de1db63c1ff78027bc8c1b44e3",
       "implementation": "implemented",
@@ -421,14 +422,34 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "manual_deferred_by_user",
-        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "passed_for_executed_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "Cuatro controles distintos de registro, reenvío, código incorrecto y verificación; se conserva el fallo posterior EF05 de la ejecución de verificación.",
+        "cases": [
+          "EF01",
+          "EF02",
+          "EF03",
+          "EF04"
+        ],
+        "runs": [
+          41889146245,
+          41891484613
+        ],
+        "laterStepFailurePreserved": [
+          41891484613
+        ]
       },
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
       }
     },
     {
@@ -482,10 +503,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "automation_preparation_awaiting_verified_reserved_account",
-        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -501,6 +523,12 @@
         ],
         "status": "passed_for_executed_scope",
         "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
       }
     },
     {
@@ -529,6 +557,18 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "passed_for_public_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "Catálogo y detalle públicos de Preview RC6 en API34; no acredita compra ni recorrido privado integrado.",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2"
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      },
+      "historicalAndroidAcceptanceF2": {
         "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
         "status": "passed_for_public_scope",
         "previewRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
@@ -537,10 +577,6 @@
         "previewScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
         "releaseScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB.",
         "limits": "No ejecuta cuenta privada, teléfono físico ni Play App Signing. La URI malformada se rechaza antes del decoder."
-      },
-      "physicalAcceptance": {
-        "status": "not_run",
-        "decision": "deferred_by_user"
       }
     },
     {
@@ -568,6 +604,18 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "passed_for_public_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "Catálogo y detalle públicos de Preview RC6 en API34; no acredita compra ni recorrido privado integrado.",
+        "run": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2"
+      },
+      "physicalAcceptance": {
+        "status": "not_run",
+        "decision": "deferred_by_user"
+      },
+      "historicalAndroidAcceptanceF2": {
         "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
         "status": "passed_for_public_scope",
         "previewRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41708999367",
@@ -576,10 +624,6 @@
         "previewScope": "Inspección APK, catálogo/detalle API34 y rechazo TLS controlado con recuperación API30 del mismo APK.",
         "releaseScope": "Catálogo, detalle y dos URI por AVD API34/API36: ocho ejecuciones, cuatro casos repetidos. Firma temporal del APK derivado; API36 x86_64 con páginas de 16 KB, sin compatibilidad de 4 KB.",
         "limits": "No ejecuta cuenta privada, teléfono físico ni Play App Signing. La URI malformada se rechaza antes del decoder."
-      },
-      "physicalAcceptance": {
-        "status": "not_run",
-        "decision": "deferred_by_user"
       }
     },
     {
@@ -606,10 +650,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "automation_preparation_awaiting_verified_reserved_account",
-        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -622,6 +667,12 @@
         ],
         "status": "passed_for_executed_scope",
         "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
       }
     },
     {
@@ -647,10 +698,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "automation_preparation_awaiting_verified_reserved_account",
-        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -663,6 +715,12 @@
         ],
         "status": "passed_for_executed_scope",
         "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
       }
     },
     {
@@ -687,10 +745,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "automation_preparation_awaiting_verified_reserved_account",
-        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -703,6 +762,12 @@
         ],
         "status": "passed_for_executed_scope",
         "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "automation_preparation_awaiting_verified_reserved_account",
+        "scope": "Login, consulta de perfil/carrito/resumen, restauración y cierre propuestos para emulador del APK F2; no ejecutados todavía. Ediciones y compra/pago quedan fuera de esta prueba."
       }
     },
     {
@@ -727,10 +792,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "manual_deferred_by_user",
-        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -741,6 +807,12 @@
         "check": "RO01",
         "observed": "empty",
         "scope": "Lista propia vacía real; sin pedido existente ni detalle/seguimiento."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
       }
     },
     {
@@ -768,10 +840,11 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "manual_deferred_by_user",
-        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
@@ -784,6 +857,12 @@
         ],
         "status": "passed_for_executed_scope",
         "scope": "Sólo lectura de perfil/carrito/resumen y ciclo de sesión en API34. Sin edición, pedido, pago, teléfono físico completo o revocación independiente en servidor."
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
       }
     },
     {
@@ -791,10 +870,10 @@
       "story": "HU-10",
       "expected": "Solicitar recuperación, validar código y nueva contraseña con confirmación, permitir reenvío controlado y presentar errores sin consumir el código en un paso previo.",
       "status": "partial",
-      "reason": "Recuperación implementada; falta aceptación privada/física final.",
-      "available": "Cliente conectado a verify-user-email y reset-psw; envío, validación, cancelación, reenvío y descarte de secretos cubiertos con transporte controlado.",
+      "reason": "Solicitud, validación y cambio de contraseña, acceso con la nueva y cierre acreditados en RC6; la suite física completa permanece pendiente.",
+      "available": "Cinco controles nativos distintos EF05–EF09 y recepción de correo real registrados en android-email-forms.md, conservando los incidentes originales.",
       "pending": [
-        "Comprobar correo, reenvío y restablecimiento reales en Android final al retomar la validación manual."
+        "Suite física de QA-002 aplazada; no consumir otra vez códigos ni repetir un reset ya acreditado sin un cambio o defecto que lo justifique."
       ],
       "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/47",
       "implementation": "implemented",
@@ -807,14 +886,35 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "manual_deferred_by_user",
-        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "passed_for_executed_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "Cinco controles distintos de recuperación del mismo Preview. EF05 aprobado por solicitud independiente; el EF05 posterior al reset conserva su fallo e incertidumbre originales.",
+        "cases": [
+          "EF05",
+          "EF06",
+          "EF07",
+          "EF08",
+          "EF09"
+        ],
+        "runs": [
+          41955843077,
+          41952937825
+        ],
+        "laterStepFailurePreserved": [
+          41952937825
+        ]
       },
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
       }
     },
     {
@@ -841,14 +941,21 @@
         "scope": "Lógica, contratos y estados del cliente; no ejecuta una cuenta, correo o compra reales."
       },
       "finalAndroidAcceptance": {
-        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
-        "status": "not_run",
-        "execution": "manual_deferred_by_user",
-        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
+        "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+        "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+        "status": "not_run_for_integrated_preview_scope",
+        "evidenceRegistry": "tests/manual/regresion-final.md",
+        "scope": "La regresión integrada Preview sigue pendiente. Las pruebas anteriores acreditadas conservan su alcance y no se repiten sin una razón concreta; identidad de binario no demuestra un recorrido nuevo."
       },
       "physicalAcceptance": {
         "status": "not_run",
         "decision": "deferred_by_user"
+      },
+      "historicalAndroidAcceptanceF2": {
+        "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
+        "status": "not_run",
+        "execution": "manual_deferred_by_user",
+        "scope": "Binario final; las comprobaciones Android anteriores conservan su fuente histórica."
       }
     }
   ],
@@ -922,6 +1029,14 @@
     "scope": "Combinación de HU-01 y HU-02. Las pruebas no envían correos ni crean cuentas en Render. La exportación no es un APK ni una nueva aceptación en teléfono."
   },
   "currentSourceVerification": {
+    "integratedCut": "4128cf6abdff1430d5ca180e1034195d38eefd7b",
+    "artifactSourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+    "integratedRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41967105771",
+    "status": "passed_for_quality_security_http_scope",
+    "identityAndLimits": "evidence/regresion-final-corte.json",
+    "scope": "CI integrada aprobada y entradas de aplicación iguales a RC6; no acredita por sí sola regresión nativa completa ni checkout positivo."
+  },
+  "historicalSourceVerificationF2": {
     "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
     "prebuildRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41707259944",
     "prebuildStatus": "passed_for_prebuild_scope",
@@ -940,7 +1055,35 @@
       "details": "docs/decoder-seguro.md"
     }
   },
+  "currentRegression": {
+    "boardIssue": "https://github.com/Markadw/SportCenter-mobile/issues/20",
+    "status": "in_progress",
+    "guide": "tests/manual/regresion-final.md",
+    "identityAndScope": "evidence/regresion-final-corte.json",
+    "clientJourney": "tests/integration/MobileJourney.test.tsx",
+    "newNativeRegression": "not_run",
+    "finalE2E": "blocked_authorized_test_checkout",
+    "scope": "Reconciliación del corte integrado y prueba adicional del cliente; las evidencias nativas anteriores conservan su fuente y no se repiten sin causa. QA-001 permanece abierta."
+  },
   "currentArtifacts": {
+    "sourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+    "preview": {
+      "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+      "sha256": "de4cd77adb11812d221ff9c688ec67158154a3eaadbf722af6ebe369a489ea03",
+      "bytes": 96156661,
+      "receipt": "config/android-email-forms-validation.json",
+      "producer": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2"
+    },
+    "production": {
+      "buildId": "43bcc31d-8297-48e4-b91e-7f37c63d349c",
+      "sha256": "8fac2e502cd1877d8fd60b7b93e5b42ae85313025dcf1cbed62f4699b8cd693a",
+      "bytes": 68959933,
+      "receipt": "config/android-release-validation.json",
+      "nativeRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41890488214"
+    },
+    "scope": "Identidades RC6 vigentes, con alcances Preview/AAB separados. Su identidad y las pruebas públicas existentes no acreditan compra/pago ni una nueva regresión nativa integrada."
+  },
+  "historicalArtifactsF2": {
     "sourceCommit": "e15671b17615621b29f4bc4bb9c0ccfdf167e657",
     "production": {
       "buildId": "2e902741-6bfd-4171-a336-2a784ae41f58",
@@ -1064,7 +1207,7 @@
     "status": "passed_local_and_github",
     "scope": "Recarga al volver durante peticion; una lectura posterior sin repetir mutaciones; cancelacion al desmontar. La aceptacion nativa RC5 se registra por separado."
   },
-  "realEmailAcceptance": {
+  "historicalRealEmailAcceptance": {
     "version": 1,
     "scope": "isolated-registration-mail-recovery-real-http",
     "status": "partial",

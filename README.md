@@ -112,6 +112,8 @@ La validación del cliente usa transporte HTTP simulado. No consulta la API desp
 
 ### Evidencia vigente RC6
 
+La [regresión final QA-001](tests/manual/regresion-final.md) identifica el corte integrado, la candidata y las evidencias que conservan su alcance. Su [registro de identidad](evidence/regresion-final-corte.json) distingue el recorrido adicional del cliente de la aceptación Android y mantiene pendiente el checkout autorizado con Mercado Pago.
+
 La fuente de aplicación de RC6 es `8831dfad7fd1b0c696d11f50c79442c5499b7cd2`. Los cambios posteriores de automatización no reconstruyen sus binarios ni permiten trasladarles los resultados de otra fuente. El [CI integrado](https://github.com/Markadw/SportCenter-mobile/actions/runs/41952408742) aprobó para develop `ac5352e`; sus resultados se mantienen separados de la aceptación nativa.
 
 - Preview `601a02d2-0dc8-48dd-939b-98c7d6b80b69`: [productor RC6, intento 2](https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2) aprobado con catálogo/detalle API34 y rechazo TLS/recuperación API30. El intento previo que agotó la espera se conserva; se reutilizó el mismo build.

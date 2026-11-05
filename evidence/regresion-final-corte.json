@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "scope": "integrated-cut-identity-and-existing-evidence-not-final-e2e",
+  "repository": "Markadw/SportCenter-mobile",
+  "integratedCut": "4128cf6abdff1430d5ca180e1034195d38eefd7b",
+  "artifactSourceCommit": "8831dfad7fd1b0c696d11f50c79442c5499b7cd2",
+  "artifactSourceIsAncestor": true,
+  "identityAssessment": "verified-local-artifact-hashes-and-git-runtime-inputs",
+  "runtimeInputComparison": {
+    "objectFormat": "git-sha1",
+    "allEqual": true,
+    "inputs": [
+      {
+        "path": "src",
+        "artifactSourceObject": "b32a3019d6bb24c6666fd4aa6a7fd28a1b033246",
+        "integratedCutObject": "b32a3019d6bb24c6666fd4aa6a7fd28a1b033246"
+      },
+      {
+        "path": "assets",
+        "artifactSourceObject": "b117837622933e416e25d9241be2a627b797ad98",
+        "integratedCutObject": "b117837622933e416e25d9241be2a627b797ad98"
+      },
+      {
+        "path": "plugins",
+        "artifactSourceObject": "933130f2468fb4fde8d934ede3aa94effa5a5cdd",
+        "integratedCutObject": "933130f2468fb4fde8d934ede3aa94effa5a5cdd"
+      },
+      {
+        "path": "patches",
+        "artifactSourceObject": "78a4a1c73de64b728ba35f77183b02da1912cfe6",
+        "integratedCutObject": "78a4a1c73de64b728ba35f77183b02da1912cfe6"
+      },
+      {
+        "path": "app.json",
+        "artifactSourceObject": "dbf7fcc0b57db2f80cff317359cad0fd5a7bdfa2",
+        "integratedCutObject": "dbf7fcc0b57db2f80cff317359cad0fd5a7bdfa2"
+      },
+      {
+        "path": "eas.json",
+        "artifactSourceObject": "595d930bc4f08a62c01cc01bca2ee5c6abb815b7",
+        "integratedCutObject": "595d930bc4f08a62c01cc01bca2ee5c6abb815b7"
+      },
+      {
+        "path": "package.json",
+        "artifactSourceObject": "37aa97bf9be8cb51e727b63d8fcb5f4f6ccecdb3",
+        "integratedCutObject": "37aa97bf9be8cb51e727b63d8fcb5f4f6ccecdb3"
+      },
+      {
+        "path": "package-lock.json",
+        "artifactSourceObject": "d9e093239d0d9d96ecbf4d155c0babf3a0393f2d",
+        "integratedCutObject": "d9e093239d0d9d96ecbf4d155c0babf3a0393f2d"
+      },
+      {
+        "path": "tsconfig.json",
+        "artifactSourceObject": "4e4bcfa56cc135468a443c74955728446b9ce6e6",
+        "integratedCutObject": "4e4bcfa56cc135468a443c74955728446b9ce6e6"
+      },
+      {
+        "path": "config/security-pins.json",
+        "artifactSourceObject": "b2a0b7aad42e347927eacbf3b9863ffd94be911d",
+        "integratedCutObject": "b2a0b7aad42e347927eacbf3b9863ffd94be911d"
+      },
+      {
+        "path": ".env.example",
+        "artifactSourceObject": "1e2fce8bb3f007123dfae5f42171975ada04284a",
+        "integratedCutObject": "1e2fce8bb3f007123dfae5f42171975ada04284a"
+      },
+      {
+        "path": ".gitignore",
+        "artifactSourceObject": "d825c3df3df1dec29d2e9516e3f73fb660a30824",
+        "integratedCutObject": "d825c3df3df1dec29d2e9516e3f73fb660a30824"
+      },
+      {
+        "path": ".gitattributes",
+        "artifactSourceObject": "847fa1e0459da3a29ccfb6c342395dc5b3700f88",
+        "integratedCutObject": "847fa1e0459da3a29ccfb6c342395dc5b3700f88"
+      }
+    ],
+    "trackedNativeDirectories": [],
+    "changedFilesOutsideRuntimeInputs": 41,
+    "deltaScope": "qa-workflows-tests-fixtures-evidence-and-readme",
+    "historicalSourceGuardAllowlists": "preserved-not-automatically-compatible-with-integrated-cut"
+  },
+  "preview": {
+    "buildId": "601a02d2-0dc8-48dd-939b-98c7d6b80b69",
+    "profile": "preview",
+    "distribution": "INTERNAL",
+    "projectId": "c608a591-dfad-47d6-98cf-e714e821c269",
+    "appId": "com.markadw.sportcenter",
+    "appVersion": "1.0.0",
+    "appBuildVersion": "1",
+    "sha256": "de4cd77adb11812d221ff9c688ec67158154a3eaadbf722af6ebe369a489ea03",
+    "bytes": 96156661,
+    "hashAndSizeMeasuredFromExistingLocalFile": true,
+    "producer": {
+      "runId": 41860689069,
+      "attempt": 2,
+      "tag": "candidate/android-rc6",
+      "url": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2",
+      "receiptPath": "config/android-email-forms-validation.json",
+      "receiptSha256": "5515dca964a5e87971e63e824c8b5dac55d218a79e71f8d8b3541f8702b74d77",
+      "receiptHashScope": "sha256-of-json-with-sorted-top-level-keys",
+      "configFingerprint": "10e00c0bce8c4ceb0e767388455fad214c4a474db574d7b8c47b703fbb3f9c79",
+      "fingerprintScope": "candidate-config-not-expo-fingerprint-hash",
+      "artifactId": 13345177867,
+      "artifactBytes": 177731,
+      "artifactSha256": "758574e02449eb81738e28f460c303ae9555d8774c6a3d21484197eb6920b70e"
+    },
+    "embeddedBundleSha256": "4a91648780074e2da21a46d6c61a560663cf25a01a903df355d8c7f9798bcc74",
+    "embeddedBundleBytes": 4314388,
+    "newBuildCreated": false
+  },
+  "productionAabSeparateScope": {
+    "buildId": "43bcc31d-8297-48e4-b91e-7f37c63d349c",
+    "profile": "production",
+    "sha256": "8fac2e502cd1877d8fd60b7b93e5b42ae85313025dcf1cbed62f4699b8cd693a",
+    "bytes": 68959933,
+    "hashAndSizeMeasuredFromExistingLocalFile": true,
+    "receiptPath": "config/android-release-validation.json",
+    "embeddedBundleSha256": "1d03ddbda4cbec245ed48171c09dcff5139bca4a4de853136059a14551e16a7a",
+    "embeddedBundleBytes": 4314388,
+    "embeddedBundleEqualsPreview": false,
+    "bundleDifferenceCause": "not-established",
+    "normalizedNativeLibrariesCompared": 88,
+    "normalizedNativeLibraryHashesEqual": true,
+    "validatedRun": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41890488214",
+    "validatedScope": "four-public-cases-per-api34-api36-eight-executions-x86_64-derived-apk",
+    "privateFlowAcceptance": "not-accredited-by-this-run",
+    "playAppSigningAndPhysicalArm64": "not-accredited"
+  },
+  "existingEvidence": [
+    {
+      "scope": "rc6-preview-public-api34-and-tls-api30",
+      "url": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2"
+    },
+    {
+      "scope": "rc6-email-forms-nine-distinct-controls-across-four-runs-original-failures-preserved",
+      "guide": "tests/manual/android-email-forms.md",
+      "runs": [
+        41889146245,
+        41891484613,
+        41952937825,
+        41955843077
+      ]
+    },
+    {
+      "scope": "rc5-account-profile-cart-and-session-historical-not-rc6-native-regression",
+      "url": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397",
+      "guide": "tests/manual/android-account.md"
+    },
+    {
+      "scope": "debug-plus-metro-isolated-orders-and-reviews-not-preview-or-production-aab",
+      "url": "https://github.com/Markadw/SportCenter-mobile/actions/runs/41898074821",
+      "guide": "tests/manual/android-commerce.md"
+    },
+    {
+      "scope": "isolated-http-address-rollback-not-positive-persistence",
+      "evidence": "evidence/hu06-checkout-rollback.json",
+      "guide": "tests/environment/checkout.md"
+    }
+  ],
+  "clientJourneyIntegration": {
+    "file": "tests/integration/MobileJourney.test.tsx",
+    "status": "passed-client-integration-with-controlled-transport",
+    "framework": "real-expo-root-and-routes-with-asynchronous-rntl14",
+    "transport": "stateful-local-axios-adapter-with-synthetic-data",
+    "journeys": 1,
+    "observations": [
+      "startup-catalog-detail-and-login-return-to-own-product",
+      "variant-addition-and-cart-quantity-update",
+      "checkout-shipping-id-302-and-total-recalculated-to-630",
+      "fresh-summary-on-checkout-refocus-with-address-and-shipping-preserved",
+      "own-profile-read-without-editing",
+      "pre-existing-delivered-order-tracking-and-review-publication",
+      "logout-clears-secure-storage-and-protects-checkout-without-http"
+    ],
+    "externalRequests": 0,
+    "checkoutConfirmations": 0,
+    "nativeOrProviderAcceptance": "not-accredited",
+    "sources": {
+      "tests/integration/MobileJourney.test.tsx": "dfa9d06472612a0d6053f3d48f86f7d9647be3671ec207c1b5f86bc1a0c6f042",
+      "tests/integration/fixtures/mobileJourney.ts": "0cc0d7456874dc79e909f6a60e66a144965c2bc540fa2b3e087238aa54100596"
+    },
+    "sourceHashEncoding": "sha256-utf8-lf"
+  },
+  "newNativeRegression": "not-run",
+  "finalE2E": "blocked-authorized-test-checkout",
+  "finalE2ERequiredObservations": [
+    "new-address-created-through-real-checkout-and-persisted-after-new-session",
+    "saved-address-selected-for-own-checkout",
+    "authorized-test-payment-approved-and-backend-state-read",
+    "separate-authorized-test-payment-rejected-and-no-false-success",
+    "provider-return-and-own-order-query-agree-with-server-state",
+    "other-account-cannot-read-own-order",
+    "session-logout-and-cleanup-observed"
+  ],
+  "limits": [
+    "binary-identity-and-equal-git-inputs-do-not-demonstrate-new-functional-flows",
+    "debug-native-plus-metro-is-not-the-preview-apk",
+    "preview-acceptance-is-not-private-flow-acceptance-of-the-production-aab",
+    "synthetic-sql-orders-do-not-demonstrate-a-checkout-or-provider-payment",
+    "no-new-native-run-provider-payment-play-submission-or-physical-acceptance-performed-for-this-record"
+  ],
+  "localValidation": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "configuration": "passed",
+    "uniqueTestsPassed": 2246,
+    "suitesPassed": 83,
+    "skippedTests": 0,
+    "includesRealLocalMitm": true,
+    "affectedJourneyRevalidatedAfterTestTypeAdjustment": true,
+    "counting": "targeted-revalidation-is-already-one-of-the-2246-not-an-additional-case"
+  }
+}
