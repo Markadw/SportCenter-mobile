@@ -9,16 +9,17 @@ const path = require('node:path');
 const YAML = require('yaml');
 const { validateWorkflows } = require('../scripts/validate-test-configs');
 const profiles = require('../scripts/android-profiles');
-const { MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, AUTOMATION_FILES, verifyReceipt, readReceipt, fingerprint, verifyAutomation, verifyPrebuild,
+const { MODE, FINAL_SOURCE, PRODUCTION_BUILD_ID, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, AUTOMATION_FILES, verifyReceipt, readReceipt, fingerprint, verifyAutomation, verifyPrebuild,
   verifyBuild, sourceContext, validateResult, LINK_CASES, incomingFlow, verifyLinkLaunch, verifyLinkReport,
-  validateIncomingLinks } = require('../scripts/android-release');
+  validateIncomingLinks, cleanupAvd34, verifyAvdCleanup } = require('../scripts/android-release');
 
+// Mock hashes/bytes below are synthetic unit fixtures, never an AAB validation receipt.
 const sourceCommit = FINAL_SOURCE, automationCommit = 'f'.repeat(40);
 const receipt = () => ({ version: 1, mode: MODE, repository: profiles.SOURCE.repository, sourceCommit, prebuildRunId: PREBUILD_RUN_ID,
   projectId: profiles.SOURCE.projectId, appId: profiles.SOURCE.appId, api: profiles.SOURCE.api, appVersion: '1.0.0', appBuildVersion: '1',
-  production: { buildId: '11111111-1111-1111-1111-111111111111', sha256: 'a'.repeat(64), bytes: 12345,
+  production: { buildId: PRODUCTION_BUILD_ID, sha256: 'a'.repeat(64), bytes: 12345,
     message: 'sport-center-production-v1:' + sourceCommit } });
-const automation = () => ({ sha: automationCommit, ref: 'refs/tags/validation/release-rc3-v1', repository: profiles.SOURCE.repository,
+const automation = () => ({ sha: automationCommit, ref: 'refs/tags/validation/release-rc6-v1', repository: profiles.SOURCE.repository,
   head: automationCommit, changed: 'scripts/android-release.js\nconfig/android-release-validation.json', dirty: '' });
 const context = () => verifyAutomation(receipt(), automation());
 const contract = () => ({ sourceCommit, buildId: receipt().production.buildId, sha256: receipt().production.sha256 });
@@ -27,9 +28,9 @@ function producer() {
     'Seguridad previa a integración y APK / Dependencias y SAST CodeQL', 'Integración HTTP real y regresión de contratos',
     'Comprobar configuración de rendimiento y estrés / Inspeccionar guiones sin ejecutar carga',
     'Resultado de integración', 'Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK'];
-  return { run: { id: PREBUILD_RUN_ID, head_sha: sourceCommit, head_branch: 'candidate/android-rc5', run_attempt: PREBUILD_ATTEMPT,
+  return { run: { id: PREBUILD_RUN_ID, head_sha: sourceCommit, head_branch: 'candidate/android-rc6', run_attempt: PREBUILD_ATTEMPT,
     event: 'push', path: '.github/workflows/api-android.yml', status: 'completed', conclusion: 'success', repository: { full_name: profiles.SOURCE.repository } },
-  jobs: { total_count: names.length, jobs: names.map(name => ({ name, run_id: PREBUILD_RUN_ID, run_attempt: PREBUILD_ATTEMPT,
+  jobs: { total_count: names.length, jobs: names.map(name => ({ name, run_id: PREBUILD_RUN_ID, run_attempt: PREBUILD_ATTEMPT, head_sha: sourceCommit,
     status: 'completed', conclusion: 'success' })) } };
 }
 function build() { const value = receipt(); return { id: value.production.buildId, platform: 'ANDROID', status: 'FINISHED',
@@ -51,7 +52,11 @@ test('no crea ni acepta recibos PENDING, esquema abierto o hash ausente', () => 
     value => { value.production.sha256 = [value.production.sha256]; }, value => { value.appBuildVersion = [value.appBuildVersion]; },
     value => { value.prebuildRunId += 1; },
     value => { value.sourceCommit = '5d2f30256ec201bcb1b96d3bc00a6d1fa47e9624'; },
-    value => { value.prebuildRunId = 41701616145; }]) {
+    value => { value.prebuildRunId = 41701616145; },
+    value => { value.sourceCommit = '8e8a6da3fedbb61057efaa7fe30b6923b6195595'; },
+    value => { value.prebuildRunId = 41810909053; },
+    value => { value.production.buildId = 'c55fd545-cff4-4758-a5be-5bc583b85589'; },
+    value => { value.production.buildId = '11111111-1111-1111-1111-111111111111'; }]) {
     const value = receipt(); mutate(value); expect(() => verifyReceipt(value)).toThrow();
   }
 });
@@ -72,15 +77,27 @@ test('la automatización nueva acepta sólo rutas exactas y jamás lock, app o p
   for (const changed of [{ sha: sourceCommit }, { ref: 'refs/tags/validation/profiles-rc2-v5' }, { head: sourceCommit }, { dirty: '?? stray' }]) {
     expect(() => verifyAutomation(receipt(), { ...automation(), ...changed })).toThrow();
   }
+  for (const file of ['scripts/prepare-android-disk.cjs', '__tests__/androidDisk.test.js', '.github/workflows/android-validation.yml',
+    'scripts/validate-test-configs.js', '__tests__/androidRelease.test.js']) {
+    expect(() => verifyAutomation(receipt(), { ...automation(), changed: file })).not.toThrow();
+  }
+  for (const file of ['scripts/prepare-android-disk-other.cjs', '__tests__/androidDisk-other.test.js', 'android/gradle.properties',
+    'config/neighbor.json', 'scripts/new-cleanup.cjs']) {
+    expect(() => verifyAutomation(receipt(), { ...automation(), changed: file })).toThrow('RELEASE_APPLICATION_TREE_CHANGED');
+  }
 });
-test('requiere el productor RC5 exacto con ocho jobs aprobados, incluido Preview y TLS', () => {
+test('requiere el productor RC6 exacto con ocho jobs aprobados, incluido Preview y TLS', () => {
+  expect(PREBUILD_ATTEMPT).toBe(2);
   const value = producer(); expect(verifyPrebuild(receipt(), value.run, value.jobs)).toEqual({ prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: PREBUILD_ANDROID_SCOPE, prebuildAttempt: PREBUILD_ATTEMPT });
   for (const mutate of [value => { value.run.head_sha = profiles.SOURCE.commit; }, value => { value.run.head_branch = 'candidate/android-rc3'; },
     value => { value.run.conclusion = 'failure'; }, value => { value.run.event = 'pull_request'; },
     value => { value.jobs.jobs[4].conclusion = 'skipped'; }, value => { value.jobs.jobs[4].status = 'in_progress'; },
     value => { value.jobs.jobs.push(value.jobs.jobs[0]); value.jobs.total_count++; }, value => { value.jobs.total_count++; },
     value => { value.jobs.jobs[6].conclusion = 'skipped'; }, value => { value.jobs.jobs[7].conclusion = 'failure'; },
-    value => { value.run.id += 1; }, value => { value.run.run_attempt += 1; }, value => { value.jobs.jobs[0].run_attempt += 1; },
+    value => { value.run.id += 1; }, value => { value.run.run_attempt = 1; }, value => { value.run.run_attempt = 3; },
+    value => { value.jobs.jobs[0].run_attempt = 1; }, value => { value.jobs.jobs[0].run_attempt = 3; },
+    value => { value.jobs.jobs[0].head_sha = '8e8a6da3fedbb61057efaa7fe30b6923b6195595'; },
+    value => { value.jobs.jobs.find(job => job.name === 'Resultado de integración').name = 'Resultado de candidata Android'; },
     value => { value.run.status = 'in_progress'; value.run.conclusion = null; }]) {
     const input = producer(); mutate(input); expect(() => verifyPrebuild(receipt(), input.run, input.jobs)).toThrow();
   }
@@ -160,10 +177,13 @@ test('un fallo de aceptación o cleanup conserva el fallo del agregado release-o
 function passedState() {
   const phase = api => ({ artifactSourceCommit: sourceCommit, automationCommit, status: 'passed_public_scope', cleanup: 'passed', profile: 'production',
     api, abi: 'x86_64', publicFlows: 2, processAfter: true, crashCheck: { fatalCrashDetected: false }, independentOfMetro: true,
+    configuredAvdName: api === 34 ? 'profiles-release34' : 'profiles16k', selectedDevice: 'emulator-5554',
     cleanReleaseStart: { metroAbsent: true, reverseAbsent: true, packageAbsent: true }, incomingLinks: passedLinks() });
   return { validationMode: MODE, offlineStatus: 'passed', productionBundle: { status: 'passed_bundle_scope', sha256: receipt().production.sha256,
     buildId: receipt().production.buildId, artifactSourceCommit: sourceCommit }, productionDerived: { status: 'passed_offline_scope',
     aabSha256: receipt().production.sha256, buildId: receipt().production.buildId, apkSha256: 'd'.repeat(64) },
+  avdCleanup34: { status: 'passed', avdName: 'profiles-release34', api: 34, publicCases: 4, artifactSourceCommit: sourceCommit,
+    automationCommit, noDevices: true, noEmulatorProcesses: true, directoryAbsent: true, descriptorAbsent: true },
   production: phase(34), production16k: { ...phase(36), backcompatDisabled: true, runtimeBefore: { pageSize: 16384 }, runtimeAfter: { pageSize: 16384 } } };
 }
 function passedLinks() { return { method: 'adb-view-cold-public-uri', scope: 'native-entry-routing-not-decoder-recovery',
@@ -176,9 +196,106 @@ test('finish exige las dos Releases propias, 16KB, proceso y limpieza sin fabric
     state => { state.production.processAfter = false; }, state => { state.production.crashCheck.fatalCrashDetected = true; },
     state => { state.production.artifactSourceCommit = profiles.SOURCE.commit; }, state => { state.productionDerived.aabSha256 = profiles.BUILDS.production.sha256; },
     state => { state.productionBundle.status = 'failed'; }, state => { delete state.production.incomingLinks; },
-    state => { state.production16k.incomingLinks.cases[1].status = 'failed'; }]) {
+    state => { state.production16k.incomingLinks.cases[1].status = 'failed'; }, state => { delete state.avdCleanup34; },
+    state => { state.avdCleanup34.publicCases = 2; }, state => { state.avdCleanup34.descriptorAbsent = false; },
+    state => { state.avdCleanup34.automationCommit = sourceCommit; }, state => { state.avdCleanup34.noEmulatorProcesses = false; }]) {
     const state = passedState(); mutate(state); expect(() => validateResult(receipt(), state, context())).toThrow();
   }
+});
+function avdFixture() {
+  const sdk = '/usr/local/lib/android/sdk', base = '/home/runner/.android/avd', name = 'profiles-release34';
+  const folder = base + '/' + name + '.avd', descriptor = base + '/' + name + '.ini';
+  const state = passedState(); delete state.production16k; delete state.avdCleanup34;
+  const links = new Set(); let removed = false;
+  const filePaths = [descriptor, sdk + '/platform-tools/adb', sdk + '/cmdline-tools/23.0/bin/avdmanager'];
+  const io = {
+    lstatSync(file) {
+      if (removed && [folder, descriptor].includes(file)) { const error = Error('missing mocked AVD'); error.code = 'ENOENT'; throw error; }
+      return { isSymbolicLink: () => links.has(file), isDirectory: () => !filePaths.includes(file), isFile: () => filePaths.includes(file) };
+    },
+    realpathSync: file => file,
+    readFileSync: () => 'avd.ini.encoding=UTF-8\npath=' + folder + '\npath.rel=avd/' + name + '.avd\ntarget=android-34\n',
+  };
+  const run = jest.fn(async (file, args) => {
+    if (file.endsWith('/adb')) { expect(args).toEqual(['devices']); return 'List of devices attached\n\n'; }
+    if (file === '/usr/bin/ps') { expect(args).toEqual(['-eo', 'args=']); return '/usr/bin/node cleanup-avd34\n'; }
+    removed = true; return '';
+  });
+  const env = { HOME: '/home/runner', GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', PINNING_EPHEMERAL_AVD: 'true',
+    ANDROID_HOME: sdk, ANDROID_SDK_ROOT: sdk, APKANALYZER: sdk + '/cmdline-tools/23.0/bin/apkanalyzer' };
+  const options = { env, platform: 'linux', io, run, wait: jest.fn(async () => {}) };
+  return { state, options, links, folder, descriptor, sdk, run, io };
+}
+test('cleanup borra sólo AVD API34 propia por avdmanager23 después de cuatro casos y preserva la evidencia', async () => {
+  const f = avdFixture(), before = JSON.stringify(f.state);
+  const proof = await cleanupAvd34(receipt(), f.state, context(), f.options);
+  expect(proof).toEqual(passedState().avdCleanup34); expect(JSON.stringify(f.state)).toBe(before);
+  expect(f.run.mock.calls.filter(([file]) => file.endsWith('/avdmanager'))).toEqual([
+    [f.sdk + '/cmdline-tools/23.0/bin/avdmanager', ['delete', 'avd', '--name', 'profiles-release34'], { timeout: 45000, env: f.options.env }],
+  ]);
+  expect(f.run.mock.calls.some(([file]) => /\/(?:rm|sudo)$/.test(file))).toBe(false);
+  expect(() => verifyAvdCleanup(receipt(), { ...f.state, avdCleanup34: proof }, context())).not.toThrow();
+});
+test('cleanup no accede a rutas ni comandos en Windows, local, self-hosted o ubicaciones alternativas', async () => {
+  const changes = [{ platform: 'win32' }, { platform: 'darwin' }, ...[
+    { GITHUB_ACTIONS: undefined }, { RUNNER_ENVIRONMENT: 'self-hosted' }, { PINNING_EPHEMERAL_AVD: undefined },
+    { HOME: '/root' }, { ANDROID_AVD_HOME: '/tmp/avd' }, { ANDROID_HOME: '/tmp/sdk' }, { APKANALYZER: '/tmp/apkanalyzer' },
+  ].map(env => ({ env }))];
+  for (const change of changes) {
+    const f = avdFixture(); f.io.lstatSync = jest.fn(f.io.lstatSync);
+    await expect(cleanupAvd34(receipt(), f.state, context(), { ...f.options, ...change,
+      env: { ...f.options.env, ...change.env } })).rejects.toThrow();
+    expect(f.io.lstatSync).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
+  }
+});
+test('cleanup no borra AVD incompleta, otra fase/nombre/fuente o fase ya registrada', async () => {
+  for (const mutate of [state => { state.production.status = 'failed'; }, state => { state.production.cleanup = 'failed'; },
+    state => { state.production.publicFlows = 1; }, state => { state.production.incomingLinks.cases.pop(); },
+    state => { state.production.artifactSourceCommit = profiles.SOURCE.commit; }, state => { state.production.configuredAvdName = 'profiles16k'; },
+    state => { state.production.selectedDevice = 'physical-device'; }, state => { state.production16k = {}; }, state => { state.avdCleanup34 = {}; }]) {
+    const f = avdFixture(); mutate(f.state);
+    await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow(); expect(f.run).not.toHaveBeenCalled();
+  }
+});
+test('cleanup rechaza symlinks, realpath distinto y descriptor que apunta fuera de la AVD propia', async () => {
+  for (const link of ['/home', '/home/runner/.android/avd', '/home/runner/.android/avd/profiles-release34.avd',
+    '/home/runner/.android/avd/profiles-release34.ini', '/usr/local/lib/android/sdk/cmdline-tools/23.0/bin/avdmanager']) {
+    const f = avdFixture(); f.links.add(link);
+    await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow('RELEASE_AVD34_UNSAFE_PATH'); expect(f.run).not.toHaveBeenCalled();
+  }
+  const f = avdFixture(); f.io.realpathSync = file => file === f.folder ? '/tmp/other' : file;
+  await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow('RELEASE_AVD34_UNSAFE_PATH'); expect(f.run).not.toHaveBeenCalled();
+  for (const ini of ['path=/tmp/other\n', 'path=' + f.folder + '\npath=' + f.folder + '\n',
+    'path=' + f.folder + '\npath.rel=avd/profiles16k.avd\n', 'path=' + f.folder + '\0\n']) {
+    const g = avdFixture(); g.io.readFileSync = () => ini;
+    await expect(cleanupAvd34(receipt(), g.state, context(), g.options)).rejects.toThrow('RELEASE_AVD34_DESCRIPTOR_SCOPE'); expect(g.run).not.toHaveBeenCalled();
+  }
+});
+test('ADB desconectado no basta si qemu/emulator sigue vivo; espera acotada sin matar procesos', async () => {
+  for (const active of ['emulator', '/sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64 -avd profiles-release34']) {
+    const f = avdFixture(); f.run.mockImplementation(async file => file.endsWith('/adb') ? 'List of devices attached\n\n' : active + '\n');
+    await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow('RELEASE_AVD34_EMULATOR_STILL_ACTIVE');
+    expect(f.options.wait).toHaveBeenCalledTimes(9); expect(f.run.mock.calls).toHaveLength(20);
+    expect(f.run.mock.calls.some(([file]) => file.endsWith('/avdmanager'))).toBe(false);
+  }
+  const f = avdFixture(); f.run.mockImplementation(async file => file.endsWith('/adb') ? 'List of devices attached\nemulator-5554\toffline\n' : '');
+  await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow('RELEASE_AVD34_EMULATOR_STILL_ACTIVE');
+  expect(f.run.mock.calls.some(([file]) => file.endsWith('/avdmanager'))).toBe(false);
+});
+test('cleanup exige salida ADB reconocida y ausencia real de carpeta e ini tras avdmanager exitoso', async () => {
+  const f = avdFixture(); f.run.mockResolvedValue('');
+  await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).rejects.toThrow('RELEASE_AVD34_STOP_NOT_VERIFIED');
+  const g = avdFixture(); g.run.mockImplementation(async file => file.endsWith('/adb') ? 'List of devices attached\n\n' : '');
+  await expect(cleanupAvd34(receipt(), g.state, context(), g.options)).rejects.toThrow('RELEASE_AVD34_DELETE_NOT_VERIFIED');
+  const h = avdFixture(), original = h.run.getMockImplementation();
+  h.run.mockImplementation(async (...args) => { if (args[0].endsWith('/avdmanager')) throw Error('mock deletion failed'); return original(...args); });
+  await expect(cleanupAvd34(receipt(), h.state, context(), h.options)).rejects.toThrow('mock deletion failed');
+});
+test('cleanup puede esperar la terminación de la action y sólo entonces eliminar su AVD', async () => {
+  const f = avdFixture(), original = f.run.getMockImplementation(); let scans = 0;
+  f.run.mockImplementation(async (...args) => args[0].endsWith('/adb') && scans++ === 0 ? 'List of devices attached\nemulator-5554\tdevice\n' : original(...args));
+  await expect(cleanupAvd34(receipt(), f.state, context(), f.options)).resolves.toMatchObject({ status: 'passed' });
+  expect(f.options.wait).toHaveBeenCalledTimes(1);
 });
 test('URI finitas comprueban Unicode/+ y rechazo previo al parser, sin ampliar rutas ni permitir casos arbitrarios', () => {
   expect(LINK_CASES.map(value => value.uri)).toEqual(['sportcentermobile://catalog?q=bal%C3%B3n%2Bcampo', 'sportcentermobile://catalog?q=%E0%A4%A']);
@@ -287,6 +404,14 @@ test.each([
   value => { value.jobs.release.steps.find(step => step.id === 'pages16k').with['ram-size'] = '2048M'; },
   value => { value.jobs.release.steps.find(step => step.id === 'pages16k').with['emulator-options'] += ' -memory 1024'; },
   value => { value.jobs.release.steps.find(step => step.id === 'pages16k').with['force-avd-creation'] = false; },
+  value => { value.jobs.release.steps = value.jobs.release.steps.filter(step => step.id !== 'disk34'); },
+  value => { value.jobs.release.steps = value.jobs.release.steps.filter(step => step.id !== 'disk36'); },
+  value => { value.jobs.release.steps = value.jobs.release.steps.filter(step => step.id !== 'avd34_cleanup'); },
+  value => { value.jobs.release.steps.find(step => step.id === 'disk34').run += ' --path /tmp'; },
+  value => { value.jobs.release.steps.find(step => step.id === 'disk36').env = { HOME: '/tmp' }; },
+  value => { value.jobs.release.steps.find(step => step.id === 'avd34_cleanup').run = 'avdmanager delete avd --name profiles16k'; },
+  value => { value.jobs.release.steps.find(step => step.id === 'avd34_cleanup').if = 'always()'; },
+  value => { value.jobs.release.steps.find(step => step.id === 'pages16k').if = "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}"; },
   value => { value.jobs.release.env.EXPO_TOKEN = 'global'; },
   value => { value.jobs.release.steps.find(step => step.id === 'source').env.GITHUB_SHA = 'fake'; },
   value => { value.jobs.release.steps.push({ run: 'npx eas-cli@latest build --platform android' }); },

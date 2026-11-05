@@ -91,6 +91,30 @@ function workflows() {
 }
 describe('Dependencias reales de los YAML', () => {
   test('valida los workflows del repositorio', () => expect(() => validateWorkflows(workflows())).not.toThrow());
+  test.each([
+    'Resultado de integración',
+    'Resultado de candidata Android',
+    "${{ needs.plan.outputs.android == 'true' && 'Resultado de candidata Android' || 'Resultado de integración' }}",
+  ])('rechaza un nombre que confunda candidata y check obligatorio del PR: %s', name => {
+    const config = workflows();
+    config.get('api-android.yml').jobs.integration.name = name;
+    expect(() => validateWorkflows(config)).toThrow('Separar el check de candidata');
+  });
+  test('la clasificación del nombre usa el evento, la referencia y el input, no depende de plan aprobado', () => {
+    const name = workflows().get('api-android.yml').jobs.integration.name;
+    expect(name).toContain("startsWith(github.ref, 'refs/tags/candidate/android-')");
+    expect(name).toContain("github.event_name == 'workflow_dispatch' && (inputs.run_android ||");
+    expect(name).toContain("github.ref == 'refs/heads/main'");
+    expect(name).toContain("startsWith(github.ref, 'refs/heads/release/')");
+    expect(name).toContain("startsWith(github.ref, 'refs/heads/hotfix/')");
+    expect(name).not.toContain('needs.');
+    expect(name).toMatch(/'Resultado de candidata Android' \|\| 'Resultado de integración' \}\}$/);
+    // La política y el gate permanecen intactos aunque el nombre del tag cambie.
+    expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'feature/app' }).android).toBe(false);
+    expect(executionPlan({ event: 'pull_request', base: 'main', head: 'develop' }).android).toBe(true);
+    expect(executionPlan({ event: 'push', branch: 'main' }).android).toBe(true);
+    expect(executionPlan({ event: 'push', branch: 'candidate/android-rc6', refType: 'tag' }).android).toBe(true);
+  });
   test('detecta si se retira la dependencia de calidad a las pruebas HTTP', () => {
     const config = workflows();
     config.get('api-android.yml').jobs.api.needs = ['plan'];
@@ -299,6 +323,16 @@ test('la candidata no aprueba si falta el piloto nativo exigido o se ejecutó y 
   expect(evaluateChecks(results, true, true)).toEqual(['pinning']);
   expect(evaluateChecks({ ...results, pinning: 'success' }, true, true)).toEqual([]);
   expect(evaluateChecks({ ...results, pinning: 'failure' }, false, false)).toEqual(['pinning']);
+});
+
+test('comercio aislado usa tag y resultado propios sin exigir APK al PR develop', () => {
+  const configs = workflows(), native = configs.get('android-validation.yml');
+  expect(native.on.push.tags).toContain('validation/commerce-*');
+  expect(native.jobs.commerce.environment).toBeUndefined();
+  expect(native.jobs.commerce_result.name).toBe('Resultado de comercio Android aislado');
+  expect(native.jobs.commerce_result.name).not.toBe('Resultado de integración');
+  expect(configs.get('api-android.yml').jobs.integration.name).toContain('Resultado de candidata Android');
+  expect(executionPlan({ event: 'pull_request', base: 'develop', head: 'test/comercio' }).android).toBe(false);
 });
 
 describe('Revalidación nativa del mismo APK sin EAS build', () => {

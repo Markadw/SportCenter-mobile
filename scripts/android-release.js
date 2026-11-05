@@ -8,19 +8,23 @@ const { EAS_CLI_VERSION } = require('./eas-candidate');
 const { androidTools } = require('./inspect-android-artifact');
 const { prepareKvm } = require('./android-16k');
 const { xmlTree } = require('./android-pinning');
+const { checkScope, AVD } = require('./prepare-android-disk.cjs');
 
 const RECEIPT_FILE = 'config/android-release-validation.json';
 const PROOF_FILE = 'test-results/android-release-source.json';
 const REPORT_FILE = 'test-results/android-release.json';
 const MODE = 'production-release-only';
-const FINAL_SOURCE = '8e8a6da3fedbb61057efaa7fe30b6923b6195595';
-const PREBUILD_RUN_ID = 41810909053;
-const PREBUILD_SCOPE = 'rc5-preview-quality-sast-http-apk-api34-tls-api30';
-const PREBUILD_ATTEMPT = 1;
-const PREBUILD_ANDROID_SCOPE = 'passed-rc5-preview-api34-and-controlled-tls-api30';
+const FINAL_SOURCE = '8831dfad7fd1b0c696d11f50c79442c5499b7cd2';
+const PRODUCTION_BUILD_ID = '43bcc31d-8297-48e4-b91e-7f37c63d349c';
+const PREBUILD_RUN_ID = 41860689069;
+const PREBUILD_SCOPE = 'rc6-preview-quality-sast-http-apk-api34-tls-api30';
+const PREBUILD_ATTEMPT = 2;
+const PREBUILD_ANDROID_SCOPE = 'passed-rc6-preview-api34-and-controlled-tls-api30';
 const TAG = /^refs\/tags\/validation\/release-[A-Za-z0-9_.-]+$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const HEX = /^[a-f0-9]{64}$/;
+const RELEASE_AVD = 'profiles-release34';
+const SDK = '/usr/local/lib/android/sdk';
 const LINK_CASES = Object.freeze([
   Object.freeze({ id: 'L01', uri: 'sportcentermobile://catalog?q=bal%C3%B3n%2Bcampo', text: '^balón\\+campo$', label: 'unicode-plus-catalog-query' }),
   Object.freeze({ id: 'L02', uri: 'sportcentermobile://catalog?q=%E0%A4%A', label: 'malformed-uri-catalog-fallback' }),
@@ -28,6 +32,7 @@ const LINK_CASES = Object.freeze([
 const AUTOMATION_FILES = Object.freeze([RECEIPT_FILE, 'scripts/android-release.js', '__tests__/androidRelease.test.js',
   'tests/manual/android-release.md', 'scripts/android-profiles.js', '__tests__/androidProfiles.test.js',
   '.github/workflows/android-validation.yml', '.github/workflows/ci.yml', 'scripts/validate-test-configs.js',
+  'scripts/prepare-android-disk.cjs', '__tests__/androidDisk.test.js',
   '__tests__/pipelines.test.js', '__tests__/candidatePolicy.test.js', '__tests__/android16k.test.js',
   'docs/seguridad-candidata.md', 'tests/plan.json', 'README.md']);
 class ReleaseError extends Error { constructor(code) { super(code); this.code = code; } }
@@ -49,7 +54,7 @@ function verifyReceipt(value) {
     value.api === profiles.SOURCE.api && typeof value.appVersion === 'string' && /^\d+\.\d+\.\d+$/.test(value.appVersion) &&
     typeof value.appBuildVersion === 'string' && /^[1-9][0-9]*$/.test(value.appBuildVersion), 'RELEASE_RECEIPT_APP');
   const build = value.production;
-  need(keys(build, ['buildId', 'sha256', 'bytes', 'message']) && typeof build.buildId === 'string' && UUID.test(build.buildId) &&
+  need(keys(build, ['buildId', 'sha256', 'bytes', 'message']) && typeof build.buildId === 'string' && UUID.test(build.buildId) && build.buildId === PRODUCTION_BUILD_ID &&
     typeof build.sha256 === 'string' && HEX.test(build.sha256) &&
     Number.isSafeInteger(build.bytes) && build.bytes > 0 && build.bytes <= 512 * 1024 * 1024 &&
     build.message === 'sport-center-production-v1:' + value.sourceCommit, 'RELEASE_RECEIPT_BUILD');
@@ -76,7 +81,7 @@ function verifyPrebuild(receipt, run, jobs) {
   verifyReceipt(receipt);
   need(run?.id === PREBUILD_RUN_ID && run.id === receipt.prebuildRunId && run.head_sha === FINAL_SOURCE &&
     run.head_sha === receipt.sourceCommit && run.run_attempt === PREBUILD_ATTEMPT && run.event === 'push' &&
-    run.head_branch === 'candidate/android-rc5' && run.path === '.github/workflows/api-android.yml' &&
+    run.head_branch === 'candidate/android-rc6' && run.path === '.github/workflows/api-android.yml' &&
     run.status === 'completed' && run.conclusion === 'success' && run.repository?.full_name === receipt.repository,
   'RELEASE_PREBUILD_NOT_APPROVED');
   need(Array.isArray(jobs?.jobs) && Number.isSafeInteger(jobs.total_count) && jobs.total_count === jobs.jobs.length,
@@ -88,7 +93,7 @@ function verifyPrebuild(receipt, run, jobs) {
     'Compilar y aceptar APK candidato', 'Rechazo nativo bajo MITM y recuperación del mismo APK', 'Resultado de integración']) {
     const found = jobs.jobs.filter(job => job.name === name);
     need(found.length === 1 && found[0].run_id === PREBUILD_RUN_ID && found[0].run_attempt === PREBUILD_ATTEMPT &&
-      found[0].status === 'completed' && found[0].conclusion === 'success', 'RELEASE_PREBUILD_CHECK_NOT_SUCCESSFUL');
+      found[0].head_sha === FINAL_SOURCE && found[0].status === 'completed' && found[0].conclusion === 'success', 'RELEASE_PREBUILD_CHECK_NOT_SUCCESSFUL');
   }
   // This is evidence of the exact Preview producer, not acceptance of the new AAB.
   return { prebuildChecksVerified: true, prebuildScope: PREBUILD_SCOPE, prebuildAndroid: PREBUILD_ANDROID_SCOPE,
@@ -236,6 +241,72 @@ async function inspect(receipt, env, context, run = command) {
   save({ productionDerived: { ...release, buildId: receipt.production.buildId, aabSha256: receipt.production.sha256,
     apkSha256: await fileHash(files.derived), signingIdentity: 'temporary-validation-key-not-Play-identity' }, offlineStatus: 'passed' });
 }
+function verifyRuntimePhase(receipt, value, context, api) {
+  need(value?.status === 'passed_public_scope' && value.cleanup === 'passed' && value.profile === 'production' &&
+    value.api === api && value.abi === 'x86_64' && value.publicFlows === 2 && value.processAfter === true &&
+    value.crashCheck?.fatalCrashDetected === false &&
+    value.artifactSourceCommit === receipt.sourceCommit && value.automationCommit === context.automationCommit &&
+    value.independentOfMetro === true && value.cleanReleaseStart?.metroAbsent === true &&
+    value.cleanReleaseStart?.reverseAbsent === true && value.cleanReleaseStart?.packageAbsent === true, 'RELEASE_RUNTIME_NOT_PASSED');
+  need(value.incomingLinks?.scope === 'native-entry-routing-not-decoder-recovery' && value.incomingLinks?.method === 'adb-view-cold-public-uri' &&
+    Array.isArray(value.incomingLinks.cases) && value.incomingLinks.cases.length === 2 && value.incomingLinks.cases.every((item, index) =>
+      item.id === LINK_CASES[index].id && item.status === 'passed' && item.nativeLaunchConfirmed === true), 'RELEASE_NATIVE_ENTRY_NOT_PASSED');
+}
+function verifyAvdCleanup(receipt, state, context) {
+  const proof = state.avdCleanup34;
+  need(proof?.status === 'passed' && proof.avdName === RELEASE_AVD && proof.api === 34 && proof.publicCases === 4 &&
+    proof.artifactSourceCommit === receipt.sourceCommit && proof.automationCommit === context.automationCommit &&
+    proof.noDevices === true && proof.noEmulatorProcesses === true && proof.directoryAbsent === true && proof.descriptorAbsent === true,
+  'RELEASE_AVD34_CLEANUP_NOT_PASSED');
+}
+// The action stops its emulator but retains its userdata. Only remove our finished API34 AVD,
+// through the pinned SDK manager, before the second fresh AVD consumes the same hosted disk.
+async function cleanupAvd34(receipt, state, context, { env = process.env, platform = process.platform, io = fs, run = command,
+  wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)) } = {}) {
+  verifyReceipt(receipt); verifyRuntimePhase(receipt, state.production, context, 34);
+  need(state.production.configuredAvdName === RELEASE_AVD && /^emulator-[0-9]+$/.test(state.production.selectedDevice || ''), 'RELEASE_AVD34_SCOPE');
+  need(!state.avdCleanup34 && !state.production16k, 'RELEASE_AVD34_PHASE_ALREADY_RECORDED');
+  try { checkScope(env, platform); } catch { throw new ReleaseError('RELEASE_AVD34_HOSTED_SCOPE'); }
+  need(env.ANDROID_HOME === SDK && (!env.ANDROID_SDK_ROOT || env.ANDROID_SDK_ROOT === SDK) &&
+    env.APKANALYZER === SDK + '/cmdline-tools/23.0/bin/apkanalyzer', 'RELEASE_AVD34_TOOL_SCOPE');
+  const folder = AVD + '/' + RELEASE_AVD + '.avd', descriptor = AVD + '/' + RELEASE_AVD + '.ini';
+  const adb = SDK + '/platform-tools/adb', manager = SDK + '/cmdline-tools/23.0/bin/avdmanager';
+  const safePath = (file, directory) => {
+    const parts = file.split('/').filter(Boolean); let current = '/';
+    for (let index = 0; index <= parts.length; index++) {
+      if (index) current += (current === '/' ? '' : '/') + parts[index - 1];
+      const stat = io.lstatSync(current), last = index === parts.length;
+      need(!stat.isSymbolicLink() && io.realpathSync(current) === current &&
+        (last && !directory ? stat.isFile() : stat.isDirectory()), 'RELEASE_AVD34_UNSAFE_PATH');
+    }
+  };
+  try { safePath(folder, true); safePath(descriptor, false); safePath(adb, false); safePath(manager, false); }
+  catch (error) { throw error instanceof ReleaseError ? error : new ReleaseError('RELEASE_AVD34_UNSAFE_PATH'); }
+  const ini = io.readFileSync(descriptor, 'utf8');
+  need(typeof ini === 'string' && Buffer.byteLength(ini) <= 8192 && !ini.includes('\0'), 'RELEASE_AVD34_DESCRIPTOR_SCOPE');
+  const fields = ini.trim().split(/\r?\n/).map(line => /^(avd\.ini\.encoding|path|path\.rel|target)=([^\r\n\\]+)$/.exec(line));
+  need(fields.every(Boolean) && new Set(fields.map(field => field[1])).size === fields.length &&
+    fields.some(field => field[1] === 'target' && field[2] === 'android-34'), 'RELEASE_AVD34_DESCRIPTOR_SCOPE');
+  const paths = [...ini.matchAll(/^path=(.*)$/gm)], relative = [...ini.matchAll(/^path\.rel=(.*)$/gm)];
+  need(paths.length === 1 && paths[0][1].trim() === folder && relative.length <= 1 &&
+    (!relative.length || relative[0][1].trim() === 'avd/' + RELEASE_AVD + '.avd'), 'RELEASE_AVD34_DESCRIPTOR_SCOPE');
+  let stopped = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const devices = await run(adb, ['devices']), processes = await run('/usr/bin/ps', ['-eo', 'args=']);
+    need(typeof devices === 'string' && devices.length < 32768 && /^List of devices attached\r?\n/.test(devices) &&
+      typeof processes === 'string' && processes.length < 1024 * 1024, 'RELEASE_AVD34_STOP_NOT_VERIFIED');
+    const noDevices = devices.replace(/^List of devices attached\r?\n/, '').trim() === '';
+    const noProcesses = !/^(?:\S*\/)?(?:emulator(?:64-\S+)?|qemu-system-\S+)(?:\s|$)/m.test(processes);
+    if (noDevices && noProcesses) { stopped = true; break; }
+    if (attempt < 9) await wait(1000);
+  }
+  need(stopped, 'RELEASE_AVD34_EMULATOR_STILL_ACTIVE');
+  await run(manager, ['delete', 'avd', '--name', 'profiles-release34'], { timeout: 45000, env });
+  const absent = file => { try { io.lstatSync(file); return false; } catch (error) { if (error.code === 'ENOENT') return true; throw error; } };
+  need(absent(folder) && absent(descriptor), 'RELEASE_AVD34_DELETE_NOT_VERIFIED');
+  return { status: 'passed', avdName: RELEASE_AVD, api: 34, publicCases: 4, artifactSourceCommit: receipt.sourceCommit,
+    automationCommit: context.automationCommit, noDevices: true, noEmulatorProcesses: true, directoryAbsent: true, descriptorAbsent: true };
+}
 function validateResult(receipt, state, context) {
   verifyReceipt(receipt);
   need(state?.validationMode === MODE && state.offlineStatus === 'passed' && !state.development && !state.developmentInspection,
@@ -245,17 +316,9 @@ function validateResult(receipt, state, context) {
     state.productionBundle?.artifactSourceCommit === receipt.sourceCommit && state.productionDerived?.aabSha256 === receipt.production.sha256 &&
     state.productionDerived?.buildId === receipt.production.buildId && HEX.test(state.productionDerived?.apkSha256 || ''), 'RELEASE_ARTIFACT_RESULT_MISMATCH');
   for (const [phase, api] of [['production', 34], ['production16k', 36]]) {
-    const value = state[phase];
-    need(value?.status === 'passed_public_scope' && value.cleanup === 'passed' && value.profile === 'production' &&
-      value.api === api && value.abi === 'x86_64' && value.publicFlows === 2 && value.processAfter === true &&
-      value.crashCheck?.fatalCrashDetected === false &&
-      value.artifactSourceCommit === receipt.sourceCommit && value.automationCommit === context.automationCommit &&
-      value.independentOfMetro === true && value.cleanReleaseStart?.metroAbsent === true &&
-      value.cleanReleaseStart?.reverseAbsent === true && value.cleanReleaseStart?.packageAbsent === true, 'RELEASE_RUNTIME_NOT_PASSED');
-    need(value.incomingLinks?.scope === 'native-entry-routing-not-decoder-recovery' && value.incomingLinks?.method === 'adb-view-cold-public-uri' &&
-      Array.isArray(value.incomingLinks.cases) && value.incomingLinks.cases.length === 2 && value.incomingLinks.cases.every((item, index) =>
-        item.id === LINK_CASES[index].id && item.status === 'passed' && item.nativeLaunchConfirmed === true), 'RELEASE_NATIVE_ENTRY_NOT_PASSED');
+    verifyRuntimePhase(receipt, state[phase], context, api);
   }
+  verifyAvdCleanup(receipt, state, context);
   need(state.production16k.backcompatDisabled === true && state.production16k.runtimeBefore?.pageSize === 16384 &&
     state.production16k.runtimeAfter?.pageSize === 16384, 'RELEASE_16K_NOT_VERIFIED');
   return { status: 'passed_production_release_scope', validationMode: MODE, debugCurrentSource: 'not-requested-not-accredited' };
@@ -308,14 +371,21 @@ async function main(mode, env = process.env) {
   if (mode === 'inspect') { try { return await inspect(receipt, env, context); }
     catch (error) { save({ offlineStatus: 'failed', offlineFailure: { reason: error instanceof ReleaseError ? error.code : 'RELEASE_INSPECTION_FAILED' } }); throw error; } }
   if (mode === 'kvm') return prepareKvm({ env, save: kvm => save({ kvm }) });
+  if (mode === 'cleanup-avd34') {
+    const state = JSON.parse(fs.readFileSync(REPORT_FILE, 'utf8'));
+    try { save({ avdCleanup34: await cleanupAvd34(receipt, state, context, { env }) }); }
+    catch (error) { save({ avdCleanup34: { status: 'failed', reason: error instanceof ReleaseError ? error.code : 'RELEASE_AVD34_CLEANUP_FAILED' } }); throw error; }
+    return;
+  }
+  if (mode === 'api36') verifyAvdCleanup(receipt, JSON.parse(fs.readFileSync(REPORT_FILE, 'utf8')), context);
   if (['release34', 'api36'].includes(mode)) return profiles.runtime(env, mode, { save,
     source: () => sourceContext(env, receipt), releaseContract: { sourceCommit: receipt.sourceCommit,
       buildId: receipt.production.buildId, sha256: receipt.production.sha256 }, afterPublic: validateIncomingLinks });
   if (mode === 'finish') { save(validateResult(receipt, JSON.parse(fs.readFileSync(REPORT_FILE, 'utf8')), context)); return; }
   throw new ReleaseError('RELEASE_MODE_UNKNOWN');
 }
-module.exports = { RECEIPT_FILE, PROOF_FILE, REPORT_FILE, MODE, FINAL_SOURCE, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, LINK_CASES, AUTOMATION_FILES, ReleaseError, fingerprint,
+module.exports = { RECEIPT_FILE, PROOF_FILE, REPORT_FILE, MODE, FINAL_SOURCE, PRODUCTION_BUILD_ID, PREBUILD_RUN_ID, PREBUILD_SCOPE, PREBUILD_ATTEMPT, PREBUILD_ANDROID_SCOPE, LINK_CASES, AUTOMATION_FILES, ReleaseError, fingerprint,
   verifyReceipt, readReceipt, verifyAutomation, verifyPrebuild, verifyBuild, incomingFlow, verifyLinkLaunch, verifyLinkReport, validateIncomingLinks,
-  sourceContext, inspect, validateResult, main };
+  sourceContext, inspect, verifyRuntimePhase, verifyAvdCleanup, cleanupAvd34, validateResult, main };
 if (require.main === module) main(process.argv[2]).catch(error => { console.error('Validación Release bloqueada: ' +
   (error instanceof ReleaseError ? error.code : 'RELEASE_VALIDATION_FAILED')); process.exitCode = 1; });

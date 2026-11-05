@@ -85,14 +85,19 @@ function validateReleaseWorkflow(workflow) {
   assert.equal(job.env.keep_evidence, 'true'); assert.equal(job.env.PINNING_EPHEMERAL_AVD, 'true');
   for (const key of ['EXPO_TOKEN', 'GITHUB_TOKEN', 'GITHUB_SHA', 'GITHUB_REF']) assert.equal(job.env[key], undefined, 'No ampliar tokens ni sustituir fuente');
   let previous = -1;
-  for (const mode of ['prepare', 'view', 'download', 'inspect', 'kvm', 'release34', 'api36', 'finish']) {
+  for (const mode of ['prepare', 'view', 'download', 'inspect', 'kvm', 'release34', 'cleanup-avd34', 'api36', 'finish']) {
     const matches = job.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.run === 'node scripts/android-release.js ' + mode
       || step.with?.script === 'node scripts/android-release.js ' + mode);
     assert.equal(matches.length, 1, 'Cada fase Release se ejecuta una vez: ' + mode);
     const { step, index } = matches[0];
     assert.ok(index > previous && !step['continue-on-error'], 'Release sin fases duplicadas, omitidas o desordenadas');
-    if (['release34', 'api36', 'finish'].includes(mode)) assert.equal(step.if,
-      "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}", 'Release conserva precondiciones e independencia de resultados por API');
+    const conditions = {
+      release34: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.disk34.outcome == 'success' }}",
+      'cleanup-avd34': "${{ !cancelled() && steps.release34.outcome == 'success' }}",
+      api36: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.avd34_cleanup.outcome == 'success' && steps.disk36.outcome == 'success' }}",
+      finish: "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}",
+    };
+    if (conditions[mode]) assert.equal(step.if, conditions[mode], 'Release conserva disco, limpieza y prerrequisitos');
     else assert.ok(!step.if, 'Precondición Release no puede omitirse');
     previous = index;
   }
@@ -109,6 +114,21 @@ function validateReleaseWorkflow(workflow) {
   validateDecoder23(job, inspection, job.steps.findIndex(step => step.run === 'node scripts/android-release.js download'));
   assert.ok(job.steps.find(step => step.id === 'command_line_tools').run.includes('"build-tools;37.0.0"'));
   assert.equal(job.steps.find(step => step.id === 'kvm')['timeout-minutes'], 2);
+  const diskSteps = job.steps.filter(step => step.run === 'node scripts/prepare-android-disk.cjs');
+  assert.equal(diskSteps.length, 2, 'Un preflight de 12 GiB antes de cada AVD Release');
+  for (const [id, afterId, beforeId, condition] of [
+    ['disk34', 'kvm', 'release34', "${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}"],
+    ['disk36', 'avd34_cleanup', 'pages16k', "${{ !cancelled() && steps.avd34_cleanup.outcome == 'success' }}"],
+  ]) {
+    const index = job.steps.findIndex(step => step.id === id), step = job.steps[index];
+    assert.equal(step?.run, 'node scripts/prepare-android-disk.cjs'); assert.equal(step.if, condition);
+    assert.equal(step['timeout-minutes'], 3); assert.equal(step.env, undefined);
+    assert.equal(index, job.steps.findIndex(item => item.id === beforeId) - 1, 'Disco inmediatamente antes de la AVD');
+    assert.ok(index > job.steps.findIndex(item => item.id === afterId), 'Preflight después de sus prerrequisitos');
+  }
+  const avdCleanup = job.steps.find(step => step.id === 'avd34_cleanup');
+  assert.equal(avdCleanup?.run, 'node scripts/android-release.js cleanup-avd34');
+  assert.equal(avdCleanup['timeout-minutes'], 2); assert.equal(avdCleanup.env, undefined);
   const names = new Set();
   for (const [id, api, target, name, command] of [['release34', 34, 'google_apis', 'profiles-release34', 'release34'],
     ['pages16k', 36, 'google_apis_ps16k', 'profiles16k', 'api36']]) {
@@ -264,6 +284,82 @@ function validateAndroidEvidence(job, allowedPaths) {
   assert.deepEqual([...paths].sort(), [...allowedPaths].sort(), 'Sólo se admite la allowlist exacta de evidencia Android; no carpetas, logs ni otros globs');
 }
 
+function validateCommerceWorkflow(workflow) {
+  const job = workflow.jobs.commerce, result = workflow.jobs.commerce_result;
+  assert.ok(job && result, 'Falta el job y agregado de comercio aislado');
+  assert.equal(job.if, "${{ startsWith(github.ref, 'refs/tags/validation/commerce-') }}");
+  assert.deepEqual(job.needs, ['quality', 'security']);
+  assert.equal(job.environment, undefined, 'Comercio sintético no requiere entorno ni secretos de cuenta');
+  assert.equal(job['runs-on'], 'ubuntu-24.04');
+  assert.equal(job['timeout-minutes'], 40);
+  assert.deepEqual(job.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true', keep_evidence: 'true', PINNING_EPHEMERAL_AVD: 'true' });
+  assert.equal(job.steps.length, 21, 'Comercio sólo admite sus fases revisadas, sin pasos adicionales');
+  const checkout = job.steps.find(item => item.uses === 'actions/checkout@v4');
+  assert.deepEqual(checkout?.with, { 'fetch-depth': 0, 'persist-credentials': false });
+  assert.equal(job.steps.find(item => item.uses === 'actions/setup-node@v4')?.with['node-version'], '22.20.0');
+  assert.deepEqual(job.steps.find(item => item.uses === 'actions/setup-java@v4')?.with, { distribution: 'temurin', 'java-version': '17' });
+  const commands = ['node scripts/android-commerce.cjs prepare', 'npm ci --no-audit --no-fund',
+    'node scripts/android-commerce.cjs view', 'node scripts/android-commerce.cjs download',
+    'node scripts/android-commerce.cjs runtime-dir', 'node scripts/android-commerce.cjs kvm',
+    'node scripts/android-commerce.cjs host-probe', 'npm run env:start',
+    'node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"',
+    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"',
+    'node scripts/prepare-android-disk.cjs'];
+  const indices = commands.map(command => {
+    const matches = job.steps.filter(item => item.run === command);
+    assert.equal(matches.length, 1, 'Cada fase de comercio se ejecuta una sola vez: ' + command);
+    return job.steps.indexOf(matches[0]);
+  });
+  assert.ok(indices.every((index,n) => index >= 0 && (!n || index > indices[n - 1])), 'Comercio exige procedencia, dependencias, host y QA antes del AVD');
+  const prepare = job.steps[indices[0]], view = job.steps[indices[2]];
+  assert.deepEqual(prepare.env, { GITHUB_TOKEN: '${{ github.token }}' });
+  assert.deepEqual(view.env, { EXPO_TOKEN: '${{ secrets.EXPO_TOKEN }}' });
+  const install = job.steps.find(item => item.name?.startsWith('Instalar Maestro'));
+  assert.ok(install && job.steps.indexOf(install) > indices[4] && job.steps.indexOf(install) < indices[5]);
+  assert.ok(install.run.startsWith('set -euo pipefail\n') && install.run.includes('cli-2.12.0/maestro.zip') &&
+    install.run.includes('a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e') && install.run.includes('sha256sum --check --strict'));
+  assert.ok(install.run.includes('umask 022') && install.run.includes('$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin') && !install.run.includes('chmod'), 'Maestro público sólo en base exclusiva');
+  const adb = job.steps.find(item => item.id === 'commerce_adb_tools');
+  assert.ok(adb && job.steps.indexOf(adb) < indices[6] && adb.run.includes('test -x "$ANDROID_HOME/platform-tools/adb"') && adb.run.includes('echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"'));
+  const runtime = job.steps.find(item => item.id === 'commerce_runtime');
+  assert.equal(job.steps.filter(item => item.uses?.startsWith('reactivecircus/android-emulator-runner@')).length, 1);
+  assert.ok(job.steps.indexOf(runtime) > indices.at(-1));
+  assert.equal(runtime?.uses, 'reactivecircus/android-emulator-runner@v2');
+  assert.equal(runtime.with['api-level'], 34); assert.equal(runtime.with.arch, 'x86_64'); assert.equal(runtime.with.target, 'google_apis');
+  assert.equal(runtime.with['force-avd-creation'], true); assert.equal(runtime.with['disable-linux-hw-accel'], false);
+  assert.equal(runtime.with['ram-size'], undefined, 'API34 conserva la RAM predeterminada del escenario de cuenta');
+  assert.ok(runtime.with['emulator-options'].includes('-accel on') && runtime.with['emulator-options'].includes('-no-snapshot'));
+  assert.equal(runtime.with.script, 'node scripts/android-commerce.cjs runtime');
+  assert.equal(runtime.env, undefined, 'No credenciales de cuenta en el runtime sintético');
+  const finish = job.steps.find(item => item.run === 'node scripts/android-commerce.cjs finish');
+  const stop = job.steps.find(item => item.run === 'npm run env:stop');
+  const cleanup = job.steps.find(item => item.run === 'node scripts/android-commerce.cjs cleanup');
+  assert.ok(job.steps.indexOf(finish) > job.steps.indexOf(runtime) && job.steps.indexOf(stop) > job.steps.indexOf(finish) && job.steps.indexOf(cleanup) > job.steps.indexOf(stop));
+  assert.equal(stop?.if, 'always()'); assert.equal(cleanup?.if, 'always()');
+  for (const item of job.steps) {
+    assert.ok(!/ANDROID_TEST_EMAIL|ANDROID_TEST_PASSWORD|secrets\.(?!EXPO_TOKEN\b)/.test(JSON.stringify(item)), 'No secretos ni cuentas reales en comercio aislado');
+    if (item !== view) assert.equal(item.env?.EXPO_TOKEN, undefined);
+    if (item !== prepare) assert.equal(item.env?.GITHUB_TOKEN, undefined);
+    if (item !== prepare && item !== view) assert.equal(item.env, undefined, 'No sobrescribir ámbito o procedencia de comercio por paso');
+    assert.ok(!item.if || item === stop || item === cleanup || item.uses?.startsWith('actions/upload-artifact@'), 'No omitir fases obligatorias de comercio');
+    assert.ok(!/eas-cli[^\n]*\sbuild\s|node scripts\/eas-candidate/.test(item.run || ''), 'Comercio reutiliza Debug; no crea builds');
+  }
+  validateAndroidEvidence(job, ['test-results/android-commerce-source.json', 'test-results/android-commerce.json', 'test-results/commerce-api.json']);
+  const upload = job.steps.find(item => item.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(job.steps.indexOf(upload) > job.steps.indexOf(cleanup));
+  assert.equal(upload.with['retention-days'], 14); assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.if, "${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}");
+  assert.equal(result.name, 'Resultado de comercio Android aislado');
+  assert.equal(result.environment, undefined); assert.equal(result.env, undefined);
+  assert.equal(result['runs-on'], 'ubuntu-24.04');
+  assert.equal(result.if, "${{ always() && startsWith(github.ref, 'refs/tags/validation/commerce-') }}");
+  assert.deepEqual(result.needs, ['quality', 'security', 'commerce']);
+  assert.equal(result.steps.length, 1);
+  const gate = result.steps[0];
+  assert.deepEqual(gate.env, { RESULT_QUALITY: '${{ needs.quality.result }}', RESULT_SECURITY: '${{ needs.security.result }}', RESULT_COMMERCE: '${{ needs.commerce.result }}' });
+  assert.equal(gate.run.trim(), ['test "$RESULT_QUALITY" = success', 'test "$RESULT_SECURITY" = success', 'test "$RESULT_COMMERCE" = success'].join('\n'));
+}
+
 function validate16kMemory(step) {
   assert.equal(step.with['ram-size'], '4096M', 'API36 16KB requiere RAM guest fija de 4096M');
   assert.ok(!/(?:^|\s)-(?:memory|m)(?:\s|=|[0-9]|$)/i.test(step.with['emulator-options']), 'No sobrescribir RAM guest mediante opciones CLI');
@@ -271,7 +367,7 @@ function validate16kMemory(step) {
 
 function validateNativeWorkflow(workflow) {
   assert.ok(workflow, 'Falta el orquestador de validación del mismo APK');
-  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*'] } }, 'Validación sólo en tags validation/android-*');
+  assert.deepEqual(workflow.on, { push: { tags: ['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*', 'validation/commerce-*'] } }, 'Validación sólo en tags explícitos de artefactos y QA aislada');
   assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'read' }, 'No elevar permisos globales');
   assert.equal(workflow.jobs.quality.uses, './.github/workflows/ci.yml');
   assert.equal(workflow.jobs.quality.with.keep_evidence, true);
@@ -374,9 +470,9 @@ function validateWorkflows(workflows) {
   assert.equal(typecheck.if, "${{ !cancelled() && steps.install.outcome == 'success' }}",
     'TypeScript debe informar también cuando ESLint falle');
   const cryptoSetup = client.jobs.validate.steps.find(step => step.run === 'bash scripts/android-pinning-install.sh');
-  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
+  assert.equal(cryptoSetup?.if, "startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-') || startsWith(github.ref, 'refs/tags/validation/commerce-')", 'La herramienta criptográfica sólo se instala en candidatas explícitas');
   assert.equal(client.jobs.validate.steps.find(step => step.id === 'tests').env.PINNING_TEST_MITMDUMP,
-    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || startsWith(github.ref, 'refs/tags/validation/android-') || startsWith(github.ref, 'refs/tags/validation/profiles-') || startsWith(github.ref, 'refs/tags/validation/release-') || startsWith(github.ref, 'refs/tags/validation/account-') || startsWith(github.ref, 'refs/tags/validation/commerce-')) && 'mitmdump' || '' }}", 'La candidata exige criptografía real, sin omitirla');
   const clientEvidence = client.jobs.validate.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(clientEvidence.with.path.split('\n').includes('test-results/static-analysis/'),
     'El artefacto existente debe conservar los informes estáticos');
@@ -394,6 +490,47 @@ function validateWorkflows(workflows) {
   assert.deepEqual(integration.jobs.api.needs, ['plan', 'quality'], 'HTTP requiere calidad aprobada');
   assert.ok(integration.jobs.api.steps.some((step) => step.id === 'readiness'
     && step.run === 'node scripts/wait-for-service.js'), 'HTTP requiere comprobar disponibilidad de la API');
+  const apiSteps = integration.jobs.api.steps;
+  const commerceSteps = apiSteps.filter(item => item.id === 'commerce_local');
+  assert.equal(commerceSteps.length, 1, 'Comercio requiere un único paso en el job HTTP existente');
+  const commerceStep = commerceSteps[0];
+  assert.deepEqual(commerceStep.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true' }, 'Comercio exige ambas flags sólo en su paso');
+  assert.equal(commerceStep.if, undefined, 'Comercio HTTP no puede omitirse');
+  assert.equal(commerceStep.run.trim(), [
+    'docker compose -f tests/environment/compose.yml up -d --no-deps --force-recreate access',
+    'node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"',
+    'node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"',
+  ].join('\n'), 'Comercio sólo recrea access, aplica seed una vez y prueba la QA local');
+  const teardownIndex = apiSteps.findIndex(item => item.run === 'node scripts/test-environment.js stop');
+  assert.ok(apiSteps.indexOf(commerceStep) > apiSteps.findIndex(item => item.id === 'dast_local') &&
+    apiSteps.findIndex(item => item.id === 'dast_local') >= 0 && teardownIndex > apiSteps.indexOf(commerceStep),
+  'Comercio se ejecuta después de DAST y antes del teardown');
+  assert.equal(apiSteps[teardownIndex].if, 'always()', 'Comercio conserva cleanup siempre');
+  assert.ok(!integration.env?.QA_COMMERCE && !integration.jobs.api.env?.QA_COMMERCE, 'No habilitar comercio globalmente');
+  const reportSteps = apiSteps.filter(item => item.id === 'review_report_local');
+  assert.equal(reportSteps.length, 1, 'El recibo de reporte requiere un único paso HTTP');
+  const reportStep = reportSteps[0];
+  assert.deepEqual(reportStep.env, { ISOLATED_TEST_ENV: 'true', QA_COMMERCE: 'true', QA_REVIEW_REPORT: 'true' });
+  assert.equal(reportStep.if, undefined, 'No omitir el contrato de recibo');
+  assert.equal(reportStep['continue-on-error'], undefined, 'No ignorar un fallo del recibo');
+  assert.equal(reportStep.run, 'node tests/environment/review-report-isolated.cjs');
+  assert.ok(apiSteps.indexOf(reportStep) > apiSteps.indexOf(commerceStep) && apiSteps.indexOf(reportStep) < teardownIndex,
+    'El recibo exige fixtures previas y teardown posterior');
+  for (const item of apiSteps.filter(item => item !== commerceStep && item !== reportStep)) {
+    assert.equal(item.env?.QA_COMMERCE, undefined, 'La flag de comercio sólo pertenece a sus dos pasos QA');
+  }
+  for (const item of apiSteps.filter(item => item !== reportStep)) {
+    assert.equal(item.env?.QA_REVIEW_REPORT, undefined, 'La escritura de contacto sólo pertenece a su paso aislado');
+  }
+  assert.ok(!integration.env?.QA_REVIEW_REPORT && !integration.jobs.api.env?.QA_REVIEW_REPORT);
+  const httpSummary = apiSteps.find(item => item.run === 'node scripts/write-api-summary.js');
+  assert.equal(httpSummary?.env.COMMERCE_OUTCOME, '${{ steps.commerce_local.outcome }}', 'El resumen evalúa el resultado real de comercio');
+  assert.equal(httpSummary?.env.REVIEW_REPORT_OUTCOME, '${{ steps.review_report_local.outcome }}');
+  const httpArtifacts = apiSteps.filter(item => item.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(httpArtifacts.length, 1, 'Comercio reutiliza el único artefacto HTTP');
+  assert.equal(httpArtifacts[0].with.name, 'api-evidence');
+  assert.ok(httpArtifacts[0].with.path.trim().split('\n').includes('test-results/commerce-api.json'), 'Falta informe compacto de comercio');
+  assert.ok(httpArtifacts[0].with.path.trim().split('\n').includes('test-results/review-report-api.json'), 'Falta recibo compacto en el artefacto existente');
   const security = workflows.get('security.yml');
   assert.ok(security, 'Falta el workflow de seguridad obligatorio');
   assert.deepEqual(Object.keys(security.on), ['workflow_call'], 'Seguridad sólo debe reutilizarse desde integración');
@@ -509,6 +646,9 @@ function validateWorkflows(workflows) {
     'test-results/maestro/**/*.png',
     'test-results/eas-candidate.json',
   ]);
+  assert.equal(integration.jobs.integration.name.replace(/\s+/g, ' '),
+    "${{ (startsWith(github.ref, 'refs/tags/candidate/android-') || (github.event_name == 'workflow_dispatch' && (inputs.run_android || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/')))) && 'Resultado de candidata Android' || 'Resultado de integración' }}",
+    'Separar el check de candidata explícita y conservar Resultado de integración para PR y pushes normales');
   assert.deepEqual(integration.jobs.integration.needs, ['plan', 'quality', 'security', 'api', 'performance', 'android', 'pinning']);
   assert.equal(integration.jobs.integration.if, 'always()', 'El resultado final debe evaluar también los fallos previos');
   const gate = integration.jobs.integration.steps.find((step) => step.run === 'node scripts/pipeline-policy.js gate');
@@ -538,6 +678,7 @@ function validateWorkflows(workflows) {
   validateProfilesWorkflow(workflows.get('android-validation.yml'));
   validateReleaseWorkflow(workflows.get('android-validation.yml'));
   validateAccountWorkflow(workflows.get('android-validation.yml'));
+  validateCommerceWorkflow(workflows.get('android-validation.yml'));
   validateEmailFormsWorkflow(workflows.get('android-validation.yml'));
 
   for (const [file, workflow] of workflows) {

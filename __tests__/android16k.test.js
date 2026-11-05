@@ -217,7 +217,7 @@ test.each([{ hash: '0'.repeat(64) }, { compat: 'true' }, { appAbi: 'arm64-v8a' }
 });
 test('workflow aislado conserva permisos, EAS sólo lectura, KVM, SHA Maestro y evidencia acotada', () => {
   const workflow = YAML.parse(fs.readFileSync(path.join(__dirname, '../.github/workflows/android-validation.yml'), 'utf8'));
-  expect(workflow.on.push.tags).toEqual(['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*']);
+  expect(workflow.on.push.tags).toEqual(['validation/android-*', 'validation/profiles-*', 'validation/release-*', 'validation/account-*', 'validation/commerce-*']);
   expect(workflow.on.push.branches).toBeUndefined();
   expect(Object.keys(workflow.on)).toEqual(['push']);
   expect(workflow.permissions).toEqual({ contents: 'read', actions: 'read', 'pull-requests': 'read' });

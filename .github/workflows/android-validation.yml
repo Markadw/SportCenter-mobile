@@ -7,6 +7,7 @@ on:
       - validation/profiles-*
       - validation/release-*
       - validation/account-*
+      - validation/commerce-*
 permissions:
   contents: read
   actions: read
@@ -419,9 +420,14 @@ jobs:
         id: kvm
         timeout-minutes: 2
         run: node scripts/android-release.js kvm
+      - name: Exigir 12 GiB antes de crear la AVD Release API34
+        id: disk34
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        timeout-minutes: 3
+        run: node scripts/prepare-android-disk.cjs
       - name: Release API34 sin Metro en otra AVD nueva
         id: release34
-        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.disk34.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -433,9 +439,19 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: node scripts/android-release.js release34
+      - name: Eliminar sólo la AVD API34 propia después de sus cuatro casos
+        id: avd34_cleanup
+        if: ${{ !cancelled() && steps.release34.outcome == 'success' }}
+        timeout-minutes: 2
+        run: node scripts/android-release.js cleanup-avd34
+      - name: Exigir 12 GiB antes de crear la AVD Release API36
+        id: disk36
+        if: ${{ !cancelled() && steps.avd34_cleanup.outcome == 'success' }}
+        timeout-minutes: 3
+        run: node scripts/prepare-android-disk.cjs
       - name: API36 16KB simulados del APK derivado AAB
         id: pages16k
-        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.inspection.outcome == 'success' && steps.kvm.outcome == 'success' && steps.avd34_cleanup.outcome == 'success' && steps.disk36.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
@@ -616,6 +632,125 @@ jobs:
           test "$RESULT_QUALITY" = success
           test "$RESULT_SECURITY" = success
           test "$RESULT_ACCOUNT" = success
+  commerce:
+    name: Comercio sintético aislado en Android API34
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/commerce-') }}
+    needs: [quality, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ISOLATED_TEST_ENV: 'true'
+      QA_COMMERCE: 'true'
+      keep_evidence: 'true'
+      PINNING_EPHEMERAL_AVD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verificar origen y compuertas del Debug existente antes de instalar dependencias
+        run: node scripts/android-commerce.cjs prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar dependencias exactas para consultar EAS
+        run: npm ci --no-audit --no-fund
+      - name: Consultar sólo el Debug existente sin compilar otro
+        run: node scripts/android-commerce.cjs view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar el Debug identificado y verificar su huella
+        run: node scripts/android-commerce.cjs download
+      - name: Crear directorio exclusivo del proceso aislado
+        run: node scripts/android-commerce.cjs runtime-dir
+      - name: Instalar Maestro 2.12 verificado sin credenciales de cuenta
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro-account.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-account.zip" | sha256sum --check --strict
+          umask 022
+          test -n "${ACCOUNT_SANDBOX_PARENT:-}"
+          unzip -q "$RUNNER_TEMP/maestro-account.zip" -d "$ACCOUNT_SANDBOX_PARENT/maestro-account"
+          echo "$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar KVM del runner efímero
+        timeout-minutes: 2
+        run: node scripts/android-commerce.cjs kvm
+      - name: Exigir ADB del SDK antes de la comprobación del host
+        id: commerce_adb_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+      - name: Comprobar aislamiento del host antes de iniciar cualquier AVD
+        timeout-minutes: 3
+        run: node scripts/android-commerce.cjs host-probe
+      - name: Iniciar únicamente la copia sintética aislada
+        run: npm run env:start
+      - name: Aplicar una sola fixture sintética
+        run: node tests/environment/commerce-isolated.cjs seed "$GITHUB_WORKSPACE"
+      - name: Exigir doce contratos HTTP sin consumir la publicación UI66
+        run: node tests/environment/commerce-isolated.cjs check "$GITHUB_WORKSPACE"
+      - name: Preparar espacio del runner efímero antes de la AVD
+        id: commerce_disk
+        run: node scripts/prepare-android-disk.cjs
+      - name: Pedidos y reseñas sintéticos en AVD API34 nuevo
+        id: commerce_runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: commerce-local34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: node scripts/android-commerce.cjs runtime
+      - name: Exigir todos los resultados y la limpieza nativa
+        run: node scripts/android-commerce.cjs finish
+      - name: Detener siempre la copia sintética
+        if: always()
+        run: npm run env:stop
+      - name: Limpiar siempre los temporales y procesos privados
+        if: always()
+        run: node scripts/android-commerce.cjs cleanup
+      - name: Conservar sólo tres resultados saneados
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-commerce-evidence
+          path: |
+            test-results/android-commerce-source.json
+            test-results/android-commerce.json
+            test-results/commerce-api.json
+          if-no-files-found: error
+          retention-days: 14
+  commerce_result:
+    name: Resultado de comercio Android aislado
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/commerce-') }}
+    needs: [quality, security, commerce]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Exigir calidad seguridad y comercio aislado aprobados
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_COMMERCE: ${{ needs.commerce.result }}
+        run: |
+          test "$RESULT_QUALITY" = success
+          test "$RESULT_SECURITY" = success
+          test "$RESULT_COMMERCE" = success
   email_forms:
     name: Formularios de correo en APK final API34
     environment: android-private-qa

@@ -46,8 +46,12 @@ services:
   access:
     image: node:22.20.0-bookworm-slim@sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e
     command: ["node", "/qa/access.cjs"]
+    environment:
+      ISOLATED_TEST_ENV: "true"
+      QA_COMMERCE: "${QA_COMMERCE:-false}"
     volumes:
       - ./access.cjs:/qa/access.cjs:ro
+      - ./commerce-isolated.cjs:/qa/commerce-isolated.cjs:ro
     depends_on: [api]
     ports: ["127.0.0.1:3011:3000"]
     cpus: 0.25
