@@ -82,6 +82,26 @@ test('container checks its own flags, every database URL, no providers and pinne
   const m = fixture({ sourceChanged: true }); const r = await containerAcceptance(m.deps);
   assert.equal(r.flags.sourcePinned, false); assert.equal(m.stats().constructed, 0); assert.equal(m.posts.length, 0);
 });
+test('source pinning accepts LF and CRLF buffers but rejects changed content before database access', async () => {
+  const sha = data => require('node:crypto').createHash('sha256').update(data).digest('hex');
+  const sources = sourceHashes.map((_, i) => `// frozen source ${i}\nexport const value = ${i};\n`);
+  const expected = sources.map(sha);
+  for (const ending of ['\n', '\r\n']) {
+    const m = fixture(); let readIndex = 0, hashIndex = 0;
+    m.deps.readFile = () => Buffer.from(sources[readIndex++].replace(/\n/g, ending));
+    m.deps.hash = data => { const i = hashIndex++; assert.equal(sha(data), expected[i]); return sourceHashes[i]; };
+    const r = await containerAcceptance(m.deps); validateReport(r);
+    assert.equal(r.status, 'passed'); assert.equal(r.flags.sourcePinned, true);
+    assert.equal(readIndex, 6); assert.equal(hashIndex, 6);
+  }
+  const m = fixture(); let readIndex = 0, hashIndex = 0;
+  m.deps.readFile = () => Buffer.from((sources[readIndex++] + '// changed\n').replace(/\n/g, '\r\n'));
+  m.deps.hash = data => { const i = hashIndex++; const actual = sha(data); return actual === expected[i] ? sourceHashes[i] : actual; };
+  const r = await containerAcceptance(m.deps);
+  assert.equal(r.status, 'failed'); assert.equal(r.flags.sourcePinned, false);
+  assert.equal(m.stats().constructed, 0); assert.equal(m.posts.length, 0);
+});
+
 test('wrong runtime DB, missing entity, external trigger, existing messages or missing fixture stop before POST', async () => {
   for (const option of ['wrongDb', 'missingTable', 'trigger', 'nonempty', 'noReview', 'connectionError']) {
     const m = fixture({ [option]: true }); const r = await containerAcceptance(m.deps);

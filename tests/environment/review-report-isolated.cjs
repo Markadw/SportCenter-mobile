@@ -56,7 +56,8 @@ async function containerAcceptance(deps = {}) {
     }
     check.ok(!Object.keys(env).some(name => /MERCADO_PAGO|SMTP|(?:^|_)EMAIL_|(?:^|_)MAIL_|SENDGRID|RESEND|MAILGUN|BREVO|POSTMARK|NODEMAILER/i.test(name)));
     report.flags.noProviders = true;
-    for (const [file, expected] of Object.entries(hashes)) check.equal((deps.hash || sha)(readFile('/app/' + file)), expected);
+    // Git puede materializar CRLF en Windows; fija el contenido con saltos LF.
+    for (const [file, expected] of Object.entries(hashes)) check.equal((deps.hash || sha)(readFile('/app/' + file).toString('utf8').replace(/\r\n/g, '\n')), expected);
     report.flags.sourcePinned = true;
     const Client = deps.Client || require('/app/node_modules/pg').Client;
     db = new Client({ connectionString: env.DATABASE_URL_ADMIN, ssl: false,

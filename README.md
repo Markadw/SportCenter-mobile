@@ -273,6 +273,8 @@ API, PostgreSQL y k6 comparten una red interna. Una entrada de sólo lectura per
 
 El esquema local se crea desde las entidades del backend. Esta preparación pertenece únicamente al entorno aislado; no sustituye las migraciones del servidor desplegado.
 
+La [comprobación de direcciones nuevas](tests/environment/checkout.md) añade el esquema auxiliar del checkout y verifica con el backend real que un fallo revierte dirección y pedido. El guardado positivo tras crear una preferencia de Mercado Pago continúa pendiente de su entorno de prueba autorizado; HU-06 permanece en Pruebas.
+
 ### Rendimiento y recuperación comprobados
 
 ```powershell

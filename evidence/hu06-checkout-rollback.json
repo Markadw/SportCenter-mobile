@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "scope": "isolated-checkout-rollback-not-positive-address-persistence",
+  "mobileBaseCommit": "d3ebb8a90b78ed61cf50cf553e9db242d63c93ac",
+  "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "sourceHashEncoding": "sha256-utf8-lf",
+  "files": {
+    "tests/environment/checkout-fixtures.sql": "74ebb679140fdca6ed25dbbc59d3f3c97c0b2eec2a13e6473ffcf1b63f46fc41",
+    "tests/environment/checkout-schema-tests.sql": "b83938bc62cc5eecc719ae1ff9e7b55b7bd1c69ebd173110adaa63446e8e92b6",
+    "tests/environment/checkout-isolated.cjs": "de1928af05c63aaff1e3f39877058ec126b32454add5c3c7438f4964428a5a48"
+  },
+  "sqlContractCheck": "passed-with-rollback-not-provider",
+  "http": {
+    "schemaVersion": 1,
+    "scope": "isolated-checkout-rollback-not-positive-address-persistence",
+    "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+    "status": "passed",
+    "cases": [
+      {
+        "id": "AD01_OWN_ADDRESS_AND_STOCK",
+        "status": "passed"
+      },
+      {
+        "id": "AD02_OTHER_ADDRESS_DENIED",
+        "status": "passed"
+      },
+      {
+        "id": "AD03_PROVIDER_CONFIGURATION_FAILURE",
+        "status": "passed"
+      },
+      {
+        "id": "AD04_REAL_INSERT_PATH_REACHED",
+        "status": "passed"
+      },
+      {
+        "id": "AD05_FULL_ROLLBACK",
+        "status": "passed"
+      },
+      {
+        "id": "AD06_FRESH_SESSION_NO_PHANTOM_ADDRESS",
+        "status": "passed"
+      }
+    ],
+    "flags": {
+      "sourcePinned": true,
+      "databaseConfirmed": true,
+      "noProviders": true,
+      "writePathReached": true,
+      "rollbackConfirmed": true,
+      "freshSessionRead": true,
+      "positivePersistencePending": true
+    },
+    "logout": [
+      true,
+      true
+    ],
+    "databaseClosed": true,
+    "errorCode": "NONE"
+  },
+  "regression": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "testConfiguration": "passed",
+    "testSuites": 82,
+    "testsPassed": 2245,
+    "testsSkipped": 0,
+    "realLocalMitmIncluded": true,
+    "legacyCommerceCases": 12,
+    "legacyReviewReportCases": 4
+  },
+  "hu06PositivePersistence": "not-run-no-authorized-test-provider",
+  "providerContacted": false,
+  "androidAddressCreation": "not-run",
+  "productionSchemaParity": "not-accredited"
+}
