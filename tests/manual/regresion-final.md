@@ -1,0 +1,42 @@
+# Regresión del corte integrado
+
+El corte de aplicación evaluado corresponde a `develop` en `4128cf6abdff1430d5ca180e1034195d38eefd7b`; las ampliaciones de QA conservan sus entradas de aplicación. La [evidencia del corte](../../evidence/regresion-final-corte.json) registra las identidades, comparaciones y alcance del recorrido cliente; no declara una nueva ejecución Android ni un pago.
+
+## Candidata que se puede reutilizar
+
+El Preview RC6 `601a02d2-0dc8-48dd-939b-98c7d6b80b69`, fuente `8831dfad7fd1b0c696d11f50c79442c5499b7cd2`, mide 96156661 bytes y tiene SHA256 `de4cd77adb11812d221ff9c688ec67158154a3eaadbf722af6ebe369a489ea03`. Sus árboles de código, recursos, plugins y parches, configuración de app/EAS, pines y dependencias coinciden con el corte integrado. Esto permite preparar una regresión sobre ese archivo existente sin otra compilación por cambios de aplicación.
+
+Antes de ejecutar deben comprobarse el recibo, el hash, el productor y el alcance exacto de la automatización. Las listas permitidas de los validadores históricos se conservan; no aceptan automáticamente todos los archivos QA incorporados después. La revisión que ejecuta las pruebas y la fuente que produjo el APK deben identificarse por separado.
+
+El AAB RC6 `43bcc31d-8297-48e4-b91e-7f37c63d349c` mantiene su propia aceptación. Las 88 bibliotecas nativas comparadas coinciden con el Preview; sus bundles JavaScript tienen hashes distintos, con la misma longitud. La causa no se ha establecido. Una prueba del Preview no se registra como prueba privada del AAB. La composición Debug histórico + JavaScript servido por Metro también conserva su identidad propia.
+
+## Evidencia disponible y huecos
+
+| Recorrido | Evidencia ya acreditada | Qué sigue pendiente |
+| --- | --- | --- |
+| Catálogo, detalle y TLS | [Productor Preview RC6, intento 2](https://github.com/Markadw/SportCenter-mobile/actions/runs/41860689069/attempts/2): API34 pública y rechazo TLS/API30. | Una regresión nativa nueva del recorrido integrado; la identidad no la ejecuta. |
+| Registro, verificación, reenvío y recuperación | [Nueve controles distintos del mismo Preview](android-email-forms.md), con sus runs y fallos originales conservados. | Incorporarlos a la evaluación final sin volver a consumir códigos ni repetir cambios de contraseña por rutina. |
+| Sesión, perfil y carrito | [Aceptación de cuenta RC5](https://github.com/Markadw/SportCenter-mobile/actions/runs/41821737397), con [alcance y restauración](android-account.md). | Recorrido privado final en la candidata seleccionada; RC5 se conserva como evidencia histórica. |
+| Pedidos y reseñas | [Cuatro casos Android aislados](https://github.com/Markadw/SportCenter-mobile/actions/runs/41898074821) sobre Debug + Metro; [detalle del alcance](android-commerce.md). | Relacionar el pedido creado por una compra de prueba con su consulta propia. Los pedidos entregados del fixture no acreditan esa compra. |
+| Dirección nueva | [HTTP real y rollback aislado](../../evidence/hu06-checkout-rollback.json), con [preparación y límites](../environment/checkout.md). | COMMIT auténtico, lectura posterior con sesión nueva y selección de la dirección persistida en Android. |
+| Compra, pago y retorno | Existen pruebas controladas del cliente; [guía de compra](compra-cliente.md). | Compra de prueba aprobada, otra rechazada, retorno y lectura del estado real del pedido propio. |
+| AAB de publicación | [Ocho ejecuciones públicas API34/API36](https://github.com/Markadw/SportCenter-mobile/actions/runs/41890488214), con [firma y límites](android-release.md). | Recorridos privados del AAB, aceptación física y requisitos de publicación. |
+| Integración cliente `MobileJourney.test.tsx` | Un recorrido aprobado con rutas, providers, hooks y APIs reales del cliente: Inicio/catálogo/detalle, login con retorno, variante/carrito, resumen con recálculo de envío, reentrada con selección conservada, perfil, pedido previo/seguimiento/reseña y logout/protección. | El transporte HTTP es estatal y sintético; no acredita Android, persistencia de dirección ni Mercado Pago. |
+
+La integración adicional se ejecuta mediante `npm test -- --runTestsByPath tests/integration/MobileJourney.test.tsx` y forma parte de la suite ordinaria de CI. En SDK57 el helper `renderRouter` instalado es síncrono y RNTL14 requiere render asíncrono; el caso monta directamente `ExpoRoot` y enumera las rutas reales con `getMockContext`. No sustituye Router, sesión, vistas, ViewModels ni servicios. Los límites nativos sin SO —SecureStore en memoria, SafeArea, Splash, Linking/Reanimated y pictogramas— se identifican en el test.
+
+El envío cambia de 301 a 302 y el total de 610 a 630 según el parámetro solicitado; regresar al checkout exige otro GET y conserva la dirección seleccionada. La consulta de perfil no edita datos. El pedido entregado y su elegibilidad existen antes del recorrido: publicar su reseña no demuestra una compra nueva. Se comprueban cero confirmaciones de checkout, cero accesos externos y almacenamiento de sesión vacío tras logout.
+
+## Cómo cerrar el recorrido de dirección y compra
+
+1. **Preparar un checkout de prueba autorizado.** Usar una copia aislada del backend fijado, una base temporal, cuenta y carrito reservados, vendedor/comprador de prueba de México y credenciales guardadas sólo en servidor. Identificar el vendedor en el panel de Prueba; el prefijo `APP_USR` no distingue por sí solo el entorno. Los retornos y la notificación deben pertenecer al entorno QA controlado y usar HTTPS. No usar Render compartido ni asumir que un dominio ficticio funciona. [Cuentas de prueba](https://www.mercadopago.com.mx/developers/es/docs/checkout-pro-preferences/test-accounts), [credenciales](https://www.mercadopago.com.mx/developers/es/docs/checkout-pro-preferences/additional-content/credentials), [URLs admitidas](https://www.mercadopago.com.mx/developers/es/news/2024/11/14/We-have-updated-the-Preference-API).
+
+2. **Guardar la dirección por el recorrido real.** Introducir datos de prueba y confirmar una sola vez para que el backend cree una preferencia auténtica y haga COMMIT. Consultar de nuevo, cerrar sesión y entrar: debe persistir la misma dirección de esa cuenta. Comprobar después su selección y el envío de su ID. Crear una preferencia permite observar este guardado sin efectuar un pago; por sí solo no aprueba la compra. [Creación de preferencias](https://www.mercadopago.com.mx/developers/es/docs/checkout-pro-preferences/create-payment-preference).
+
+3. **Probar ambos resultados de pago por separado.** Con autorización para esas operaciones y los medios de prueba oficiales, ejecutar un caso aprobado y otro rechazado. Registrar cada pedido y preferencia por separado, comprobar el resultado del proveedor y volver a la app. Una respuesta incierta exige comprobar el estado antes de repetir; no repetir un POST de compra a ciegas. [Compras de prueba y resultados](https://www.mercadopago.com.mx/developers/es/docs/checkout-pro-preferences/integration-test/test-purchases).
+
+4. **Consultar el pedido propio después del retorno.** La app debe leer el servidor: un parámetro de éxito en la URL no demuestra el pago. Contrastar el estado y los totales con el pedido creado por el caso; el rechazo no debe producir una confirmación de compra pagada. Comprobar lista y detalle de la misma cuenta, rechazo desde otra cuenta y nueva consulta tras reabrir. Las notificaciones y los retornos tienen funciones distintas; deben observarse los que necesite el contrato real. [Retornos](https://www.mercadopago.com.mx/developers/es/docs/checkout-pro-preferences/configure-back-urls).
+
+5. **Conservar un resultado acotado.** Registrar candidata, revisión de automatización, caso, estado observado, comprobación del servidor y limpieza. No incluir credenciales, códigos, dirección, capturas privadas ni respuestas completas. Los datos de preparación pueden ser sintéticos; para cerrar este recorrido, dirección, pedido y pago deben proceder de las APIs y del proveedor de prueba. Insertar por SQL un pedido pagado o entregado sólo prepara un fixture y no acredita la compra.
+
+Hasta observar esos resultados, el registro conserva `newNativeRegression: not-run` y `finalE2E: blocked-authorized-test-checkout`. La identidad comprobada del APK, las pruebas del cliente y los controles de rollback mantienen su utilidad y sus propios límites; no cierran por sí solos QA-001 ni la aceptación completa.
