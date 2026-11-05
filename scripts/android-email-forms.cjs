@@ -54,27 +54,68 @@ function screenSize(text){
  need(physical&&lines.length<=2&&(lines.length===1||override),'FORMS_PROCESS_FAILED');
  const match=override||physical,width=Number(match[1]),height=Number(match[2]);need(width<=8192&&height<=8192,'FORMS_PROCESS_FAILED');return{width,height};
 }
-function visiblePoint(nodes,label,kind,viewport){
+function visiblePoint(nodes,label,kind,viewport,route){
  need(viewport&&Number.isInteger(viewport.width)&&Number.isInteger(viewport.height)&&viewport.width>0&&viewport.height>0,'FORMS_UI_INVALID');
+ const regions=nodes.filter(node=>node.package===PACKAGE&&node.class==='android.widget.ScrollView'),selected=regions.length?selectedRegion(nodes,regions,viewport,{label,kind,route}):null;
+ if(route&&!regions.length)return null;
+ if(regions.length&&!selected)return null;
+ const region=selected?rectangle(selected.bounds):{left:0,top:0,right:viewport.width,bottom:viewport.height};
+ if(!region||selected?.enabled==='false'||region.right>viewport.width||region.bottom>viewport.height)return null;
+ nodes=scopedFormNodes(nodes,viewport,{label,kind,route});
  const found=nodes.filter(node=>node.package===PACKAGE&&[node.text,node['content-desc']].includes(label)&&node.enabled==='true'&&(kind==='input'?node.class==='android.widget.EditText':node.clickable==='true'));
  need(found.length<=1,'FORMS_UI_INVALID');if(!found.length)return null;
  const bounds=/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/.exec(found[0].bounds||'');
- if(!bounds||Number(bounds[3])>viewport.width||Number(bounds[4])>viewport.height)return null;
+ if(!bounds||Number(bounds[1])<region.left||Number(bounds[2])<region.top||Number(bounds[3])>region.right||Number(bounds[4])>region.bottom)return null;
  try{const point=account.point(nodes,label,kind);return point[0]>=0&&point[0]<viewport.width&&point[1]>=0&&point[1]<viewport.height?point:null;}catch{return null;}
 }
 function rectangle(value){
  const match=/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/.exec(value||'');if(!match)return null;
  const [left,top,right,bottom]=match.slice(1).map(Number);return right>left&&bottom>top&&right<=8192&&bottom<=8192?{left,top,right,bottom}:null;
 }
-function scrollGeometry(nodes,viewport){
+// Keep ancestry private; the historical strict parser remains the authority for XML validation.
+const UI_ANCESTORS=new WeakMap();
+function parseFormsUi(source){
+ const nodes=account.parsePrivateUi(source),root={children:[]},stack=[root];
+ for(const match of source.matchAll(/<[^>]+>/g)){
+  const token=match[0];if(token.startsWith('<?'))continue;
+  if(token.startsWith('</')){stack.pop();continue;}
+  const opening=/^<(hierarchy|node)([\s\S]*?)(\/?)>$/.exec(token);need(opening,'FORMS_UI_INVALID');
+  const item={name:opening[1],children:[],parent:stack.at(-1)};stack.at(-1).children.push(item);if(!opening[3])stack.push(item);
+ }
+ const pending=[...root.children[0].children];let index=0;
+ while(pending.length){const item=pending.shift();item.attrs=nodes[index++];const ancestors=[];for(let parent=item.parent;parent;parent=parent.parent)if(parent.attrs)ancestors.push(parent.attrs);UI_ANCESTORS.set(item.attrs,ancestors);pending.push(...item.children);}
+ need(index===nodes.length,'FORMS_UI_INVALID');return nodes;
+}
+const RECOVERY_ANCHORS=Object.freeze([{label:'Código de recuperación',kind:'input',strong:true},{label:'Nueva contraseña',kind:'input',strong:true},{label:'Correo',kind:'input',strong:false},{label:'Actualizar contraseña',kind:'button',strong:false}].map(Object.freeze));
+function selectedRegion(nodes,regions,viewport,{label,kind,route}={}){
+ if(regions.length===1)return regions[0];
+ const owned=nodes.filter(node=>node.package===PACKAGE),candidates=[];
+ const parentOf=node=>{const ancestors=UI_ANCESTORS.get(node);if(!ancestors)return null;const parent=ancestors.find(item=>regions.includes(item)),box=rectangle(node.bounds),region=parent&&rectangle(parent.bounds);return parent&&box&&region&&box.right>region.left&&box.left<region.right&&box.bottom>region.top&&box.top<region.bottom&&box.right<=viewport.width&&box.bottom<=viewport.height?parent:null;};
+ if(route==='forgot-password'){
+  const strong=[],fallback=[];
+  for(const anchor of RECOVERY_ANCHORS){const matches=owned.filter(node=>[node.text,node['content-desc']].includes(anchor.label)&&(anchor.kind==='input'?node.class==='android.widget.EditText':node.clickable==='true'&&node.enabled==='true'));if(matches.length>1&&anchor.strong)return null;if(matches.length===1){const parent=parentOf(matches[0]);if(parent)(anchor.strong?strong:fallback).push(parent);}}
+  const unique=[...new Set(strong.length?strong:fallback)];return unique.length===1?unique[0]:null;
+ }
+ const targets=owned.filter(node=>[node.text,node['content-desc']].includes(label)&&(kind==='input'?node.class==='android.widget.EditText':node.clickable==='true')&&node.enabled==='true');
+ if(targets.length===1){const parent=parentOf(targets[0]);if(parent)candidates.push(parent);}
+ const unique=[...new Set(candidates)];return unique.length===1?unique[0]:null;
+}
+function scopedFormNodes(nodes,viewport,context){
+ const regions=nodes.filter(node=>node.package===PACKAGE&&node.class==='android.widget.ScrollView');
+ if(!regions.length)return nodes;
+ const selected=selectedRegion(nodes,regions,viewport,context);if(!selected)return [];
+ return UI_ANCESTORS.has(selected)?nodes.filter(node=>node===selected||UI_ANCESTORS.get(node)?.includes(selected)):nodes;
+}
+function scrollGeometry(nodes,viewport,context){
  const regions=nodes.filter(node=>node.package===PACKAGE&&node.class==='android.widget.ScrollView');
  const fail=(result,regionValid=false)=>({regionFound:regions.length>0,regionValid,laneFound:false,result});
- if(!regions.length)return fail('missing-region');if(regions.length!==1)return fail('multiple-regions');
- const region=rectangle(regions[0].bounds);
- if(!region||regions[0].enabled==='false'||region.right>viewport.width||region.bottom>viewport.height||region.right-region.left<96||region.bottom-region.top<160)return fail('invalid-region');
+ if(!regions.length)return fail('missing-region');const selected=selectedRegion(nodes,regions,viewport,context);if(!selected)return fail('multiple-regions');
+ const region=rectangle(selected.bounds);
+ if(!region||selected.enabled==='false'||region.right>viewport.width||region.bottom>viewport.height||region.right-region.left<96||region.bottom-region.top<160)return fail('invalid-region');
  const controls=[];
  for(const node of nodes){
-  if(node===regions[0]||node.package!==PACKAGE||!(node.class==='android.widget.EditText'||node.clickable==='true'))continue;
+  if(node===selected||node.package!==PACKAGE||!(node.class==='android.widget.EditText'||node.clickable==='true'))continue;
+  if(UI_ANCESTORS.has(selected)&&!UI_ANCESTORS.get(node)?.includes(selected))continue;
   const box=rectangle(node.bounds);if(!box)return fail('invalid-controls',true);
   if(box.right<=region.left||box.left>=region.right||box.bottom<=region.top||box.top>=region.bottom)continue;
   controls.push({left:Math.max(region.left,box.left),right:Math.min(region.right,box.right)});
@@ -94,8 +135,9 @@ function safeScrollDiagnostic(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||!keys.every(key=>Object.hasOwn(value,key))||!Object.hasOwn(SCROLL_TARGETS,value.target)||!['UP','DOWN'].includes(value.direction)||!Number.isInteger(value.attempts)||value.attempts<0||value.attempts>10||!['regionFound','regionValid','laneFound'].every(key=>typeof value[key]==='boolean')||!SCROLL_RESULTS.includes(value.result))return null;
  return Object.fromEntries(keys.map(key=>[key,value[key]]));
 }
-async function scrollControl({readUi,swipe,viewport,label,kind,direction,target,now=Date.now,onDiagnostic=()=>{}}){
+async function scrollControl({readUi,swipe,viewport,label,kind,direction,target,route,now=Date.now,onDiagnostic=()=>{}}){
  need(Object.hasOwn(SCROLL_TARGETS,target)&&SCROLL_TARGETS[target].label===label&&SCROLL_TARGETS[target].kind===kind&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
+ need(route===undefined||['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');
  const deadline=now()+30000,diagnostic={target,direction,attempts:0,regionFound:false,regionValid:false,laneFound:false,result:'searching'};
  const publish=()=>onDiagnostic({...diagnostic});
  const stop=(result,code='FORMS_UI_INVALID')=>{diagnostic.result=result;publish();throw new FormsError(code);};
@@ -103,10 +145,10 @@ async function scrollControl({readUi,swipe,viewport,label,kind,direction,target,
   if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
   let nodes;try{nodes=await readUi(deadline);}catch(error){diagnostic.result='read-error';publish();throw error;}
   if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
-  let point;try{point=visiblePoint(nodes,label,kind,viewport);}catch(error){diagnostic.result='target-invalid';publish();throw error;}
+  let point;try{point=visiblePoint(nodes,label,kind,viewport,route);}catch(error){diagnostic.result='target-invalid';publish();throw error;}
   if(point){diagnostic.result=diagnostic.attempts?'found':'already-visible';publish();return point;}
   if(diagnostic.attempts>=10)stop('gesture-limit','FORMS_UI_TIMEOUT');
-  const geometry=scrollGeometry(nodes,viewport);diagnostic.regionFound=geometry.regionFound;diagnostic.regionValid=geometry.regionValid;diagnostic.laneFound=geometry.laneFound;
+  const geometry=scrollGeometry(nodes,viewport,{label,kind,route});diagnostic.regionFound=geometry.regionFound;diagnostic.regionValid=geometry.regionValid;diagnostic.laneFound=geometry.laneFound;
   if(geometry.result!=='valid')stop(geometry.result);
   if(now()>=deadline)stop('deadline','FORMS_UI_TIMEOUT');
   diagnostic.attempts++;publish();
@@ -211,10 +253,10 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  provenance.verifyConfig(config);need(process.platform==='linux'||env.ACCOUNT_UNIT_TEST===true,'FORMS_SANDBOX_FAILED');
  need(context.artifactSourceCommit===config.sourceCommit&&context.automationCommit===env.GITHUB_SHA&&context.apkSha256===config.sha256&&context.producerVerified===true&&context.parentInspectionVerified===true&&context.producerRun===config.producerRun&&context.producerAttempt===config.producerAttempt&&context.buildId===config.buildId&&context.receiptSha256===provenance.fingerprint(config)&&context.sandboxPreflight?.status==='passed'&&['ipv4RejectedWithCounter','adbLoopbackReachable','maestroVersionVerified','privateFileRoundtripVerified','cleanupConfirmed'].every(key=>context.sandboxPreflight[key]===true),'FORMS_SOURCE_INVALID');need(await hash(apk)===config.sha256,'FORMS_SOURCE_INVALID');
  const phase=context.phase,secret=credentials(env,phase),state={phase,status:'failed',stage:'device-check',automationCommit:context.automationCommit,cases:{},evidence:{},errors:[],cleanup:{},operationUncertain:false};
- let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,viewport,sequence=0;
+ let box,parentContext,setupAttempted=false,installAttempted=false,remoteCreated=false,serial,viewport,currentRoute,sequence=0;
  const remote='/data/local/tmp/sportcenter-email-forms-'+env.GITHUB_RUN_ID;need(/^\d+$/.test(env.GITHUB_RUN_ID||''),'FORMS_SOURCE_INVALID');
  const adb=async(args,options={})=>stdout(await run('adb',['-s',serial,...args],options));
- const readUi=async deadline=>{const options=()=>{if(deadline===undefined)return{};const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');return{timeout:Math.min(10000,remaining)};};try{await adb(['shell','uiautomator','dump',remote+'/ui.xml'],options());return account.parsePrivateUi(await adb(['exec-out','cat',remote+'/ui.xml'],options()));}finally{await adb(['shell','rm','-f',remote+'/ui.xml'],{timeout:5000});}};
+ const readUi=async deadline=>{const options=()=>{if(deadline===undefined)return{};const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');return{timeout:Math.min(10000,remaining)};};try{await adb(['shell','uiautomator','dump',remote+'/ui.xml'],options());return parseFormsUi(await adb(['exec-out','cat',remote+'/ui.xml'],options()));}finally{await adb(['shell','rm','-f',remote+'/ui.xml'],{timeout:5000});}};
  const flow=async(body,value)=>{
   const diagnostic={action:'input',resultObserved:false,exitCode:null,timedOut:false,junitRead:false,junitValid:false,errorEnum:'process-error',exceptionEnum:'none'};
   try{
@@ -225,18 +267,19 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
    diagnostic.errorEnum='junit-invalid';const junit=await box.readPrivateFile(name+'.xml');diagnostic.junitRead=true;account.verifyJUnit(junit,name,xmlTree);diagnostic.junitValid=true;
   }catch(error){if(!diagnostic.resultObserved)diagnostic.exceptionEnum=maestroExceptionEnum(error);state.maestroDiagnostic=diagnostic;throw error;}
  };
- const measured=async(label,kind)=>{const point=visiblePoint(await readUi(),label,kind,viewport);need(point,'FORMS_UI_INVALID');return point;};
- const revealControl=async(label,kind,direction,target)=>scrollControl({readUi,viewport,label,kind,direction,target,now,onDiagnostic:value=>{state.scrollDiagnostic=value;},swipe:async(geometry,way,deadline)=>{const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');const [from,to]=way==='DOWN'?[geometry.lowerY,geometry.upperY]:[geometry.upperY,geometry.lowerY];await adb(['shell','input','swipe',String(geometry.x),String(from),String(geometry.x),String(to),'400'],{timeout:Math.min(5000,remaining)});}});
+ const measured=async(label,kind)=>{const point=visiblePoint(await readUi(),label,kind,viewport,currentRoute);need(point,'FORMS_UI_INVALID');return point;};
+ const revealControl=async(label,kind,direction,target)=>scrollControl({readUi,viewport,label,kind,direction,target,route:currentRoute,now,onDiagnostic:value=>{state.scrollDiagnostic=value;},swipe:async(geometry,way,deadline)=>{const remaining=deadline-now();need(remaining>0,'FORMS_UI_TIMEOUT');const [from,to]=way==='DOWN'?[geometry.lowerY,geometry.upperY]:[geometry.upperY,geometry.lowerY];await adb(['shell','input','swipe',String(geometry.x),String(from),String(geometry.x),String(to),'400'],{timeout:Math.min(5000,remaining)});}});
  const reveal=async label=>{const i=BUTTONS.indexOf(label);need(i>=0,'FORMS_UI_INVALID');await revealControl(label,'button','DOWN',BUTTON_TARGETS[i]);};
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
-  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
+  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');currentRoute=route;await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
   async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await revealControl(LABELS[key],'input',direction,'input-'+key);const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
-   if(!secure){need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
+   const fieldNodes=async()=>scopedFormNodes(await readUi(),viewport,{label:LABELS[key],kind:'input',route:currentRoute});
+   if(!secure){need(account.fieldMatches(await fieldNodes(),LABELS[key],value),'FORMS_INPUT_MISMATCH');return;}
    const show=login?'Mostrar contraseña':'Mostrar: '+LABELS[key],hide=login?'Ocultar contraseña':'Ocultar: '+LABELS[key];let shown=false;
-   try{const p=await measured(show,'button');await adb(['shell','input','tap',...p.map(String)]);shown=true;need(account.fieldMatches(await readUi(),LABELS[key],value),'FORMS_INPUT_MISMATCH');}
-   finally{if(shown){const p=await measured(hide,'button');await adb(['shell','input','tap',...p.map(String)]);need(account.hasLabel(await readUi(),show),'FORMS_INPUT_MISMATCH');}}
+   try{const p=await measured(show,'button');await adb(['shell','input','tap',...p.map(String)]);shown=true;need(account.fieldMatches(await fieldNodes(),LABELS[key],value),'FORMS_INPUT_MISMATCH');}
+   finally{if(shown){const p=await measured(hide,'button');await adb(['shell','input','tap',...p.map(String)]);need(account.hasLabel(await fieldNodes(),show),'FORMS_INPUT_MISMATCH');}}
   }
  };
  try{
@@ -253,7 +296,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  }
  return publicReport(state,config);
 }
-module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,formsYaml,landingReady,screenSize,visiblePoint,scrollGeometry,scrollControl,safeScrollDiagnostic,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
+module.exports={PACKAGE,PHASE_CASES,LABELS,EVIDENCE,REQUIRED_EVIDENCE,CODES,STAGES,FormsError,NOTICE_RESENT,RESET_ERROR,credentials,wrongCode,formsYaml,landingReady,screenSize,visiblePoint,parseFormsUi,scrollGeometry,scrollControl,safeScrollDiagnostic,safeMaestroDiagnostic,maestroErrorEnum,maestroExceptionEnum,waitForUi,stage,executePhase,publicReport,runPhase};
 const REPORT_FILE='test-results/android-email-forms.json',PROOF_FILE='test-results/android-email-forms-source.json';
 const filesFor=env=>{const scratch=account.locations(env).scratch;return{scratch,apk:path.join(scratch,'forms.apk'),metadata:path.join(scratch,'forms-eas-private.json'),proof:PROOF_FILE,report:REPORT_FILE};};
 function noFormSecrets(env){need(!Object.keys(env).some(key=>key.startsWith('ANDROID_FORMS_')),'FORMS_SOURCE_INVALID');}

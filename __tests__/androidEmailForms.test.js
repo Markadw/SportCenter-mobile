@@ -154,7 +154,7 @@ async function runtimeFailure(options={}){
   if(args[0]==='devices')return'List of devices attached\nemulator-5554\tdevice\n';const a=args.slice(2);
   if(a[0]==='shell'&&a[1]==='getprop')return'34\n';if(a[0]==='shell'&&a[1]==='pm'&&a[2]==='list')return installed?'package:'+forms.PACKAGE+'\n':'';
   if(a[0]==='shell'&&a[1]==='wm'&&a[2]==='size')return'Physical size: 360x800\n';
-  if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';if(revealed)revealedReads++;const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'',bounds=revealed?(options.edgeBounds||'[40,10][320,60]'):'[40,850][320,900]';return '<hierarchy><node package="'+forms.PACKAGE+'" class="android.widget.ScrollView" enabled="true" bounds="[0,0][360,800]"/><node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="Campo auxiliar" enabled="true" bounds="[40,100][320,150]"/>'+title+(options.controlAbsent||options.disappearAfterFind&&revealedReads>1?'':'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="'+bounds+'"/>')+'</hierarchy>';}
+  if(a[0]==='exec-out'&&a[1]==='cat'){uiReads++;if(options.slowLanding&&(uiReads<=2||options.neverLanding))return'<hierarchy/>';if(revealed)revealedReads++;const title=options.landingRoute?'<node package="'+forms.PACKAGE+'" text="Recuperar contraseña"/>':'',bounds=revealed?(options.edgeBounds||'[40,10][320,60]'):'[40,850][320,900]';return '<hierarchy><node package="'+forms.PACKAGE+'" class="android.widget.ScrollView" enabled="true" bounds="[0,0][360,800]"><node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="Campo auxiliar" enabled="true" bounds="[40,100][320,150]"/>'+title+(options.controlAbsent||options.disappearAfterFind&&revealedReads>1?'':'<node package="'+forms.PACKAGE+'" class="android.widget.EditText" content-desc="'+(options.landingRoute?'Correo':'Nombre')+'" text="'+fieldValue+'" enabled="true" bounds="'+bounds+'"/>')+'</node></hierarchy>';}
   if(a[0]==='shell'&&a[1]==='input'&&a[2]==='swipe'){if(options.slowLanding)assert.ok(uiReads>=3);swipes.push(a.slice(3));revealed=true;clock+=400;return'';}
   if(a[0]==='install'){installed=true;if(options.partialInstall)throw new forms.FormsError('FORMS_PROCESS_FAILED');return'Success\n';}
   if(a[0]==='uninstall'){installed=false;removed=true;return'Success\n';}return'';
@@ -202,6 +202,72 @@ test('missing, multiple, invalid or unprovable padding regions fail before any g
   let swipes=0,diagnostic;await assert.rejects(forms.scrollControl({readUi:async()=>frames,swipe:async()=>{swipes++;},viewport,label:'Actualizar contraseña',kind:'button',direction:'DOWN',target:'reset-submit',now:()=>0,onDiagnostic:value=>{diagnostic=value;}}),/FORMS_UI_INVALID/);assert.equal(swipes,0);assert.equal(diagnostic.attempts,0);assert.equal(diagnostic.result,result);
  }
  const clipped=forms.scrollGeometry([base,input('[0,120][180,200]')],viewport);assert.equal(clipped.result,'valid');assert.equal(clipped.x,260);
+});
+
+const uiNode=(attrs,children='')=>'<node '+Object.entries({package:forms.PACKAGE,enabled:'true',clickable:'false',...attrs}).map(([key,value])=>key+'="'+value+'"').join(' ')+'>'+children+'</node>';
+const uiScroll=(bounds,children)=>uiNode({class:'android.widget.ScrollView',bounds},children);
+const uiInput=(label,bounds)=>uiNode({class:'android.widget.EditText','content-desc':label,bounds});
+const uiButton=(label,bounds)=>uiNode({text:label,clickable:'true',bounds});
+const recoveryContext={route:'forgot-password',label:'Actualizar contraseña',kind:'button'};
+
+test('forms ancestry preserves strict historical XML parsing and does not add serializable private hierarchy fields',()=>{
+ const xml='<hierarchy>'+uiScroll('[0,0][360,800]',uiNode({class:'android.view.View',bounds:'[0,0][360,800]'},uiInput('Código de recuperación','[40,100][320,150]')))+'</hierarchy>';
+ assert.deepEqual(forms.parseFormsUi(xml),account.parsePrivateUi(xml));assert.equal(JSON.stringify(forms.parseFormsUi(xml)).includes('ancestors'),false);
+ for(const invalid of ['<!DOCTYPE hierarchy><hierarchy/>','<hierarchy><node text="&private;"/></hierarchy>','<hierarchy><node></hierarchy>'])assert.throws(()=>forms.parseFormsUi(invalid),/ACCOUNT_UI_INVALID/);
+});
+
+test('multiple background scroll views are excluded by the nearest ancestor of unique recovery fields',()=>{
+ const background=uiScroll('[0,0][360,800]',uiButton('Background cover','[0,0][360,800]'));
+ const actual=uiScroll('[20,100][340,760]',uiNode({class:'android.view.View',bounds:'[20,100][340,760]'},uiInput('Código de recuperación','[60,150][300,200]')));
+ const nested=uiScroll('[0,0][360,800]',actual),viewport={width:360,height:800};
+ for(const siblings of [[background,nested],[nested,background]]){
+  const nodes=forms.parseFormsUi('<hierarchy>'+siblings.join('')+'</hierarchy>'),geometry=forms.scrollGeometry(nodes,viewport,recoveryContext);
+  assert.equal(geometry.result,'valid');assert.equal(geometry.x,40);assert.ok(geometry.upperY>100&&geometry.lowerY<760);
+ }
+});
+
+test('multiple regions without a unique ancestral anchor fail before a gesture or any account action',async()=>{
+ const viewport={width:360,height:800},one=uiScroll('[0,0][360,800]',uiInput('Código de recuperación','[40,100][320,150]'));
+ const split=uiScroll('[0,0][360,800]',uiInput('Nueva contraseña','[40,200][320,250]'));
+ const noAnchor=uiScroll('[0,0][360,800]',uiInput('Unrelated','[40,100][320,150]'));
+ for(const xml of ['<hierarchy>'+noAnchor+noAnchor+'</hierarchy>','<hierarchy>'+one+one+'</hierarchy>','<hierarchy>'+one+split+'</hierarchy>','<hierarchy>'+uiInput('Código de recuperación','[40,100][320,150]')+noAnchor+noAnchor+'</hierarchy>']){
+  let gestures=0;await assert.rejects(forms.scrollControl({readUi:async()=>forms.parseFormsUi(xml),swipe:async()=>{gestures++;},viewport,...recoveryContext,direction:'DOWN',target:'reset-submit',now:()=>0}),/FORMS_UI_INVALID/);assert.equal(gestures,0);
+ }
+});
+
+test('target taps are remeasured only in the anchored form subtree even when a background button has the same label',()=>{
+ const viewport={width:360,height:800},background=uiScroll('[0,0][360,800]',uiButton('Actualizar contraseña','[0,20][360,60]'));
+ const form=button=>uiScroll('[20,100][340,760]',uiInput('Código de recuperación','[60,150][300,200]')+button);
+ const active=forms.parseFormsUi('<hierarchy>'+background+form(uiButton('Actualizar contraseña','[60,650][300,700]'))+'</hierarchy>');
+ assert.deepEqual(forms.visiblePoint(active,'Actualizar contraseña','button',viewport,'forgot-password'),[180,675]);
+ const disappeared=forms.parseFormsUi('<hierarchy>'+background+form('')+'</hierarchy>');assert.equal(forms.visiblePoint(disappeared,'Actualizar contraseña','button',viewport,'forgot-password'),null);
+});
+
+test('generic background email or action labels cannot override a unique strong recovery anchor',()=>{
+ const viewport={width:360,height:800},background=uiScroll('[0,0][360,800]',uiInput('Correo','[40,80][320,120]')+uiButton('Actualizar contraseña','[40,200][320,250]'));
+ const active=uiScroll('[20,100][340,760]',uiInput('Código de recuperación','[60,150][300,200]')+uiInput('Correo','[60,250][300,300]')+uiButton('Actualizar contraseña','[60,650][300,700]'));
+ const nodes=forms.parseFormsUi('<hierarchy>'+background+active+'</hierarchy>');assert.deepEqual(forms.visiblePoint(nodes,'Actualizar contraseña','button',viewport,'forgot-password'),[180,675]);assert.equal(forms.scrollGeometry(nodes,viewport,recoveryContext).x,40);
+});
+
+test('a target wholly or partly outside its own scroll region never supplies a tap point even inside the device viewport',()=>{
+ const viewport={width:360,height:800};
+ for(const bounds of ['[60,20][300,60]','[60,80][300,120]','[60,740][300,780]','[10,150][60,200]','[320,150][350,200]']){
+  const background=uiScroll('[0,0][360,800]',uiButton('Background','[0,0][360,800]'));
+  const active=uiScroll('[20,100][340,760]',uiInput('Código de recuperación','[60,250][300,300]')+uiButton('Actualizar contraseña',bounds));
+  const nodes=forms.parseFormsUi('<hierarchy>'+background+active+'</hierarchy>');assert.equal(forms.visiblePoint(nodes,'Actualizar contraseña','button',viewport,'forgot-password'),null);
+ }
+ assert.equal(forms.visiblePoint(forms.parseFormsUi('<hierarchy>'+uiButton('Actualizar contraseña','[60,150][300,200]')+'</hierarchy>'),'Actualizar contraseña','button',viewport,'forgot-password'),null);
+});
+
+test('recovery scroll reanchors from code to new password to update, and back up without retaining a missing code node',async()=>{
+ const viewport={width:360,height:800},background=uiScroll('[0,0][360,800]',uiButton('Background cover','[0,0][360,800]'));
+ const frame=content=>'<hierarchy>'+background+uiScroll('[20,100][340,760]',content)+'</hierarchy>';
+ const frames=[frame(uiInput('Código de recuperación','[60,150][300,200]')),frame(uiInput('Nueva contraseña','[60,250][300,300]')),frame(uiButton('Actualizar contraseña','[60,650][300,700]'))];
+ for(const direction of ['DOWN','UP']){
+  let index=direction==='DOWN'?0:2;const gestures=[];
+  const down=direction==='DOWN',point=await forms.scrollControl({readUi:async()=>forms.parseFormsUi(frames[index]),swipe:async(geometry,way)=>{assert.equal(way,direction);gestures.push(geometry);index+=down?1:-1;},viewport,route:'forgot-password',label:down?'Actualizar contraseña':'Código de recuperación',kind:down?'button':'input',direction,target:down?'reset-submit':'input-recovery',now:()=>0});
+  assert.deepEqual(point,down?[180,675]:[180,175]);assert.equal(gestures.length,2);assert.ok(gestures.every(geometry=>geometry.x===40&&geometry.upperY>100&&geometry.lowerY<760));
+ }
 });
 test('native scroll reads after each gesture and stops at ten gestures or immediately at its deadline',async()=>{
  const viewport={width:360,height:800},frames=[node('',{class:'android.widget.ScrollView',bounds:'[0,0][360,800]'}),node('',{class:'android.widget.EditText','content-desc':'Correo',bounds:'[40,100][320,150]'})];
