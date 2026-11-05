@@ -42,7 +42,16 @@ function commerceSummary(report, outcome) {
     'Informe: test-results/commerce-api.json. Pedidos propios, rechazo de acceso ajeno, seguimiento, elegibilidad, validaciones, publicación sintética y resumen/dirección.', '',
     'Usa backend QA congelado y datos sintéticos; no acredita Android, compra/cobro/entrega reales, Mercado Pago ni paridad de constraints productivos.', ''].join('\n');
 }
-module.exports = { apiSummary, dastSummary, commerceSummary, COMMERCE_CASES };
+function reviewReportSummary(report, outcome) {
+  const step = ['success', 'failure', 'skipped', 'cancelled'].includes(outcome) ? outcome : 'sin resultado';
+  let complete = false;
+  try { require('../tests/environment/review-report-isolated.cjs').validateReport(report); complete = report.status === 'passed'; } catch { /* Evidencia incompleta nunca aprueba. */ }
+  return ['\n## Recibo de reporte de reseña en QA', '', 'Paso: **' + step + '**. Resultado: **' +
+    (step === 'success' && complete ? 'aprobado para cuatro controles locales' : 'sin aprobación acreditada') + '**.', '',
+    'Informe: test-results/review-report-api.json. Rechazo de dos solicitudes inválidas, folio positivo y persistencia exacta sin lectura ni respuesta.', '',
+    'Datos sintéticos y backend congelado en red interna. No acredita Android, envío de correo, atención humana, retiro de contenido ni moderación completada.', ''].join('\n');
+}
+module.exports = { apiSummary, dastSummary, commerceSummary, COMMERCE_CASES, reviewReportSummary };
 if (require.main === module) {
   const file = 'test-results/api.json';
   let text = apiSummary(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null, process.env);
@@ -62,6 +71,11 @@ if (require.main === module) {
     let report;
     try { report = JSON.parse(fs.readFileSync('test-results/commerce-api.json', 'utf8')); } catch { /* Sin aprobación cuando falte evidencia. */ }
     text += commerceSummary(report, process.env.COMMERCE_OUTCOME);
+  }
+  if (process.env.REVIEW_REPORT_OUTCOME) {
+    let report;
+    try { report = JSON.parse(fs.readFileSync('test-results/review-report-api.json', 'utf8')); } catch { /* Sin aprobación cuando falte evidencia. */ }
+    text += reviewReportSummary(report, process.env.REVIEW_REPORT_OUTCOME);
   }
   fs.mkdirSync('test-results', { recursive: true });
   fs.writeFileSync('test-results/api-summary.md', text);

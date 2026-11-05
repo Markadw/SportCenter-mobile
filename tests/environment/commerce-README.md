@@ -15,3 +15,13 @@ Ejecución local verificada: doce contratos HTTP aprobados y ambos logout confir
 Se observó una limitación de accesibilidad web: el checkbox cambia visualmente y bloquea publicar hasta aceptar, pero el mapeo actual no emite aria-checked. No se modificó la app en esta prueba. No se acreditan reporte/atención humana, dirección nueva persistida, pago/entrega reales ni Android a partir de esta evidencia web.
 
 La evidencia de HTTP y UI local se registra separada de Android, Mercado Pago y producción. Destruir únicamente el compose de QA al terminar; no reutilizar estas cuentas sintéticas fuera del entorno.
+
+## Recibo de reporte de reseña
+
+El mismo job HTTP ejecuta después de los doce contratos `review-report-isolated.cjs`, con las tres flags `ISOLATED_TEST_ENV=true`, `QA_COMMERCE=true` y `QA_REVIEW_REPORT=true`. El runner transmite su prueba por stdin a `node -` dentro del contenedor API existente; no publica puertos, no modifica el gateway, no inicia otro servidor y no modifica el backend. El único destino HTTP es `127.0.0.1:3000/company/contact` dentro de esa copia. Contacto permanece bloqueado desde el gateway exterior.
+
+Antes de escribir exige el checkout limpio del backend fijado, compose interno, URLs de la base `sportcenter_qa`, ausencia de credenciales de proveedores, seis fuentes congeladas del módulo de contacto/validaciones, tabla `public.contact_messages` existente y vacía, ausencia de triggers propios y la reseña sintética B/producto66. No crea otra tabla ni elimina filas. La tabla real la sincroniza el bootstrap existente.
+
+Se envían exactamente tres POST sin reintentos: correo inválido, mensaje con tipo inválido y un reporte válido con los mismos cuatro campos que la app. Los dos inválidos deben responder400 sin crear mensajes. El válido debe responder201 con folio entero positivo; una consulta directa confirma que sólo hay una fila con el contenido exacto, `leido=false`, `respondido=false` y sin lector/respondedor. No se consulta GET contacto por ID porque marcaría el mensaje como leído. El servicio fijado únicamente crea y guarda el mensaje; no envía correo.
+
+`review-report-api.json` contiene cuatro estados, flags y limpieza de conexión; no incluye folio, correo, texto del reporte ni respuestas del servidor. Se agrega al artefacto HTTP existente únicamente bajo su política habitual de evidencia/fallo; no crea artefactos de éxito adicionales. `commerce-api.json` conserva sus doce controles. Una respuesta perdida tras el POST queda como escritura incierta y falla sin repetirla. El teardown obligatorio destruye la copia efímera. Este recibo no acredita moderación humana, retiro de contenido, Android ni atención del reporte en producción; esos puntos conservan su estado pendiente.
