@@ -25,10 +25,10 @@ incluye credenciales, direcciones, IDs externos, URLs temporales ni rutas
 privadas. El recurso de preferencia creado en el proveedor no se considera
 eliminado por haber retirado el entorno local.
 
-**Alcance:** esto acredita persistencia por HTTP en la composición QA. No se
-probó aquí la selección de esa dirección en la interfaz Android, no se hizo
-una compra aprobada/rechazada y no se cierra HU-07. Tampoco se acredita paridad
-completa con Neon o producción.
+**Alcance de esa ejecución:** acredita persistencia por HTTP en la composición
+QA. La comprobación Android posterior se registra por separado abajo. No se
+hizo una compra aprobada/rechazada ni se cierra HU-07. Tampoco se acredita
+paridad completa con Neon o producción.
 
 
 ## Diferencia respecto a la prueba anterior
@@ -106,6 +106,52 @@ Las pruebas de red usan sockets loopback; necesitan que el entorno permita
 esa comunicación local. No deben sustituirse por dobles para afirmar que se
 ejecutó la aceptación real del proveedor.
 
+## Comprobación física de dirección — 5 de noviembre de 2026
+
+En SM-A576B con Android 17/API 37, ARM64 y páginas de 4 KB se ejecutó el Debug
+histórico `7ccfddc3` (fuente nativa `5dcacd4`) con JavaScript de `36cb0b2`.
+Se restauró el respaldo positivo existente en PostgreSQL efímero, con backend
+`31ee304`, sin credenciales del proveedor y con el teléfono en modo avión.
+No se repitió la compra ni se creó otra preferencia o comprador.
+
+La dirección persistida se consultó y seleccionó con `checked` nativo; se
+ocultó el formulario nuevo y la selección se conservó al regresar del carrito.
+Tras reiniciar el proceso se restauró la sesión QA y se reconsultó la dirección;
+fue necesario reseleccionarla porque el borrador permanece en memoria.
+
+Una única pulsación emitió el payload: el puente comprobó contrato e ID esperado
+contra el resumen de esa sesión y bloqueó la confirmación antes del backend.
+El recibo registra un intento, una captura válida y cero confirmaciones
+reenviadas. El bloqueo 403 mostró «El carrito está disponible para cuentas de
+cliente.»; ese mensaje no es un acuse de captura. El estado de negocio quedó
+intacto. Se cerró la sesión QA, se restauró y verificó el APK original, se
+retiraron los túneles y el ajuste temporal de pantalla y se cerraron los
+servicios propios. Los recibos privados y el primer intento sin captura se
+conservaron. Las guardas del puente y Metro aprobaron 57 pruebas.
+
+Este alcance no acepta pago, RC6/AAB ni la suite física completa. Los cinco
+criterios de HU-06 están acreditados mediante las evidencias conjuntas de
+persistencia HTTP y Android; QA-001, QA-002 y HU-07 conservan sus pendientes
+propios. El bloque `mobileAndroidPhysical` contiene el resultado físico y
+`hu06Acceptance` relaciona los criterios; los conteos HTTP y Expo Web anteriores
+conservan su identidad histórica.
+
+## Criterios de HU-06 acreditados
+
+| Criterio original | Evidencia y límite |
+| --- | --- |
+| Consultar direcciones disponibles. | Lectura HTTP tras nueva sesión y dirección visible en Android. |
+| Registrar dirección con los datos requeridos. | PA06/PA07: COMMIT por el checkout real y lectura posterior; no es una inserción SQL para fabricar persistencia. |
+| Validar campos obligatorios. | Criterio ya aceptado en HU-06/PR64: formulario del cliente y validación del contrato; no se cambia su alcance histórico. |
+| Seleccionar dirección válida para checkout. | Radio nativo marcado, formulario nuevo oculto, selección conservada al volver del carrito e ID esperado capturado. |
+| Sincronizar mediante la API. | Misma dirección y propietario tras nueva sesión/cold start; payload contrastado con el resumen de la misma sesión. |
+
+La captura del payload es distinta de otra confirmación backend. No hace falta
+repetir la compra para cerrar esta historia. La aceptación de la candidata
+final y la suite física completa pertenecen a QA-002; no añaden un criterio de
+pago o de binario Preview a HU-06. La integración y el cierre de la issue se
+registran mediante el PR correspondiente con CI aprobada.
+
 ## Límites para cerrar las historias
 
 La interfaz real de Expo Web también mostró la dirección creada por el backend:
@@ -117,10 +163,10 @@ móvil compilado para web y no equivale a una ejecución Android. El árbol web 
 expuso `aria-checked`; la selección se observó mediante el formulario y el
 resaltado, sin afirmar una validación de lector de pantalla.
 
-El resultado HTTP positivo acredita persistencia en esa composición QA,
-no paridad completa de Neon/producción ni uso de la dirección en un Android.
-Completar la selección y reconsulta del ID en Android antes de cerrar ese
-recorrido. El alcance físico sigue en QA-002.
+El resultado HTTP positivo acredita persistencia en esa composición QA, sin
+paridad completa de Neon/producción. La comprobación física anterior acredita
+selección, reconsulta y emisión del ID dentro de su composición Debug; no
+sustituye la aceptación de la candidata final ni la suite física de QA-002.
 
 HU-07 requiere comprador de prueba, escenarios aprobado/rechazado, retorno y
 sincronización auténtica por el backend; debe comprobar que un pago aprobado

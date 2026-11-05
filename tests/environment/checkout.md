@@ -2,7 +2,9 @@
 
 Esta preparación pertenece al repositorio móvil y ejecuta una copia sin cambios
 del backend `31ee304d902ec5ec5a9c0fc702eca5e1a531bc16`. No modifica Render,
-el repositorio del backend ni sus datos. La historia permanece en **Pruebas**.
+el repositorio del backend ni sus datos. El resultado histórico de rollback se
+conserva; el [cierre de criterios de HU-06](checkout-positive.md#criterios-de-hu-06-acreditados)
+combina la persistencia positiva posterior con la comprobación Android.
 
 ## Qué se comprueba ahora
 
@@ -86,9 +88,11 @@ rechaza deliberadamente proveedores y no debe modificarse ni repetirse por
 rutina. Sus seis controles históricos conservan su resultado y su límite
 original; la evidencia nueva es la que acredita ahora el guardado positivo.
 
-Para completar el recorrido de HU-06 falta seleccionar y consultar desde la
-app Android la dirección persistida y comprobar que envía su ID. Este resultado
-HTTP no demuestra esa interacción nativa ni una prueba física de QA-002.
+La [comprobación física posterior](checkout-positive.md#comprobación-física-de-dirección--5-de-noviembre-de-2026)
+acredita selección, reconsulta y captura del ID desde Android en Debug histórico
+con JavaScript actual, sin reenviar la confirmación al backend. Este resultado
+HTTP conserva su alcance propio. Los cinco criterios de HU-06 están
+acreditados; QA-002 y HU-07 conservan sus pendientes físicos y de pago.
 
 HU-07 ya tiene un [pago aprobado entre cuentas TEST](checkout-payment.md) y nueve
 controles de sincronización local: pedido, stock, carrito e idempotencia. La

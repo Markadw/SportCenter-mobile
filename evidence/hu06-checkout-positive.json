@@ -95,7 +95,8 @@
     "androidAddressSelection": "not-run",
     "hu07PaymentAcceptance": "not-run",
     "productionSchemaParity": "not-accredited",
-    "externalPreferenceDeletion": "not-performed-or-accredited"
+    "externalPreferenceDeletion": "not-performed-or-accredited",
+    "androidAddressSelectionScope": "historical-http-run; see mobileAndroidPhysical for the subsequent scoped native run"
   },
   "localValidation": {
     "lint": "passed",
@@ -118,5 +119,165 @@
     "checkoutConfirmFromUi": false,
     "radioCheckedAriaExposed": false,
     "screenshotSha256": "1c1675e00928e829e41958d613b42fdf102d2a07d7dc0be9b663dbeed1881849"
+  },
+  "mobileAndroidPhysical": {
+    "status": "passed-scoped",
+    "scope": "physical-historical-debug-with-current-javascript-address-selection-and-payload-capture",
+    "observedAt": "2026-11-05T16:09:42.384Z",
+    "device": {
+      "model": "SM-A576B",
+      "android": "17",
+      "api": 37,
+      "abi": "arm64-v8a",
+      "pageSize": 4096
+    },
+    "runtime": {
+      "build": "historical-development-7ccfddc3",
+      "nativeSourceCommit": "5dcacd46a24ae54da5300cd394a91c590a9a5825",
+      "javascriptSourceCommit": "36cb0b2ae57f8bec0051256663d709e16e925f19",
+      "javascriptTransport": "metro-usb-loopback",
+      "apkSha256": "ebfb8281ec12359178954255c94cf3e7d70e681d405c9c497fa3b9064d34d1d2"
+    },
+    "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+    "qa": {
+      "database": "restored-ephemeral-postgresql",
+      "actors": "existing-synthetic",
+      "providerCredentialsPresent": false,
+      "sharedServicesContacted": false,
+      "businessUnchanged": true
+    },
+    "observations": {
+      "qaLoginPassed": true,
+      "cartExistingRead": true,
+      "persistedAddressVisible": true,
+      "persistedAddressSelected": true,
+      "nativeRadioCheckedExposed": true,
+      "newAddressFormHidden": true,
+      "cartReturnObserved": true,
+      "selectionPreservedOnCartReentry": true,
+      "nativeProcessRestartObserved": true,
+      "qaSessionRestoredAfterColdStart": true,
+      "persistedAddressRequeriedAfterColdStart": true,
+      "automaticSelectionAfterColdStart": false,
+      "persistedAddressReselectedAfterColdStart": true
+    },
+    "capture": {
+      "boundary": "usb-loopback-bridge-before-backend",
+      "method": "POST",
+      "route": "/products/checkout/confirm",
+      "received": 8,
+      "forwardedReads": 4,
+      "forwardedSessionWrites": 2,
+      "blocked": 1,
+      "untrustedRefreshBlocked": 1,
+      "confirmAttempts": 1,
+      "validCaptures": 1,
+      "confirmForwarded": 0,
+      "sameSessionSummaryChecks": 1,
+      "cleanupLogouts": 0,
+      "cleanupLogoutFailures": 0,
+      "bindLoopbackOnly": true,
+      "upstreamLoopbackExact": true,
+      "qaLoginRequired": true,
+      "unknownRefreshNeverForwarded": true,
+      "contractMatched": true,
+      "expectedAddressMatched": true,
+      "sameSessionSummaryMatched": true,
+      "noBusinessWriteForwarded": true,
+      "sessionMemoryCleared": true,
+      "bridgeEpoch": 2,
+      "previousEpochPreserved": true
+    },
+    "clientResponse": {
+      "httpStatus": 403,
+      "message": "El carrito está disponible para cuentas de cliente.",
+      "specificCaptureMessageObserved": false,
+      "scope": "client-access-error-from-intentional-bridge-block-not-capture-acknowledgment"
+    },
+    "cleanup": {
+      "qaBusinessUnchanged": true,
+      "sourceIntegrity": true,
+      "dumpPreserved": true,
+      "qaCleaned": true,
+      "metroCleaned": true,
+      "bridgeCleaned": true,
+      "qaLogoutObserved": true,
+      "originalAppRestored": true,
+      "originalApkHashReverified": true,
+      "originalNonDebuggableReverified": true,
+      "ownReverseRulesRemoved": true,
+      "stayAwakeRestored": true,
+      "adbServerStopped": true
+    },
+    "validation": {
+      "lint": "passed",
+      "typecheck": "passed",
+      "testConfiguration": "passed",
+      "privateHelperTestsPassed": 57,
+      "privateHelperTestsFailed": 0,
+      "privateHelperTestsSkipped": 0
+    },
+    "limits": {
+      "backendCheckoutConfirmation": false,
+      "newPreferenceCreated": false,
+      "paymentExecuted": false,
+      "automaticSelectionAfterColdStart": false,
+      "rc6Acceptance": false,
+      "fullPhysicalSuite": false,
+      "hu06Status": "criteria-met",
+      "qa002Closed": false
+    }
+  },
+  "hu06Acceptance": {
+    "status": "criteria-met",
+    "scope": "combined-historical-http-persistence-and-identified-physical-android-payload-capture",
+    "criteria": {
+      "availableAddresses": {
+        "status": "passed",
+        "evidence": [
+          "http.PA07_NEW_SESSION_READ",
+          "mobileAndroidPhysical.observations.persistedAddressVisible"
+        ]
+      },
+      "newAddressRequiredData": {
+        "status": "passed",
+        "evidence": [
+          "http.PA06_NEW_ADDRESS_COMMITTED",
+          "http.PA07_NEW_SESSION_READ"
+        ]
+      },
+      "requiredFieldsValidated": {
+        "status": "passed",
+        "evidence": [
+          "issue-12-previously-accepted-validation",
+          "PR64-client-validation"
+        ]
+      },
+      "validAddressSelected": {
+        "status": "passed",
+        "evidence": [
+          "mobileAndroidPhysical.observations.persistedAddressSelected",
+          "mobileAndroidPhysical.observations.selectionPreservedOnCartReentry",
+          "mobileAndroidPhysical.capture.expectedAddressMatched"
+        ]
+      },
+      "apiSynchronization": {
+        "status": "passed",
+        "evidence": [
+          "http.PA06_NEW_ADDRESS_COMMITTED",
+          "http.PA07_NEW_SESSION_READ",
+          "http.PA08_OTHER_ACCOUNT_ISOLATED",
+          "mobileAndroidPhysical.observations.persistedAddressRequeriedAfterColdStart",
+          "mobileAndroidPhysical.capture.sameSessionSummaryMatched"
+        ]
+      }
+    },
+    "separateOpenScopes": [
+      "HU-07-payment-return-and-provider-notification",
+      "QA-001-final-integrated-regression",
+      "QA-002-full-physical-candidate-acceptance"
+    ],
+    "newPurchaseRequired": false,
+    "newProviderOperationPerformedForClosure": false
   }
 }
