@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "scope": "hu07-rejected-scenario-provider-processing-not-accepted",
+  "mobileBaseCommit": "54552a80e31b47a38c527c3efc8d6ff92e08a6cc",
+  "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "expectedScenario": "OTHE",
+  "expectedProviderStatus": "rejected",
+  "observedProviderStatus": "in_process",
+  "observedLiveMode": true,
+  "status": "blocked-provider-processing",
+  "providerLookup": {
+    "httpStatus": 200,
+    "referenceMatches": true,
+    "sellerMatches": true,
+    "buyerMatches": true,
+    "totalAndCurrencyMatch": true
+  },
+  "checkout": {
+    "separatePreferenceAndReference": true,
+    "newPaymentAttempts": 1,
+    "paymentRetried": false,
+    "localWebhookPosts": 0
+  },
+  "localState": {
+    "order": "pendiente_pago",
+    "payment": "pendiente",
+    "stockUnchanged": true,
+    "orderInventoryMovements": 0,
+    "cartPreserved": true,
+    "revalidatedDuringRechecks": false
+  },
+  "limits": {
+    "rejectionVerified": false,
+    "automaticWebhook": false,
+    "androidReturn": false,
+    "sandboxLiveModeFalseVerified": false
+  },
+  "cleanup": {
+    "pending": false,
+    "dockerCleanupConfirmed": true,
+    "dumpSaved": true,
+    "tunnelClosed": true,
+    "callbackClosed": true,
+    "testBuyerSessionClosed": true
+  },
+  "qaSchemaValidation": {
+    "status": "passed",
+    "currentSourceSha256": "fe2941c9bc01afcefbe87c87297d59c694423181831944facc44ded7e46a79fa",
+    "scope": "schema-and-explain-only",
+    "paymentOrWebhookExecuted": false,
+    "existingRowsModified": false,
+    "existingSequencesRestarted": false
+  },
+  "externalPaymentCancelled": false,
+  "rechecks": [
+    {
+      "scope": "same-payment-readonly-recheck",
+      "httpStatus": 200,
+      "observedProviderStatus": "in_process",
+      "observedProviderStatusDetail": "deferred_retry",
+      "observedLiveMode": true,
+      "referenceMatches": true,
+      "sellerMatches": true,
+      "buyerMatches": true,
+      "orderMetadataMatches": true,
+      "totalAndCurrencyMatch": true,
+      "requests": {
+        "GET": 1,
+        "POST": 0
+      },
+      "newPreferenceCreated": false,
+      "purchaseRepeated": false
+    },
+    {
+      "scope": "same-payment-readonly-recheck",
+      "httpStatus": 200,
+      "observedProviderStatus": "in_process",
+      "observedProviderStatusDetail": "deferred_retry",
+      "observedLiveMode": true,
+      "referenceMatches": true,
+      "sellerMatches": true,
+      "buyerMatches": true,
+      "orderMetadataMatches": true,
+      "totalAndCurrencyMatch": true,
+      "requests": {
+        "GET": 1,
+        "POST": 0
+      },
+      "newPreferenceCreated": false,
+      "purchaseRepeated": false
+    },
+    {
+      "scope": "same-payment-readonly-recheck",
+      "httpStatus": 200,
+      "observedProviderStatus": "in_process",
+      "observedProviderStatusDetail": "deferred_retry",
+      "observedLiveMode": true,
+      "referenceMatches": true,
+      "sellerMatches": true,
+      "buyerMatches": true,
+      "orderMetadataMatches": true,
+      "totalAndCurrencyMatch": true,
+      "requests": {
+        "GET": 1,
+        "POST": 0
+      },
+      "newPreferenceCreated": false,
+      "purchaseRepeated": false
+    }
+  ],
+  "observedProviderStatusDetail": "deferred_retry"
+}

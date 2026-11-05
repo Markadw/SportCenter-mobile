@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "scope": "hu06-positive-http-address-not-payment",
+  "mobileBaseCommit": "54552a80e31b47a38c527c3efc8d6ff92e08a6cc",
+  "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+  "sourceHashEncoding": "sha256-utf8-lf",
+  "http": {
+    "schemaVersion": 1,
+    "scope": "isolated-checkout-positive-address-not-payment",
+    "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+    "sourceHashes": {
+      "src/modules/products/services/product-checkout.service.ts": "8f550ffb4ced5094f5bb41b368b1c2647ac744574f8dd63968fdf3b4c2ef5a6a",
+      "src/modules/products/dto/checkout/create-checkout-order.dto.ts": "b3505f45baf86a7ff6f353ad6de357474a490471ad49403ce8e5a00740ece502"
+    },
+    "status": "passed",
+    "cases": [
+      {
+        "id": "PA01_SOURCE_AND_QA",
+        "status": "passed"
+      },
+      {
+        "id": "PA02_TEST_SELLER_MX",
+        "status": "passed"
+      },
+      {
+        "id": "PA03_OWN_CART_BEFORE",
+        "status": "passed"
+      },
+      {
+        "id": "PA04_SINGLE_CONFIRM_RECEIVED",
+        "status": "passed"
+      },
+      {
+        "id": "PA05_PREFERENCE_MATCHES",
+        "status": "passed"
+      },
+      {
+        "id": "PA06_NEW_ADDRESS_COMMITTED",
+        "status": "passed"
+      },
+      {
+        "id": "PA07_NEW_SESSION_READ",
+        "status": "passed"
+      },
+      {
+        "id": "PA08_OTHER_ACCOUNT_ISOLATED",
+        "status": "passed"
+      },
+      {
+        "id": "PA09_CART_STOCK_UNCHANGED",
+        "status": "passed"
+      },
+      {
+        "id": "PA10_PENDING_WITHOUT_PAYMENT",
+        "status": "passed"
+      }
+    ],
+    "flags": {
+      "sourcePinned": true,
+      "databaseConfirmed": true,
+      "sellerTestVerified": true,
+      "preferenceVerified": true,
+      "positivePersistence": true,
+      "freshSessionRead": true,
+      "otherAccountIsolated": true,
+      "cartStockUnchanged": true
+    },
+    "operationUncertain": false,
+    "paymentExecuted": false,
+    "logout": [
+      true,
+      true,
+      true
+    ],
+    "databaseClosed": true,
+    "errorCode": "NONE"
+  },
+  "environment": {
+    "database": "ephemeral-postgresql",
+    "actors": "synthetic",
+    "providerIdentityVerified": true,
+    "callbackControlled": true,
+    "backendImageVerified": true,
+    "apiDataNetworkInternal": true,
+    "providerMethodsRestricted": true,
+    "productionDatabaseContacted": false
+  },
+  "cleanup": {
+    "callbackClosed": true,
+    "tunnelClosed": true,
+    "dockerCleanupConfirmed": true
+  },
+  "limits": {
+    "paymentExecuted": false,
+    "androidAddressSelection": "not-run",
+    "hu07PaymentAcceptance": "not-run",
+    "productionSchemaParity": "not-accredited",
+    "externalPreferenceDeletion": "not-performed-or-accredited"
+  },
+  "localValidation": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "testConfiguration": "passed",
+    "suitesPassed": 86,
+    "testsPassed": 2337,
+    "testsSkipped": 1,
+    "skipReason": "optional real mitmproxy TLS certificate-selection probe"
+  },
+  "mobileWeb": {
+    "scope": "expo-web-ui-real-qa-http-not-android",
+    "status": "passed",
+    "applicationSourceCommit": "54552a80e31b47a38c527c3efc8d6ff92e08a6cc",
+    "backendCommit": "31ee304d902ec5ec5a9c0fc702eca5e1a531bc16",
+    "serverAddressVisible": true,
+    "selectionHidesNewAddressForm": true,
+    "selectionPreservedOnCartReentry": true,
+    "addressVisibleAfterReloadAndNewLogin": true,
+    "checkoutConfirmFromUi": false,
+    "radioCheckedAriaExposed": false,
+    "screenshotSha256": "1c1675e00928e829e41958d613b42fdf102d2a07d7dc0be9b663dbeed1881849"
+  }
+}
