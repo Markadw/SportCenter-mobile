@@ -526,7 +526,7 @@ jobs:
   account:
     name: Cuenta de pruebas en APK final API34
     environment: android-private-qa
-    if: ${{ startsWith(github.ref, 'refs/tags/validation/account-') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/account-') && !startsWith(github.ref, 'refs/tags/validation/account-forms-') }}
     needs: [quality, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -619,7 +619,7 @@ jobs:
           retention-days: 14
   account_result:
     name: Resultado de cuenta Android
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/account-') }}
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/account-') && !startsWith(github.ref, 'refs/tags/validation/account-forms-') }}
     needs: [quality, security, account]
     runs-on: ubuntu-24.04
     steps:
@@ -751,3 +751,120 @@ jobs:
           test "$RESULT_QUALITY" = success
           test "$RESULT_SECURITY" = success
           test "$RESULT_COMMERCE" = success
+  email_forms:
+    name: Formularios de correo en APK final API34
+    environment: android-private-qa
+    if: ${{ startsWith(github.ref, 'refs/tags/validation/account-forms-') }}
+    needs: [quality, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      keep_evidence: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verificar productor y evidencia del APK existente
+        run: node scripts/android-email-forms.cjs prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Instalar dependencias exactas para consultar EAS
+        run: npm ci --no-audit --no-fund
+      - name: Consultar sólo el Preview final existente
+        run: node scripts/android-email-forms.cjs view
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Descargar el mismo APK y verificar su huella
+        run: node scripts/android-email-forms.cjs download
+      - name: Crear directorio exclusivo para el proceso aislado
+        run: node scripts/android-email-forms.cjs runtime-dir
+      - name: Instalar Maestro 2.12 verificado sin credenciales de cuenta
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location --max-time 120 \
+            --output "$RUNNER_TEMP/maestro-account.zip" \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.0/maestro.zip
+          echo 'a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e  '"$RUNNER_TEMP/maestro-account.zip" | sha256sum --check --strict
+          umask 022
+          test -n "${ACCOUNT_SANDBOX_PARENT:-}"
+          unzip -q "$RUNNER_TEMP/maestro-account.zip" -d "$ACCOUNT_SANDBOX_PARENT/maestro-account"
+          echo "$ACCOUNT_SANDBOX_PARENT/maestro-account/maestro/bin" >> "$GITHUB_PATH"
+      - name: Preparar KVM sin credenciales de cuenta
+        timeout-minutes: 2
+        run: node scripts/android-email-forms.cjs kvm
+        env:
+          PINNING_EPHEMERAL_AVD: 'true'
+      - name: Exigir ADB del SDK instalado antes del chequeo previo
+        id: email_forms_adb_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+      - name: Probar aislamiento Linux sin credenciales antes de Android
+        timeout-minutes: 3
+        run: node scripts/android-email-forms.cjs probe
+      - name: Exigir espacio para el AVD efímero antes de arrancarlo
+        id: email_forms_disk
+        run: node scripts/prepare-android-disk.cjs
+        env:
+          PINNING_EPHEMERAL_AVD: 'true'
+      - name: Registro verificación o recuperación según la fase
+        id: email_forms_runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_FORMS_EMAIL: ${{ secrets.ANDROID_FORMS_EMAIL }}
+          ANDROID_FORMS_PASSWORD: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_PASSWORD || '' }}
+          ANDROID_FORMS_PHONE: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_PHONE || '' }}
+          ANDROID_FORMS_CODE: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_CODE || '' }}
+          ANDROID_FORMS_NEW_PASSWORD: ${{ !startsWith(github.ref, 'refs/tags/validation/account-forms-request-') && secrets.ANDROID_FORMS_NEW_PASSWORD || '' }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-linux-hw-accel: false
+          force-avd-creation: true
+          avd-name: email-forms34
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -accel on -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: node scripts/android-email-forms.cjs runtime
+      - name: Exigir todos los controles y limpieza de esta fase
+        run: node scripts/android-email-forms.cjs finish
+      - name: Limpiar temporales privados de esta comprobación
+        if: always()
+        run: node scripts/android-email-forms.cjs cleanup
+      - name: Conservar únicamente resultados sin datos de cuenta
+        if: ${{ !cancelled() && (failure() || env.keep_evidence == 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-email-forms-evidence
+          path: |
+            test-results/android-email-forms-source.json
+            test-results/android-email-forms.json
+          if-no-files-found: error
+          retention-days: 14
+  email_forms_result:
+    name: Resultado de formularios Android
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/validation/account-forms-') }}
+    needs: [quality, security, email_forms]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Exigir calidad seguridad y fase de correo aprobadas
+        env:
+          RESULT_QUALITY: ${{ needs.quality.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_EMAIL_FORMS: ${{ needs.email_forms.result }}
+        run: |
+          test "$RESULT_QUALITY" = success
+          test "$RESULT_SECURITY" = success
+          test "$RESULT_EMAIL_FORMS" = success
