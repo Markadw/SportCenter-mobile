@@ -47,7 +47,7 @@ describe('CP-03: integración de vistas, contextos y servicios reales del client
     await fireEvent.press(screen.getByText('Fútbol'));
     expect(screen.getByText('Balón de fútbol')).toBeTruthy();
     expect(screen.queryByText('Balón de básquetbol')).toBeNull();
-    expect(screen.getByText('1 resultados')).toBeTruthy();
+    expect(screen.getByText('1 resultado')).toBeTruthy();
   });
 
   test('un error del servicio llega a la pantalla y un reintento recupera los productos', async () => {

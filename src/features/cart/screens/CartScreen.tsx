@@ -54,7 +54,7 @@ function AuthenticatedCart({ token }: { token: string }) {
       </View>}
       ListEmptyComponent={<View style={styles.empty}><Text style={styles.itemTitle}>Tu carrito está vacío</Text><Text style={styles.muted}>Encuentra lo que necesitas para tu próximo entrenamiento.</Text><Pressable accessibilityRole="button" style={styles.primary} onPress={() => router.push("/catalog")}><Text style={styles.primaryLabel}>Explorar catálogo</Text></Pressable></View>}
       ListFooterComponent={vm.cart.items.length ? <View style={styles.footer}>
-        <Text style={styles.muted}>{vm.cart.itemCount} artículos</Text>
+        <Text style={styles.muted}>{vm.cart.itemCount} {vm.cart.itemCount === 1 ? "artículo" : "artículos"}</Text>
         <View style={styles.total}><Text style={styles.itemTitle}>Subtotal</Text><Text style={styles.title}>{money(vm.cart.subtotal)}</Text></View>
         <Text style={styles.muted}>El envío y los descuentos se calculan al continuar.</Text>
         <Pressable accessibilityRole="button" disabled={blocked || invalid} style={[styles.primary, (blocked || invalid) && styles.disabled]} onPress={() => router.push("/checkout")}>

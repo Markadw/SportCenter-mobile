@@ -1758,5 +1758,40 @@
       ],
       "srcTree": "23311105e23b29b27c8b88df5f7f6a1b3a4960fc"
     }
+  },
+  "physicalNonPaymentQa": {
+    "date": "2026-11-07",
+    "status": "completed-declared-local-debug-scope",
+    "record": "evidence/regresion-final-corte.json",
+    "jsonPointer": "/physicalNonPaymentQa",
+    "guide": "tests/manual/regresion-final.md",
+    "scope": "Historical Debug native 5dcacd4 plus Metro JavaScript 9b3e10d and isolated backend 92eb222; eight groups passed only in this declared non-payment scope",
+    "passedGroups": [
+      "CP-02",
+      "CP-03",
+      "CP-04",
+      "CP-05",
+      "CP-06",
+      "CP-08",
+      "CP-09",
+      "CP-11"
+    ],
+    "excludedPaymentGroup": "CP-07",
+    "previousEvidenceNotRepeated": [
+      "CP-01",
+      "CP-10"
+    ],
+    "earlierAcceptanceFields": "Pre-existing cases, physicalAcceptance, finalAndroidAcceptance and currentRegression fields preserve their earlier artifact/final-candidate scope; they are not the status of this separate Debug campaign",
+    "finalCandidatePhysicalAcceptance": "not_run",
+    "qa001": {
+      "issue": 20,
+      "status": "open-unchanged"
+    },
+    "qa002": {
+      "issue": 21,
+      "status": "open-unchanged"
+    },
+    "hu06Closure": "preserved; this campaign does not reopen HU-06",
+    "postPhysicalPluralFix": "Validated on review branch codex/qa-final-nonpayment-20261107; develop integration is established by the pull request and CI; six texts in five screens; lint/types/config and 35 existing tests passed; not run on the phone after the fix"
   }
 }

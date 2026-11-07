@@ -24,13 +24,13 @@ function ReviewsContent({ id, accessToken, sessionId }: { id: string; accessToke
     <FlatList data={model.reviews} keyExtractor={item => String(item.id)} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.list}
       ListHeaderComponent={<View style={styles.section}>
         <Text accessibilityRole="header" style={styles.title}>Reseñas del producto</Text>
-        <Text style={styles.heading}>{model.resource.data.average.toFixed(1)} de 5 · {model.resource.data.total} reseñas</Text>
+        <Text style={styles.heading}>{model.resource.data.average.toFixed(1)} de 5 · {model.resource.data.total} {model.resource.data.total === 1 ? "reseña" : "reseñas"}</Text>
         <FormButton label="Actualizar reseñas" onPress={model.resource.retry} disabled={model.publication.pending || model.report.pending} secondary />
         <Text style={styles.muted}>{model.preferences.persistent ? "Ocultar autores afecta sólo la vista en este dispositivo. Se guardan IDs de autores en almacenamiento seguro, separados por cuenta; puedes restaurarlos." : "En web, ocultar autores afecta sólo esta vista y se mantiene en memoria hasta recargar."} No modifica reseñas ni cuentas del servidor.</Text>
         {model.preferences.loading && <Text style={styles.muted}>Cargando preferencias de autores…</Text>}
         <FormMessage text={model.preferences.error} error /><FormMessage text={model.preferences.notice} />
         {!!model.preferences.error && <FormButton label="Cargar preferencias de autores" onPress={model.preferences.retry} disabled={model.preferences.saving} secondary />}
-        {!!model.blockedCount && <Text style={styles.muted}>Ocultas reseñas de {model.blockedCount} autores. El resumen incluye todas las reseñas.</Text>}
+        {!!model.blockedCount && <Text style={styles.muted}>Ocultas reseñas de {model.blockedCount} {model.blockedCount === 1 ? "autor" : "autores"}. El resumen incluye todas las reseñas.</Text>}
         {(!!model.blockedCount || (!!model.preferences.error && model.preferences.canReset)) && <FormButton label={model.preferences.ready ? "Restaurar todas las reseñas ocultas" : "Restablecer preferencias locales"} onPress={() => { void model.unblockAll(); }} busy={model.preferences.saving} disabled={!model.preferences.canReset} secondary />}
         <FormMessage text={model.receipt ? "Reporte enviado a atención. Folio #" + model.receipt + ". No se ha retirado contenido automáticamente." : null} />
         <FormMessage text={model.published ? "Tu reseña se publicó correctamente." : null} />

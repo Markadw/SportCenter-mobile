@@ -104,7 +104,7 @@ describe('HU-03: catálogo público', () => {
     filtersState.mockReturnValue({ ...filtersState(),
       filters: { categoryId: 1, brandId: 1, sportName: 'Fútbol' } });
     await render(<CatalogScreen />);
-    expect(screen.getByText('1 resultados')).toBeTruthy();
+    expect(screen.getByText('1 resultado')).toBeTruthy();
     expect(screen.getByText('Balón de fútbol')).toBeTruthy();
     expect(screen.queryByText('Otra marca')).toBeNull();
     expect(screen.queryByText('Otro deporte')).toBeNull();
