@@ -403,5 +403,355 @@
       "Six plural text corrections in five screens were applied and validated on review branch codex/qa-final-nonpayment-20261107 after the physical campaign; no physical run after the fix",
       "First Back after login return left cart visible; no loop or blocker established"
     ]
+  },
+  "standaloneReleaseNonPaymentQa": {
+    "date": "2026-11-07",
+    "status": "passed-declared-standalone-release-nonpayment-scope",
+    "scope": "Campaña física independiente Release QA autónoma, sin Mercado Pago ni Google Play; los estados anteriores mantienen su alcance histórico",
+    "source": {
+      "buildCommit": "6f9ec0b75282a524472641c956be5cca72543a2b",
+      "integratedDevelopMerge": "37bc2ec28ba443cb85dc7a3132c9022461da111d",
+      "buildTree": "0c67e85a03563b5f35b320b049e2352e2ccf7a6b",
+      "pullRequest": "https://github.com/Markadw/SportCenter-mobile/pull/74",
+      "postMergeCi": "https://github.com/Markadw/SportCenter-mobile/actions/runs/42402606772",
+      "ciQuality": {
+        "lint": "passed",
+        "types": "passed",
+        "testConfig": "passed",
+        "suitesPassed": 86,
+        "testsPassed": 2357,
+        "optionalTlsTestsSkipped": 1,
+        "countsNotSummedWithHistoricalRuns": true
+      },
+      "runtimeInputGroups": [
+        "src",
+        "assets",
+        "plugins",
+        "patches",
+        "package.json",
+        "package-lock.json",
+        "app.json",
+        "eas.json",
+        "config/security-pins.json"
+      ],
+      "runtimeRelationship": "Las nueve entradas de aplicación del build y del merge coinciden; esta ampliación documental no cambia esas entradas y no exige igualdad del árbol completo después de editar documentación",
+      "pluralFix": "Integrada en PR74 antes de generar este APK; las observaciones físicas pertenecen al APK Release QA nuevo, no a la campaña Debug previa"
+    },
+    "qaApk": {
+      "sha256": "e852f5ccb3b46de04731194987ed0595d3f96446665028523bb1d1b51f16e9f2",
+      "bytes": 35403814,
+      "package": "com.markadw.sportcenter.qa",
+      "debuggable": false,
+      "embeddedJavaScript": true,
+      "metroRequired": false,
+      "minSdk": 24,
+      "targetSdk": 36,
+      "abi": [
+        "arm64-v8a"
+      ],
+      "hermesBytecodeVersion": 98,
+      "bundleSha256": "3bc7373d84499b24f50ee90dbc2d0c0956dd35e51daf12cec3fc0332348ef993",
+      "certificateSha256": "3fac6e8ea565740618e200eeca211b0e21313f7bc582d6f18abd70ce02d73b83",
+      "signingScope": "Firma local QA; no es la clave de subida EAS ni Play App Signing",
+      "networkSecurity": "HTTP limitado a 127.0.0.1 y TLS con ancla privada QA; no reproduce los pines de producción",
+      "productionSecurityEquivalent": false,
+      "static16KB": {
+        "elfAndZip": "passed",
+        "relroLibraries": 22,
+        "physical16KBRun": false
+      }
+    },
+    "productionConfigAabSeparateScope": {
+      "status": "passed-static-only-not-installed",
+      "sha256": "9933b04bd45a6f09c9f0dcc07f934a3d55301d8a25275d484f55ded7aea019f0",
+      "bytes": 68957592,
+      "package": "com.markadw.sportcenter",
+      "debuggable": false,
+      "certificateSha256": "3fac6e8ea565740618e200eeca211b0e21313f7bc582d6f18abd70ce02d73b83",
+      "signingScope": "Firma local QA; no EAS/upload/Play App Signing",
+      "jarsignerStrictExitCode": 4,
+      "jarsignerTrustScope": "Firma autofirmada local QA; salida4 por advertencia de confianza esperada, con integridad/cobertura/fechas comprobadas; no equivale a una cadena de producción validada con salida0",
+      "apiBoundary": {
+        "qaUrlAbsent": true,
+        "renderUrlPresent": true,
+        "backendContacted": false
+      },
+      "networkSecurity": "Anclas del sistema y dos pines originales; sin ancla privada QA ni excepción loopback de QA",
+      "hermesBytecodeVersion": 98,
+      "bundleSha256": "2a9a1ec08359077fabcd66813a40c70d4ba4f73ec9b6825aee889fc5cbba1aec",
+      "abis": [
+        "arm64-v8a",
+        "armeabi-v7a",
+        "x86",
+        "x86_64"
+      ],
+      "bundletoolValidation": "passed",
+      "bundleAlignment": "PAGE_ALIGNMENT_16K",
+      "derivedUniversalApkSha256": "6ef0150f86fc3c15fe1efa6744e4841f79d00f4f43693559e41ddb18ee869a6d",
+      "static16KB": {
+        "derivedApkZipAlignment": "passed",
+        "elf64Libraries": 44,
+        "relroLibraries": 44,
+        "physical16KBRun": false
+      },
+      "limits": "AAB y APK derivado no instalados; la ejecución física del paquete .qa no se atribuye a este AAB, a RC6 ni a Google Play"
+    },
+    "device": {
+      "model": "Samsung SM-A576B",
+      "android": 17,
+      "api": 37,
+      "abi": "arm64-v8a",
+      "pageSizeBytes": 4096
+    },
+    "backend": {
+      "sourceCommit": "08294951cc9caf838475befe9e3bc597f3ed26ef",
+      "image": "sha256:86e421645f256dac14ae72ce441abe1fa2c8223fef4a56a05683daebb5026526",
+      "scope": "AppModule/main reales y cuatro conexiones PostgreSQL TLS sobre fixture sintético aislado; sin credenciales ni operaciones de proveedores",
+      "mainAndDatabaseNetworkEgressBlocked": true,
+      "relayOperatingSystemEgressBlocked": false,
+      "relayRestriction": "Destino TCP fijo del backend privado; sólo script relay montado de lectura",
+      "productionActivationDemonstrated": false,
+      "renderScope": "El despliegue y la activación en Render no fueron realizados ni comprobados en esta campaña"
+    },
+    "groups": [
+      {
+        "group": "CP-02",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Login con retorno al producto",
+          "Sesión conservada tras terminar y abrir el proceso sin Metro",
+          "Logout y protección de invitado conservada tras reiniciar",
+          "Perfiles, carritos y pedidos propios separados entre cuentas",
+          "Logout final, invitado después de arranque frío y sesiones QA revocadas"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-03",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Búsquedas con cero y un resultado; texto singular correcto",
+          "Filtros categoría/marca/deporte y eliminación de Running",
+          "Rango inválido bloqueado y rango por cualquier variante",
+          "Límites visibles de paginación cliente 20/40/60/80/100 y final sin botón adicional"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-04",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Detalle, imagen azul/negra HTTPS, cambio de variante, precio y SKU correspondientes"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-05",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Alta de la variante negra seleccionada, ambas imágenes visibles en carrito y eliminación",
+          "Cantidad dos conservada tras reiniciar, subtotal 332; restauración a una unidad y subtotal 166",
+          "Texto singular 1 artículo correcto",
+          "Fallo de conexión entendible y recuperación mediante Reintentar; cuenta B con carrito vacío",
+          "Carrito B con variante azul 168 no se mezcla con carrito A 166",
+          "Restauración por interfaz: B vacío y A una unidad166; ambos coinciden con la base en servidor"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-06",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Selección de dirección existente y formulario nuevo oculto",
+          "Cambio de envío 0 a 25 y total 166 a 191",
+          "Reentrada conserva selección y total; sin confirmar compra",
+          "Cambio B a A en el mismo proceso: dirección propia única, formulario nuevo vacío y envío predeterminado 0, sin heredar selección B de envío 25/total193",
+          "Direcciones intactas y cero confirmaciones de compra"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-08",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Pedidos entregados preexistentes del fixture, detalle y seguimiento sintético de cada cuenta",
+          "Listas A y B separadas; singular 1 producto correcto"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-09",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Edición de nombre, persistencia tras terminar y abrir el proceso, cinco campos visibles restaurados iguales al estado base",
+          "Cinco campos finales iguales a la base y restauración de perfil corroborada en servidor"
+        ],
+        "pending": []
+      },
+      {
+        "group": "CP-11",
+        "status": "passed-for-declared-scope",
+        "observed": [
+          "Formulario elegible de reseña sobre pedido sintético preexistente",
+          "Consentimiento obligatorio: cero POST antes y después del bloqueo",
+          "Una publicación HTTP201; relectura tras reiniciar conserva reseña y oculta compositor; singular 1 reseña correcto",
+          "Reporte con folio y aviso de que no se retira contenido automáticamente",
+          "Autor oculto conservado tras reiniciar; singular 1 autor correcto",
+          "Cuenta B ve al autor oculto por A y no hereda esa preferencia; no es elegible en producto68 antes ni después de agregarlo al carrito",
+          "Preferencia A persiste al cambiar de cuenta y finalmente se revierte; reseña del otro autor vuelve a ser visible"
+        ],
+        "pending": []
+      }
+    ],
+    "previousEvidenceNotRepeated": [
+      "CP-01",
+      "CP-10"
+    ],
+    "excludedPaymentGroup": "CP-07",
+    "observedLimits": {
+      "pagination": "Paginación cliente sobre 100 productos ya descargados desde la API; se observaron límites de página y final, no una enumeración visual de todos los productos ni paginación del servidor",
+      "priceOrder": "Orden ascendente contrastado en dos tarjetas visibles",
+      "priceRange": "150..170 produce 31 productos porque basta una variante en rango",
+      "fixtureOrders": "Entregados y elegibilidad preexistentes; no acreditan compra ni transporte real",
+      "moderation": "Folio local no acredita respuesta humana, operación en Render ni activación de base compartida",
+      "privacy": "Pantalla de privacidad leída; no se abrieron enlaces web ni se enviaron solicitudes de eliminación; no acredita requisitos legales/Google Play"
+    },
+    "instrumentation": {
+      "preservedFailures": [
+        "Captura detenida por teléfono bloqueado; se reanudó tras desbloqueo",
+        "Falso negativo de campo vacío: Android exponía el placeholder; helper corregido sin cambiar aplicación",
+        "AAB preliminar contaminado por caché de Metro compartida: export reset ignorado con CI; reempaquetado con TEMP/TMP aislados y frontera QA/producción comprobada"
+      ],
+      "productDefectInferredFromTheseFailures": false,
+      "allRawFailuresPreserved": true
+    },
+    "http": {
+      "status": "passed-offset-correlated-readonly-audit",
+      "preparationOffsets": {
+        "gateway": 18,
+        "ingress": 14
+      },
+      "requestsTotalIncludingImages": 227,
+      "apiRequests": 126,
+      "apiMethods": {
+        "GET": 98,
+        "POST": 22,
+        "DELETE": 2,
+        "PUT": 2,
+        "PATCH": 2
+      },
+      "apiStatuses": {
+        "200": 104,
+        "201": 22
+      },
+      "tlsFixtureImageGets": 101,
+      "tlsFixtureImageStatus": 200,
+      "postBreakdown": {
+        "login": 5,
+        "refresh": 8,
+        "cartAdd": 2,
+        "review": 1,
+        "report": 1,
+        "logout": 5
+      },
+      "excludedOperationsObserved": 0,
+      "countsAreRequestsNotCases": true
+    },
+    "evidenceManifest": {
+      "status": "passed-private-proof-pairs-not-unique-cases",
+      "privateProofPairs": 92,
+      "uniqueJsonHashes": 73,
+      "uniquePngHashes": 91,
+      "manifestSha256": "d15191658d370498f2490441744d99a3fed35582b06d9365ec8efe1729fc2349",
+      "rawScreenshotsPublished": false
+    },
+    "cleanup": {
+      "status": "passed",
+      "backendRequiredFlags": {
+        "sessionsRevoked": true,
+        "finalProfileAndCartMatch": true,
+        "finalOrdersAndStockMatch": true,
+        "applicationClosed": true,
+        "connectionsClosed": true,
+        "sourcesUnchanged": true,
+        "imagesTlsClosed": true,
+        "clean": true,
+        "addressesMatch": true,
+        "relaySourceUnchanged": true
+      },
+      "profileAndCartBaselineMatched": true,
+      "addressesOrdersAndStockUnchanged": true,
+      "restorationPerformedByHarness": false,
+      "qaPackageRemoved": true,
+      "productAppUnchanged": true,
+      "settingsRestored": true,
+      "ownedReverseRulesRemoved": true,
+      "adbServerAndSupervisorClosed": true,
+      "nativeProcessesClosed": true,
+      "finalDumpSha256": "6c01a302f4bc03d6d8d9f4eefdc87999a9f94d4d2b302b5a3a7a35ee76ebe418"
+    },
+    "issueScope": {
+      "qa001": {
+        "issue": 20,
+        "status": "criteria-met-for-declared-nonpayment-scope"
+      },
+      "qa002": {
+        "issue": 21,
+        "status": "criteria-met-for-declared-nonpayment-scope"
+      },
+      "hu11": {
+        "issue": 48,
+        "status": "open-Pruebas",
+        "remaining": "Activación/operación Render y respuesta humana no acreditadas"
+      },
+      "untouched": [
+        13,
+        52
+      ]
+    },
+    "receiptHashes": {
+      "phoneRestoration": "248aba587dde552fbee27b78c2c1801e2251fecaf08c2036475cb3d5cf5e2ead",
+      "adbClosure": "b30a4f4c7a2d199f1e0ad7829cb01ddf41542e2c8ebf8146dbe50e5ae8928f97",
+      "backendSummary": "529ac1b44ad19a3526b7e9f02c3cfa736abbbc586b5c864cadd977bbb14c9de1",
+      "backendFinalVerification": "2498f25c36b43e5770d78985f0cf96fac47bf860fba57d1ab64aafef871127d3",
+      "httpSlice": "6fb1e555fdb881dcde90a7b1a80b84944f38a55f1f70718badcdf476feca3efb"
+    },
+    "acceptanceReconciliation": {
+      "qa001": {
+        "status": "criteria-met-for-declared-nonpayment-scope",
+        "criteria": [
+          {
+            "criterion": "Flujos integrados probados de extremo a extremo",
+            "assessment": "Ocho grupos sobre Release QA física + backend/PG aislados; CP01/10 conservan controles de correo aprobados; CP07 excluido por el usuario"
+          },
+          {
+            "criterion": "Defectos reales registrados",
+            "assessment": "Históricos preservados; seis textos de plural corregidos mediante PR74, CI aprobada y comprobación física en este APK; los fallos del arnés se conservan aparte"
+          },
+          {
+            "criterion": "Sin bloqueantes conocidos pendientes dentro del alcance evaluado",
+            "assessment": "No se observó defecto crítico o alto pendiente en los recorridos ejecutados; restauración e invariantes finales aprobadas; no se extiende a pagos, publicación ni operación productiva"
+          }
+        ]
+      },
+      "qa002": {
+        "status": "criteria-met-for-declared-nonpayment-scope",
+        "criteria": [
+          {
+            "criterion": "Criterios principales de HU en la aplicación integrada",
+            "assessment": "Matriz CP02/03/04/05/06/08/09/11 física; fuente6f9 integrada en develop37bc con las mismas entradas de aplicación; correo anterior conservado y pago excluido"
+          },
+          {
+            "criterion": "Prueba en dispositivo físico",
+            "assessment": "APK .qa identificado por hash, SamsungSM-A576B/Android17/API37/ARM64/4096, Release autónoma sin Metro"
+          },
+          {
+            "criterion": "Críticos resueltos o bloqueo explícito",
+            "assessment": "Sin defecto crítico/alto observado pendiente en este alcance; incidentes de instrumentación preservados y límites de MP/Play/Render/atención humana explícitos"
+          }
+        ]
+      },
+      "issueAndBoardState": "La acreditación de criterios no sustituye el estado remoto de issues/tablero; su cierre se verifica en GitHub tras la integración documental"
+    }
   }
 }

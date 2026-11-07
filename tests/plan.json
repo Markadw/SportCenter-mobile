@@ -1793,5 +1793,112 @@
     },
     "hu06Closure": "preserved; this campaign does not reopen HU-06",
     "postPhysicalPluralFix": "Validated on review branch codex/qa-final-nonpayment-20261107; develop integration is established by the pull request and CI; six texts in five screens; lint/types/config and 35 existing tests passed; not run on the phone after the fix"
+  },
+  "standaloneReleaseNonPaymentQa": {
+    "date": "2026-11-07",
+    "status": "passed-declared-standalone-release-nonpayment-scope",
+    "record": "evidence/regresion-final-corte.json",
+    "jsonPointer": "/standaloneReleaseNonPaymentQa",
+    "guide": "tests/manual/regresion-final.md",
+    "buildSource": "6f9ec0b75282a524472641c956be5cca72543a2b",
+    "integratedDevelopMerge": "37bc2ec28ba443cb85dc7a3132c9022461da111d",
+    "package": "com.markadw.sportcenter.qa",
+    "apkSha256": "e852f5ccb3b46de04731194987ed0595d3f96446665028523bb1d1b51f16e9f2",
+    "scope": "Release QA local autónoma con JS embebido; backend aislado sintético; no RC6/AAB instalado, Mercado Pago ni Google Play",
+    "groups": [
+      {
+        "group": "CP-02",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-03",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-04",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-05",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-06",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-08",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-09",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      },
+      {
+        "group": "CP-11",
+        "status": "passed-for-declared-scope",
+        "pending": []
+      }
+    ],
+    "previousEvidenceNotRepeated": [
+      "CP-01",
+      "CP-10"
+    ],
+    "excludedPaymentGroup": "CP-07",
+    "priorFields": "Los casos, physicalAcceptance, finalAndroidAcceptance, currentRegression y physicalNonPaymentQa anteriores conservan su alcance y valores históricos; no son el estado de este bloque Release independiente",
+    "physical16KBRun": false,
+    "productionAabPhysicalRun": false,
+    "qa001": {
+      "issue": 20,
+      "status": "criteria-met-for-declared-nonpayment-scope"
+    },
+    "qa002": {
+      "issue": 21,
+      "status": "criteria-met-for-declared-nonpayment-scope"
+    },
+    "acceptanceReconciliation": {
+      "qa001": {
+        "status": "criteria-met-for-declared-nonpayment-scope",
+        "criteria": [
+          {
+            "criterion": "Flujos integrados probados de extremo a extremo",
+            "assessment": "Ocho grupos sobre Release QA física + backend/PG aislados; CP01/10 conservan controles de correo aprobados; CP07 excluido por el usuario"
+          },
+          {
+            "criterion": "Defectos reales registrados",
+            "assessment": "Históricos preservados; seis textos de plural corregidos mediante PR74, CI aprobada y comprobación física en este APK; los fallos del arnés se conservan aparte"
+          },
+          {
+            "criterion": "Sin bloqueantes conocidos pendientes dentro del alcance evaluado",
+            "assessment": "No se observó defecto crítico o alto pendiente en los recorridos ejecutados; restauración e invariantes finales aprobadas; no se extiende a pagos, publicación ni operación productiva"
+          }
+        ]
+      },
+      "qa002": {
+        "status": "criteria-met-for-declared-nonpayment-scope",
+        "criteria": [
+          {
+            "criterion": "Criterios principales de HU en la aplicación integrada",
+            "assessment": "Matriz CP02/03/04/05/06/08/09/11 física; fuente6f9 integrada en develop37bc con las mismas entradas de aplicación; correo anterior conservado y pago excluido"
+          },
+          {
+            "criterion": "Prueba en dispositivo físico",
+            "assessment": "APK .qa identificado por hash, SamsungSM-A576B/Android17/API37/ARM64/4096, Release autónoma sin Metro"
+          },
+          {
+            "criterion": "Críticos resueltos o bloqueo explícito",
+            "assessment": "Sin defecto crítico/alto observado pendiente en este alcance; incidentes de instrumentación preservados y límites de MP/Play/Render/atención humana explícitos"
+          }
+        ]
+      },
+      "issueAndBoardState": "La acreditación de criterios no sustituye el estado remoto de issues/tablero; su cierre se verifica en GitHub tras la integración documental"
+    }
   }
 }
