@@ -83,7 +83,7 @@ function AuthenticatedCheckout({ token, sessionId }: { token: string; sessionId:
         <Pressable accessibilityRole="button" disabled={disabled} style={[styles.secondary, disabled && styles.disabled]} onPress={() => void vm.recalculate(draft.shippingId, draft.promo)}>
           <Text style={styles.link}>{draft.promo.trim() ? "Aplicar cupón" : "Actualizar resumen"}</Text></Pressable>
         {!!summary.promotion && <Text style={styles.muted}>Promoción: {summary.promotion}</Text>}
-        <Text style={styles.heading}>Resumen · {summary.totals.itemCount} artículos</Text>
+        <Text style={styles.heading}>Resumen · {summary.totals.itemCount} {summary.totals.itemCount === 1 ? "artículo" : "artículos"}</Text>
         {summary.items.map(item => <View key={item.variantId} style={styles.row}><Text style={styles.item}>{item.quantity} × {item.name}</Text><Text style={styles.muted}>{money(item.unitPrice)} c/u</Text></View>)}
         <View style={styles.row}><Text style={styles.muted}>Subtotal</Text><Text style={styles.label}>{money(summary.totals.subtotal)}</Text></View>
         <View style={styles.row}><Text style={styles.muted}>Descuento</Text><Text style={styles.label}>−{money(summary.totals.discount)}</Text></View>

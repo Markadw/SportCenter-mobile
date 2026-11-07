@@ -48,7 +48,7 @@ export function CatalogScreen() {
       refreshControl={<RefreshControl refreshing={vm.isLoading} onRefresh={() => void vm.refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
       renderItem={({ item }) => <View style={styles.card}><ProductCard product={item} onPress={p => router.push(`/product/${p.id}`)} /></View>}
       ListHeaderComponent={<View style={styles.result}>
-        <Text style={styles.muted}>{vm.filtered.length} resultados</Text>
+        <Text style={styles.muted}>{vm.filtered.length} {vm.filtered.length === 1 ? "resultado" : "resultados"}</Text>
         {!!vm.error && <Text accessibilityRole="alert" style={styles.muted}>No se pudo actualizar. Se muestran los productos cargados.</Text>}
       </View>}
       ListEmptyComponent={<ScreenState title="No hay productos con esos filtros." message="Prueba otra búsqueda o elimina los filtros seleccionados." action="Limpiar" onAction={vm.clear} />}

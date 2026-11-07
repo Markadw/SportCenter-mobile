@@ -211,5 +211,197 @@
     "includesRealLocalMitm": true,
     "affectedJourneyRevalidatedAfterTestTypeAdjustment": true,
     "counting": "targeted-revalidation-is-already-one-of-the-2246-not-an-additional-case"
+  },
+  "physicalNonPaymentQa": {
+    "schemaVersion": 1,
+    "date": "2026-11-07",
+    "status": "completed-declared-local-debug-scope",
+    "scope": "Physical non-payment flows on historical Debug native plus current Metro JavaScript and isolated synthetic backend; not final-candidate acceptance",
+    "historicalScope": "All pre-existing fields in this document, including newNativeRegression, finalE2E, limits and localValidation, retain their original integrated-cut and artifact scope; this block is separate",
+    "identity": {
+      "device": {
+        "model": "SM-A576B",
+        "android": "17",
+        "api": 37,
+        "abi": "arm64-v8a",
+        "pageSize": 4096
+      },
+      "nativeCommit": "5dcacd46a24ae54da5300cd394a91c590a9a5825",
+      "nativeApkSha256": "ebfb8281ec12359178954255c94cf3e7d70e681d405c9c497fa3b9064d34d1d2",
+      "javascriptCommit": "9b3e10db7751bc293f58fadb4cb1fb4caa48de1c",
+      "backendCommit": "92eb222c35ca5b55c4bb4b1fd811786a22a233ea"
+    },
+    "groups": [
+      {
+        "id": "CP-02",
+        "story": "HU-02",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Login, refresh after process death with explicit dev-client reconnect, logout, guest protection, account separation"
+      },
+      {
+        "id": "CP-03",
+        "story": "HU-03",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Catalogue filter selection, price ordering, empty and single-result search"
+      },
+      {
+        "id": "CP-04",
+        "story": "HU-04",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Product detail and variant price/SKU selection; fixture images intentionally unavailable"
+      },
+      {
+        "id": "CP-05",
+        "story": "HU-05",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Quantity persistence across process death, add/remove selected variant, final baseline restoration"
+      },
+      {
+        "id": "CP-06",
+        "story": "HU-06",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Existing address selection, shipping recalculation/reentry, account-specific address and draft reset"
+      },
+      {
+        "id": "CP-08",
+        "story": "HU-08",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Own pre-existing synthetic delivered orders and tracking; account-specific lists"
+      },
+      {
+        "id": "CP-09",
+        "story": "HU-09",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Profile name edit/save/readback after process death and exact five-field baseline restored"
+      },
+      {
+        "id": "CP-11",
+        "story": "HU-11",
+        "status": "passed-in-declared-local-debug-scope",
+        "scope": "Consent validation, single local review publication/readback, eligibility, report folio, author preference persistence/account separation/restoration"
+      }
+    ],
+    "observationLimits": {
+      "priceOrdering": "Compared two visible product cards; no full enumeration of the 100-product fixture",
+      "pagination": "not-run",
+      "selectedVariant": "Corroborated by visual SKU and DELETE route; POST request body was not captured",
+      "instrumentation": "Instrumentation failures were preserved; a capture after leaving the app was absent and is not counted as a passed case or a demonstrated product defect"
+    },
+    "excludedGroups": [
+      {
+        "ids": [
+          "CP-01",
+          "CP-10"
+        ],
+        "status": "previous-evidence-preserved-not-repeated",
+        "record": "tests/manual/android-email-forms.md"
+      },
+      {
+        "ids": [
+          "CP-07"
+        ],
+        "status": "excluded-by-user-payment-scope-not-passed"
+      }
+    ],
+    "http": {
+      "scope": "gateway rows after preserved 30-line preparation baseline",
+      "requests": 107,
+      "methods": {
+        "GET": 82,
+        "POST": 14,
+        "PATCH": 5,
+        "PUT": 4,
+        "DELETE": 2
+      },
+      "posts": {
+        "/users/login-user": 3,
+        "/users/refresh-token": 4,
+        "/products/reviews": 1,
+        "/company/contact": 1,
+        "/users/logout": 3,
+        "/products/cart/items": 2
+      },
+      "forbiddenOperations": 0,
+      "externalTransportCalls": {},
+      "counting": "107 HTTP requests are observations, not 107 unique test cases; excludes the preserved 30-request preparation baseline"
+    },
+    "baseSourceQuality": {
+      "scope": "unmodified-base-source",
+      "lint": "passed",
+      "typecheck": "passed",
+      "testConfiguration": "passed",
+      "suites": 86,
+      "passed": 2357,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "real TLS opt-in not enabled",
+      "mobileJourneyIncluded": true,
+      "counting": "2357 passed tests include MobileJourney once; the later 35-test focused run is not added to this total"
+    },
+    "postPhysicalPluralFix": {
+      "scope": "six count-dependent texts in five screens; two existing test expectations corrected",
+      "branch": "codex/qa-final-nonpayment-20261107",
+      "baseCommit": "9b3e10db7751bc293f58fadb4cb1fb4caa48de1c",
+      "lint": "passed",
+      "typecheck": "passed",
+      "testConfiguration": "passed",
+      "suites": 6,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "testsAdded": false,
+      "physicalValidation": "not-run-after-copy-fix",
+      "fullBaseSuiteCountsNotAdded": true,
+      "status": "passed-static-and-existing-unit-scope-only",
+      "physicalRunUsedUnmodifiedBase": true,
+      "integration": {
+        "target": "develop",
+        "statusAtPreparation": "validated-on-review-branch-awaiting-integration",
+        "completionEvidence": "Merge status and checks of the pull request from codex/qa-final-nonpayment-20261107 to develop; no merge is asserted by this record"
+      }
+    },
+    "defects": [
+      {
+        "severity": "minor",
+        "type": "singular-plural-ui-copy",
+        "status": "fixed-and-validated-on-review-branch"
+      }
+    ],
+    "restoration": {
+      "originalApkSha256": "092cdbbc6942fe16c941f814a0b581b26c33c8cd658ae5b0015d9c10f947d564",
+      "originalNonDebuggable": true,
+      "phoneSettingsRestored": true,
+      "ownedReverseRulesRemoved": true,
+      "nativeQaLogouts": 3,
+      "finalGuestObserved": true,
+      "profileAndCartMatch": true,
+      "ordersAndStockMatch": true,
+      "sessionsRevoked": true,
+      "backendClosed": true,
+      "metroClosed": true,
+      "dumpSha256": "24d52c9a79d7d9b1053245597a4db798b72ba31302b7041e7f97caede4587e0f"
+    },
+    "evidenceManifest": {
+      "proofCount": 85,
+      "sha256": "d8376fea8d981abc94e9f8264f83307ad2e2599e8fb88cc2fabbd73a83a9c442",
+      "systemOverlayEvidenceExcluded": true,
+      "rawScreenshotsPublished": false
+    },
+    "tracker": {
+      "qa001": 20,
+      "qa002": 21,
+      "status": "open-unchanged",
+      "issueUpdatesPerformedDuringPhysicalCampaign": false
+    },
+    "limits": [
+      "Mercado Pago, checkout confirmation, preference creation, payment return and webhook excluded by user",
+      "Debug process restart requires explicit Metro reconnect; not autonomous release startup",
+      "No physical acceptance of Preview RC6, final AAB or Play App Signing",
+      "Registration, OTP and password recovery previous evidence preserved; operations not repeated",
+      "Report receipt does not demonstrate human moderation or shared-service activation",
+      "No cloud deployment or shared database access",
+      "Six plural text corrections in five screens were applied and validated on review branch codex/qa-final-nonpayment-20261107 after the physical campaign; no physical run after the fix",
+      "First Back after login return left cart visible; no loop or blocker established"
+    ]
   }
 }

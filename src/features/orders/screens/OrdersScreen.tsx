@@ -17,12 +17,14 @@ export function OrdersScreen() {
     <FlatList data={model.data} keyExtractor={item => String(item.id)} contentContainerStyle={styles.list}
       ListHeaderComponent={<View style={styles.heading}><Text accessibilityRole="header" style={styles.title}>Mis pedidos</Text><Text style={styles.muted}>Aquí aparecen tus pedidos que ya no están pendientes de pago.</Text><FormButton label="Actualizar pedidos" onPress={model.retry} secondary /></View>}
       ListEmptyComponent={<Text style={styles.empty}>Aún no tienes pedidos registrados en esta lista.</Text>}
-      renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={"Ver pedido " + item.id} style={styles.card}
+      renderItem={({ item }) => {
+        const itemCount = item.items.reduce((total, row) => total + row.quantity, 0);
+        return <Pressable accessibilityRole="button" accessibilityLabel={"Ver pedido " + item.id} style={styles.card}
         onPress={() => router.push({ pathname: "/orders/[id]", params: { id: String(item.id) } })}>
         <Text style={styles.subtitle}>Pedido #{item.id}</Text><Text style={styles.text}>{orderStatus(item.status)}</Text>
-        <Text style={styles.muted}>{date(item.createdAt)} · {item.items.reduce((total, row) => total + row.quantity, 0)} productos</Text>
+        <Text style={styles.muted}>{date(item.createdAt)} · {itemCount} {itemCount === 1 ? "producto" : "productos"}</Text>
         <Text style={styles.total}>{money(item.total)}</Text>
-      </Pressable>} />
+      </Pressable>; }} />
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
