@@ -215,7 +215,7 @@ async function runtime(config = {}) {
     if (stage === 'checkout-guard') return config.exposedCheckout ? [{ text: 'Dirección de envío' }, { text: 'Subtotal' }] : [
       { text: 'Inicia sesión para continuar' }, { text: 'Iniciar sesión', clickable: 'true' },
     ];
-    if (stage === 'privacy') return [{ text: config.inaccessiblePrivacy ? 'No se pudo cargar' : 'Datos y sesión en este dispositivo' }];
+    if (stage === 'privacy') return [{ text: config.inaccessiblePrivacy ? 'No se pudo cargar' : 'Abrir términos y condiciones' }];
     return [{ 'content-desc': 'Correo electrónico', text: typedEmail, class: 'android.widget.EditText', bounds: '[10,20][200,80]' },
       { 'content-desc': 'Contraseña', text: passwordVisible ? typedPassword : '••••', password: passwordVisible ? 'false' : 'true', class: 'android.widget.EditText', bounds: '[10,120][200,180]' },
       { 'content-desc': passwordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña', clickable: 'true', bounds: '[250,120][400,180]' },
@@ -385,7 +385,7 @@ test('read-only classifiers require real owned content, consistent orders state 
   assert.equal(account.guestGuardStatus(parse([...login, { text: 'Guardar cambios' }]), 'profile'), 'private');
   assert.equal(account.guestGuardStatus(parse([{ text: 'Inicia sesión para continuar' }, { text: 'Iniciar sesión' }, { text: 'Subtotal' }]), 'checkout'), 'private');
   assert.equal(account.guestGuardStatus(parse([{ text: 'Iniciar sesión' }]), 'profile'), 'loading');
-  assert.equal(account.privacyVisible(parse([{ text: 'Datos y sesión en este dispositivo', package: 'other.app' }])), false);
+  assert.equal(account.privacyVisible(parse([{ text: 'Abrir términos y condiciones', package: 'other.app' }])), false);
 });
 test('read-only public report rejects arbitrary states, foreign IDs and private strings', () => {
   const report = account.publicReport({ status: 'passed', readOnlyChecks: { RO01: 'passed', RO02: 'private@example.com', SECRET: 'passed' },

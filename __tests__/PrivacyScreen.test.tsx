@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { PrivacyScreen } from "../src/features/privacy/screens/PrivacyScreen";
 import { accountDeletionApi } from "../src/features/privacy/accountDeletionApi";
+import * as Linking from "expo-linking";
+import { LEGAL_CONTACT, PRIVACY_LINKS } from "../src/features/privacy/config";
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({}) }));
 jest.mock("expo-linking", () => ({ openURL: jest.fn().mockResolvedValue(true) }));
 jest.mock("../src/features/privacy/accountDeletionApi", () => ({ accountDeletionApi: { request: jest.fn() } }));
@@ -10,6 +12,15 @@ it("makes deletion and review rules available without requiring a session", asyn
   expect(screen.getByText("Solicitar eliminación de cuenta y datos")).toBeTruthy();
   expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
   expect(screen.getByText("sportcentersoporte@gmail.com")).toBeTruthy();
+  expect(screen.getByText("Documentos de Sport Center")).toBeTruthy();
+  expect(screen.getByText(new RegExp(LEGAL_CONTACT.owner))).toBeTruthy();
+  expect(screen.getByText(new RegExp(LEGAL_CONTACT.revisionLabel))).toBeTruthy();
+  expect(screen.queryByText(/pendiente de confirmación|contactos distintos|referencias web existentes/)).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Abrir aviso de privacidad" }));
+  await waitFor(() => expect(Linking.openURL).toHaveBeenCalledWith(PRIVACY_LINKS.privacy));
+  await fireEvent.press(screen.getByRole("button", { name: "Abrir términos y condiciones" }));
+  await waitFor(() => expect(Linking.openURL).toHaveBeenCalledWith(PRIVACY_LINKS.terms));
+  expect(accountDeletionApi.request).not.toHaveBeenCalled();
 });
 it("shows a manual request receipt rather than claiming account deletion", async () => {
   jest.mocked(accountDeletionApi.request).mockResolvedValue({ receiptId: 17 });

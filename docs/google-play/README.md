@@ -1,8 +1,8 @@
 # Preparación de Google Play — REL-002
 
-Material para revisar y completar [REL-002, #52](https://github.com/Markadw/SportCenter-mobile/issues/52). No es una declaración enviada a Google ni acredita publicación. La cuenta personal sigue sin crearse, según confirmó el titular. Sus datos legales adicionales permanecen aplazados.
+Material para revisar y completar [REL-002, #52](https://github.com/Markadw/SportCenter-mobile/issues/52). No es una declaración enviada a Google ni acredita publicación en Google Play. La cuenta personal sigue sin crearse, según confirmó el titular. Los documentos oficiales del servicio ya identifican a Carlos Reyes Mendoza como responsable de Sport Center y publican sus datos de contacto; esto no acredita el alta ni la verificación del titular de Console.
 
-La preparación inicial partió de `develop` `9d71d41f0e4dcfd6bacad2d9d4d1da86b56e4e5b`; esta actualización concilia la evidencia QA sobre la base `54552a80e31b47a38c527c3efc8d6ff92e08a6cc`. No modifica la app, el backend o la base de datos. La moderación y la migración del backend continúan pendientes por decisión del usuario.
+La sincronización documental del 8 de noviembre parte de `develop` `d278d0f8764ba7b9130813a5f6131fef4d5d5e84`. Los materiales y estados de entrega no relacionados con esta sincronización conservan la procedencia de sus cortes anteriores; esta revisión no los revalida.
 
 ## Archivos que se pueden utilizar
 
@@ -13,7 +13,7 @@ La preparación inicial partió de `develop` `9d71d41f0e4dcfd6bacad2d9d4d1da86b5
 | [Console y prueba cerrada](console-y-prueba-cerrada.md) | Alta personal, verificaciones, decisiones de distribución y prueba con participantes reales. |
 | [Acceso para revisión](acceso-revision.md) | Instrucciones preliminares en inglés; las credenciales se completan sólo en Console. |
 | [Ficha en español](ficha-es.json) y [recursos](recursos.json) | Texto y procedencia de imágenes para aprobación antes de subirlas. |
-| [Revisión de privacidad existente](../privacy-review.md) | Diferencias detectadas en los documentos del sitio y límites del flujo actual. |
+| [Revisión de privacidad](../privacy-review.md) | Documentos oficiales publicados el 8 de noviembre de 2026, límites del flujo móvil e historial de las diferencias anteriores. |
 
 ## Archivo candidato identificado
 
@@ -31,10 +31,10 @@ Esta preparación no cambia las casillas del tablero. Sólo P07 tiene aprobació
 
 | ID | Situación y evidencia que falta |
 | --- | --- |
-| L01 | Identidad y contacto legales adicionales aplazados. Distinguir titular personal de Console y nombre comercial Sport Center. |
-| L02 | Privacidad y términos coherentes, aprobados y publicados en HTTPS. Los HTML existentes son borradores. |
-| L03 | Publicar el recurso específico de eliminación y comprobar acceso sin sesión ni app instalada. |
-| L04 | Ejecutar y acreditar validación, eliminación o anonimización que corresponda, retención justificada y comunicación del resultado. El procedimiento escrito no lo cumple por sí solo. |
+| L01 | El servicio publica responsable y contacto en sus documentos oficiales. Falta completar y verificar los datos del titular personal en Console; distinguirlo de la marca Sport Center. |
+| L02 | Aviso y términos oficiales actualizados el 8 de noviembre de 2026 y comprobados en HTTPS. La app utiliza esos mismos documentos; falta conciliar las declaraciones finales de la versión distribuida en Console. |
+| L03 | Recurso oficial de [eliminación de cuenta](https://sport-center-sitie.netlify.app/account/delete) y explicación/asistencia en el aviso de privacidad. La vía web pide sesión y código de verificación; el aviso ofrece correo si no se puede acceder. Falta incorporar y comprobar los recursos en Console; la integración nativa del proceso por código sigue pendiente. |
+| L04 | El proceso de eliminación en backend y web está comprobado. Falta completar la integración y aceptación nativa y acreditar la atención de excepciones y la conservación aplicable a la versión distribuida. |
 | D01 | Inventario preparado; confirmar proveedores activos, funciones y conservación efectiva. |
 | D02 | Incorporar la evidencia del pago aprobado entre cuentas TEST y su reconciliación local QA. OTHE sigue en procesamiento; retorno Android, notificación automática y operación desplegada conservan sus pendientes. |
 | D03 | Convertir el inventario confirmado en respuestas finales de Seguridad de los datos, aprobadas por el responsable. |

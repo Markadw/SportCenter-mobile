@@ -55,3 +55,15 @@ test("un recibo antiguo con datos ajenos al esquema no se interpreta como una nu
   jest.mocked(SecureStore.getItemAsync).mockResolvedValueOnce(JSON.stringify({ ...receipt, email: "privado@example.test" }));
   await expect(consentReceiptStorage.read()).rejects.toBeInstanceOf(ConsentReceiptStorageError);
 });
+
+test("una aceptación anterior conserva su versión y fecha sin convertirse en aceptación del aviso nuevo", async () => {
+  const previous = {
+    noticeVersion: "mobile-necessary-processing-v1",
+    acceptedAt: "2026-11-01T00:00:00.000Z",
+    privacyUrl: receipt.privacyUrl,
+    termsUrl: receipt.termsUrl,
+  };
+  jest.mocked(SecureStore.getItemAsync).mockResolvedValueOnce(JSON.stringify(previous));
+  expect(await consentReceiptStorage.read()).toEqual(previous);
+  expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
+});
