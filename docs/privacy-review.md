@@ -1,8 +1,37 @@
 # Revisión de privacidad y solicitud de eliminación — Sport Center móvil
 
+## Corte vigente: 8 de noviembre de 2026
+
+La app utiliza el mismo [aviso de privacidad](https://sport-center-sitie.netlify.app/legal/privacy) y los mismos [términos y condiciones](https://sport-center-sitie.netlify.app/legal/terms) publicados por Sport Center. Ambos documentos indican la revisión del **8 de noviembre de 2026**. Se retiran de la pantalla móvil las advertencias sobre contactos incompatibles y domicilio pendiente que correspondían a la revisión anterior.
+
+| Dato común de los documentos oficiales | Valor publicado |
+| --- | --- |
+| Marca | Sport Center |
+| Responsable | Carlos Reyes Mendoza |
+| Domicilio | Zacatecas 7, esquina con Velázquez Ibarra E, Centro, 43000 Huejutla de Reyes, Hidalgo, México |
+| Correo | sportcentersoporte@gmail.com |
+| Teléfono | 7712345678 |
+| Horario | lunes a domingo, de 10:00 a 20:00 h |
+
+La fuente web se integró mediante el [PR #11](https://github.com/AlexisYazir/front-sport/pull/11): implementación `6735589a42f4fc0633dd7567928fc26c15171c2b`, `main` `de33a3575dfdd8bed6ff529262ea8111258cc250`. La identidad y la revisión proceden de [`legal-contact.ts` de esa versión](https://github.com/AlexisYazir/front-sport/blob/de33a3575dfdd8bed6ff529262ea8111258cc250/src/app/features/legal/legal-contact.ts).
+
+La comprobación del despliegue identificó `main-AISS42LU.js`, `chunk-355HUATZ.js` para privacidad y `chunk-PKG5NPZK.js` para términos. Playwright abrió ambas URLs de producción en un perfil aislado, sin autenticación, y comprobó los títulos, el responsable y la fecha vigentes: ocho secciones del aviso y nueve de términos, sin notas internas ni desbordamiento horizontal a 390 px. Antes de publicar se revisaron ambas páginas localmente a 1280 y 390 px y sus acciones de impresión. El enlace de entrada a eliminación se comprobó sin iniciar una solicitud. Esta evidencia corresponde a la web; no acredita un APK, AAB ni un recorrido Android.
+
+El [recurso web de eliminación](https://sport-center-sitie.netlify.app/account/delete) y la [sección correspondiente del aviso](https://sport-center-sitie.netlify.app/legal/privacy#eliminar-cuenta) ya existen. El proceso web/API requiere sesión, código exclusivo enviado al correo de la cuenta y confirmación. El aviso explica la conservación y ofrece asistencia por correo cuando no se puede acceder a la cuenta.
+
+El formulario móvil conserva su funcionamiento: envía nombre, correo, asunto y mensaje a `POST /company/contact`, recibe únicamente `id_mensaje` como folio y exige revisión manual. **No ejecuta el proceso web/API ni acredita una eliminación.** Sus reglas de reseñas y la alternativa de correo tampoco cambian. La integración nativa del proceso por código queda para un cambio posterior.
+
+Los archivos `docs/public/privacy.html` y `docs/public/account-deletion.html` ahora redirigen al aviso oficial y a `/account/delete`, con enlaces de respaldo y referencias canónicas. No contienen políticas alternativas ni se presentan como páginas independientes ya desplegadas. Los términos se consultan en su URL oficial.
+
+Este corte sincroniza identidad, documentos y referencias. No cierra los pendientes de atención del formulario móvil, la integración nativa, las declaraciones de la versión distribuida, Play Console ni la publicación en Google Play. La comprobación documental no revalida las observaciones históricas del backend ni convierte un folio de atención en una eliminación completada. Tras integrar los cambios móviles deben ejecutarse lint, TypeScript y las pruebas existentes de privacidad/recibos; el recorrido M02/M03 queda descrito en [la guía manual](../tests/manual/compra-cliente.md).
+
+## Historial: revisión del 1 de noviembre de 2026
+
+> Se conserva a continuación el informe anterior con sus hallazgos, limitaciones y pendientes de aquella fecha. Las referencias a contactos incompatibles, domicilio sin confirmar, documentos pendientes de actualización y ausencia de recurso web de eliminación describen ese estado histórico; el corte vigente anterior las sustituye.
+
 Fecha de revisión: 1 de noviembre de 2026. Revisión técnica y de consistencia; no constituye validación legal. No se modificaron el sitio web ni el backend y no se enviaron formularios reales.
 
-## Evidencia del sitio publicado
+### Evidencia del sitio publicado
 
 Se verificaron mediante GET HTTPS las páginas [aviso existente](https://sport-center-sitie.netlify.app/legal/privacy) y [términos existentes](https://sport-center-sitie.netlify.app/legal/terms): ambas respondieron 200 sin redirección. Son rutas de una SPA: el 200 del HTML por sí solo no demuestra contenido. También se comprobó el router del bundle `main-K3FUMMAH.js` y se leyeron los recursos publicados `chunk-F5OLPQIY.js` (aviso) y `chunk-MQWCEG2F.js` (términos), ambos HTTP 200. No hubo navegador controlable disponible, por lo que no se afirma una verificación visual del render.
 
@@ -20,7 +49,7 @@ El usuario confirmó **Sport Center** como responsable de esta app, sin una raz�
 
 El aviso agrupa publicidad y prospección entre finalidades necesarias y coloca gestionar compras/ventas entre opcionales; esa clasificación debe revisarse. Describe ARCO y revocación con requisitos documentales y respuesta de 20 días hábiles, y cookies/web beacons del sitio. No se extrapolan automáticamente esas declaraciones a la app ni se inventan plazos de conservación. Los términos contemplan apartados, cancelaciones y métodos de pago que deben contrastarse con la operación móvil efectiva.
 
-## Resultado implementado
+### Resultado implementado
 
 - `/privacy` es pública y enlaza únicamente las rutas oficiales HTTPS verificadas y el contacto designado para la app. Identifica los documentos web como referencias pendientes de actualización.
 - Incluye reglas operativas de reseñas, accesibles mediante `/privacy?section=reviews`, y la solicitud mediante `/privacy?section=deletion`. Las reglas aclaran reporte manual y ocultación local reversible por cuenta en almacenamiento seguro nativo; en web sólo memoria; no prometen moderación automática.
@@ -31,7 +60,7 @@ El aviso agrupa publicidad y prospección entre finalidades necesarias y coloca 
 - `createNecessaryProcessingReceipt(accepted, timestamp)` es puro: produce versión, fecha y URLs, sin PII ni credenciales. Rechaza aceptación falsa. Root integra la casilla y persistencia local nativa con su módulo de almacenamiento; el helper no escribe ni registra consentimiento en backend. Su alcance es servicio de cuenta necesario, no marketing.
 - No se añadieron preferencias publicitarias sin efecto real.
 
-## Publicación en Google Play: pendiente operativo
+### Publicación en Google Play: pendiente operativo
 
 La [guía oficial de eliminación de cuentas de Google Play](https://support.google.com/googleplay/android-developer/answer/13327111) admite vías como atención por correo o formulario. Requiere una vía dentro de la app y un recurso web funcional que identifique la app/desarrollador y permita solicitar eliminación sin reinstalar la app. La información que se conserve por motivos legítimos debe explicarse. Esto **no convierte un simple formulario en una eliminación cumplida**: debe existir un equipo que valide y ejecute las solicitudes.
 
@@ -39,6 +68,6 @@ El router publicado no contiene una página específica de eliminación. La pág
 
 Antes de publicar: Sport Center debe confirmar su domicilio y operador del canal, corregir/unificar aviso, términos y contactos usando el nombre confirmado, determinar datos/plazos reales de conservación, asignar la atención y ejecución de solicitudes, revisar los borradores y desplegar una página HTTPS pública relevante. También debe revisar las declaraciones de datos y proveedores de la app contra su funcionamiento final. Hasta resolver estas diferencias, **no se puede declarar cerrado el requisito de privacidad o la publicación en Play**.
 
-## Verificación técnica
+### Verificación técnica
 
 Pruebas sin red ni cuentas reales: validación de campos/confirmación, allowlist de payload/folio, rechazo de respuesta inválida, cancelación y doble envío, correo alternativo y recibo de aceptación limitado. Ejecutar también `tsc --noEmit` y `expo lint .` tras integrar los módulos compartidos.

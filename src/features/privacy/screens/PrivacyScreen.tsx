@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, fontSize, radius, spacing } from "../../../constants/theme";
 import { Field, FormButton, FormMessage } from "../../registration/components/Form";
-import { PRIVACY_LINKS, REVIEW_RULES, SUPPORT_EMAIL } from "../config";
+import { LEGAL_CONTACT, PRIVACY_LINKS, REVIEW_RULES, SUPPORT_EMAIL } from "../config";
 import { usePrivacyViewModel } from "../hooks/usePrivacyViewModel";
 type Section = "reviews" | "deletion";
 export function PrivacyScreen() {
@@ -19,25 +19,16 @@ export function PrivacyScreen() {
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
         <View style={styles.content}>
           <Text accessibilityRole="header" style={styles.title}>Privacidad y términos</Text>
-          <Text style={styles.text}>Sport Center usa tus datos para gestionar tu cuenta, autenticarte, atender tus solicitudes y procesar las funciones de compra que utilices.</Text>
-          <Text style={styles.muted}>El responsable indicado para esta app es Sport Center. Esta pantalla describe su funcionamiento y facilita las referencias web existentes. El domicilio del responsable sigue pendiente de confirmación y los documentos web deben unificar sus datos de contacto.</Text>
+          <Text style={styles.text}>Consulte el aviso de privacidad y los términos y condiciones generales de Sport Center, aplicables a sus servicios y cuentas de cliente.</Text>
           <FormButton label="Ir a reglas de reseñas" onPress={() => jump("reviews")} secondary />
           <FormButton label="Ir a solicitud de eliminación" onPress={() => jump("deletion")} secondary />
           <View style={styles.section}>
-            <Text accessibilityRole="header" style={styles.heading}>Documentos web existentes</Text>
-            <Text style={styles.muted}>Los documentos publicados contienen contactos distintos del soporte indicado para esta app. Se muestran como referencia existente, pendiente de actualización para la app.</Text>
-            <FormButton label="Abrir aviso de privacidad del sitio" onPress={() => model.openLegal("privacy")} disabled={model.opening} secondary />
+            <Text accessibilityRole="header" style={styles.heading}>Documentos de Sport Center</Text>
+            <Text style={styles.muted}>Última actualización: {LEGAL_CONTACT.revisionLabel}.</Text>
+            <FormButton label="Abrir aviso de privacidad" onPress={() => model.openLegal("privacy")} disabled={model.opening} secondary />
             <Text selectable style={styles.url}>{PRIVACY_LINKS.privacy}</Text>
-            <FormButton label="Abrir términos y condiciones del sitio" onPress={() => model.openLegal("terms")} disabled={model.opening} secondary />
+            <FormButton label="Abrir términos y condiciones" onPress={() => model.openLegal("terms")} disabled={model.opening} secondary />
             <Text selectable style={styles.url}>{PRIVACY_LINKS.terms}</Text>
-          </View>
-          <View style={styles.section}>
-            <Text accessibilityRole="header" style={styles.heading}>Datos y sesión en este dispositivo</Text>
-            <Text style={styles.text}>La cuenta utiliza nombre, apellidos, correo y teléfono. Las direcciones, pedidos, pagos y reseñas se usan al acceder a esas funciones. El proveedor de pagos gestiona los datos de pago en su propio flujo.</Text>
-            <Text style={styles.text}>En iOS y Android se conserva una credencial de renovación y un identificador de sesión en el almacenamiento seguro del dispositivo para restaurar la sesión. La credencial de acceso se mantiene en memoria. En la versión web la sesión se mantiene en memoria.</Text>
-            <Text style={styles.text}>Las preferencias para ocultar reseñas guardan únicamente una versión y los IDs de los autores en almacenamiento seguro en iOS y Android, separados por cuenta o como invitado. Se pueden restaurar. En web permanecen sólo en memoria y no cambian datos del servidor.</Text>
-            <Text style={styles.text}>No se guardan contraseñas ni códigos de verificación o recuperación en el almacenamiento local. Cerrar sesión termina el acceso de este dispositivo; solicitar la eliminación de la cuenta es un trámite distinto.</Text>
-            <Text style={styles.muted}>La aceptación del tratamiento necesario para la cuenta no incluye autorización de marketing. Esta pantalla no modifica preferencias publicitarias del servidor.</Text>
           </View>
           <View style={styles.section} onLayout={event => measure("reviews", event.nativeEvent.layout.y)}>
             <Text accessibilityRole="header" style={styles.heading}>Reglas para publicar reseñas</Text>
@@ -47,16 +38,19 @@ export function PrivacyScreen() {
           </View>
           <View style={styles.section}>
             <Text accessibilityRole="header" style={styles.heading}>Contacto y derechos sobre tus datos</Text>
-            <Text style={styles.text}>Responsable: Sport Center. Para soporte de la app, consultas sobre acceso, rectificación, cancelación u oposición, revocación del consentimiento o seguimiento de solicitudes:</Text>
+            <Text style={styles.text}>Responsable: {LEGAL_CONTACT.owner}, titular de {LEGAL_CONTACT.brand}.</Text>
+            <Text selectable style={styles.text}>Domicilio: {LEGAL_CONTACT.address}.</Text>
+            <Text style={styles.text}>La Administración de Sport Center atiende las consultas y solicitudes sobre datos personales por los siguientes medios:</Text>
             <Text selectable style={styles.contact}>{SUPPORT_EMAIL}</Text>
-            <FormButton label="Abrir contacto del sitio" onPress={() => model.openLegal("contact")} disabled={model.opening} secondary />
+            <Text selectable style={styles.text}>Teléfono: {LEGAL_CONTACT.phone}. Horario de atención: {LEGAL_CONTACT.hours}.</Text>
+            <FormButton label="Abrir contacto" onPress={() => model.openLegal("contact")} disabled={model.opening} secondary />
             <Text selectable style={styles.url}>{PRIVACY_LINKS.contact}</Text>
             <FormMessage text={model.linkError} error />
           </View>
           <View style={styles.section} onLayout={event => measure("deletion", event.nativeEvent.layout.y)}>
             <Text accessibilityRole="header" style={styles.heading}>Solicitar eliminación de cuenta y datos</Text>
-            <Text style={styles.text}>Envía la solicitud al equipo de atención sin necesidad de iniciar sesión. El equipo debe validar la identidad y tramitarla manualmente. El folio sólo confirma que se registró el mensaje; tu cuenta y datos no se eliminan automáticamente.</Text>
-            <Text style={styles.muted}>El equipo debe aclararte qué datos se eliminan y si corresponde conservar alguno. No se comunica aquí un plazo de retención o resolución que no esté confirmado.</Text>
+            <Text style={styles.text}>Este formulario registra una solicitud para la Administración, sin necesidad de iniciar sesión. La verificación de identidad y la eliminación requieren su atención. El folio confirma la recepción; no acredita que la cuenta esté eliminada.</Text>
+            <Text style={styles.muted}>Los datos sujetos a obligaciones de conservación permanecen protegidos y con acceso restringido, conforme al aviso de privacidad.</Text>
             <Text style={styles.muted}>No envíes identificaciones, contraseñas ni códigos. Si se requiere validar tu identidad, solicita un canal adecuado a soporte.</Text>
             <FormMessage text={model.receiptId ? "Solicitud recibida. Folio #" + model.receiptId + ". Tu cuenta aún no está eliminada. Conserva el folio y contacta a " + SUPPORT_EMAIL + " para darle seguimiento." : null} />
             <Field label="Nombre para la solicitud" value={model.form.name} onChangeText={value => model.change("name", value)} error={model.errors.name} maxLength={100} autoCapitalize="words" editable={!model.pending && !model.opening} />

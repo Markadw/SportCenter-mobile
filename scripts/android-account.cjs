@@ -235,7 +235,7 @@ function guestGuardStatus(nodes, route) {
   const expected = route === 'profile' ? 'Accede a tu cuenta de Sport Center.' : 'Inicia sesión para continuar';
   return hasLabel(nodes, expected) && hasLabel(nodes, 'Iniciar sesión') ? 'ready' : 'loading';
 }
-function privacyVisible(nodes) { return hasLabel(nodes, 'Datos y sesión en este dispositivo'); }
+function privacyVisible(nodes) { return hasLabel(nodes, 'Abrir términos y condiciones'); }
 function fieldMatches(nodes, label, expected) { return inputMatches(nodes, label, expected); }
 function cartQuantityMatches(nodes, target, quantity) {
   const quantities = labelled(nodes, 'Cantidad de ' + target.name + ': ' + quantity);
@@ -287,7 +287,7 @@ const FLOWS = Object.freeze({
   logout: '- scrollUntilVisible:\n    element:\n      text: "^Cerrar sesión$"\n    timeout: 30000\n- tapOn: "^Cerrar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
   guest: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- assertNotVisible: "Has iniciado sesión en Sport Center."',
   guard: '- extendedWaitUntil:\n    visible: "Inicia sesión con tu cuenta de cliente para ver tus productos."\n    timeout: 45000\n- assertNotVisible: "^Subtotal$"',
-  privacy: '- extendedWaitUntil:\n    visible: "^Privacidad y términos$"\n    timeout: 45000\n- scrollUntilVisible:\n    element:\n      text: "^Abrir aviso de privacidad del sitio$"\n    timeout: 30000\n- assertVisible: "^Abrir aviso de privacidad del sitio$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir términos y condiciones del sitio$"\n    timeout: 30000\n- assertVisible: "^Abrir términos y condiciones del sitio$"\n- scrollUntilVisible:\n    element:\n      text: "^Datos y sesión en este dispositivo$"\n    timeout: 30000\n- assertVisible: "^Datos y sesión en este dispositivo$"',
+  privacy: '- extendedWaitUntil:\n    visible: "^Privacidad y términos$"\n    timeout: 45000\n- scrollUntilVisible:\n    element:\n      text: "^Documentos de Sport Center$"\n    timeout: 30000\n- assertVisible: "^Documentos de Sport Center$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir aviso de privacidad$"\n    timeout: 30000\n- assertVisible: "^Abrir aviso de privacidad$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir términos y condiciones$"\n    timeout: 30000\n- assertVisible: "^Abrir términos y condiciones$"',
 });
 function verifyJUnit(source, name, xmlTree) {
   let tree; try { tree = xmlTree(source); } catch { throw new AccountError('ACCOUNT_JUNIT_INVALID'); }

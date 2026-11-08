@@ -35,9 +35,9 @@ it("creates an encoded email draft for the user-designated support address", () 
   expect(decodeURIComponent(email)).toContain("Nombre: Ana");
 });
 it("creates deterministic local receipts scoped to necessary processing without PII or marketing flags", () => {
-  const timestamp = Date.UTC(2026, 10, 1);
+  const timestamp = Date.UTC(2026, 10, 8);
   const receipt = createNecessaryProcessingReceipt(true, timestamp);
-  expect(receipt).toEqual({ accepted: true, scope: "necessary-account-service", noticeVersion: "mobile-necessary-processing-v1", acceptedAt: "2026-11-01T00:00:00.000Z", privacyUrl: PRIVACY_LINKS.privacy, termsUrl: PRIVACY_LINKS.terms });
+  expect(receipt).toEqual({ accepted: true, scope: "necessary-account-service", noticeVersion: "sport-center-legal-2026-11-08", acceptedAt: "2026-11-08T00:00:00.000Z", privacyUrl: PRIVACY_LINKS.privacy, termsUrl: PRIVACY_LINKS.terms });
   expect(createNecessaryProcessingReceipt(true, timestamp)).toEqual(receipt);
   expect(() => createNecessaryProcessingReceipt(false, timestamp)).toThrow();
   expect(() => createNecessaryProcessingReceipt(true, NaN)).toThrow();

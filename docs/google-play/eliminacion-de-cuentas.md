@@ -1,6 +1,6 @@
 # Atención de solicitudes de eliminación
 
-Procedimiento propuesto para Sport Center. No acredita que exista un operador disponible, que una cuenta se haya eliminado o que los plazos estén aprobados. Esos puntos siguen pendientes. El trabajo de base de datos está aplazado; no se ejecuta ningún borrado desde esta preparación.
+Procedimiento propuesto para la atención del formulario móvil de Sport Center. No acredita que exista un operador disponible ni que una solicitud móvil se haya ejecutado. El proceso web/API por código existe por separado; su integración nativa sigue pendiente. Esta sincronización documental no ejecuta ningún borrado ni modifica ese formulario.
 
 ## Lo que ya hace la app
 
@@ -33,9 +33,9 @@ Ante identidad no verificada, solicitud duplicada, error técnico o una retenci�
 
 ## Recurso web
 
-Existe un [borrador de página específica](../public/account-deletion.html). Debe publicarse en una URL HTTPS pública y específica, identificar Sport Center y permitir iniciar la solicitud sin sesión ni reinstalar la app. Esa URL todavía no está confirmada y no debe introducirse como definitiva en Console.
+El recurso oficial es [Eliminar mi cuenta](https://sport-center-sitie.netlify.app/account/delete). El [aviso de privacidad, sección de eliminación](https://sport-center-sitie.netlify.app/legal/privacy#eliminar-cuenta), explica el proceso, la conservación y el correo de asistencia si no se puede acceder a la cuenta. Los documentos publicados el 8 de noviembre de 2026 identifican a Carlos Reyes Mendoza como responsable de Sport Center y usan `sportcentersoporte@gmail.com` como contacto.
 
-La página final explicará cómo solicitar cuenta y datos asociados, qué se conserva y por qué, y las expectativas reales de atención. La app y Console deben dirigir al recurso correcto; no usar una URL genérica de inicio o un archivo local como sustituto.
+La vía web requiere iniciar sesión, verificar un código enviado al correo de la cuenta y confirmar la solicitud. El formulario móvil continúa enviando un mensaje a atención; recibir su folio no ejecuta ese proceso web/API. Los archivos de `docs/public/` redirigen a los recursos oficiales para evitar políticas divergentes. Incorporar las URLs en Console y comprobar el recorrido aplicable a la versión distribuida sigue pendiente.
 
 ## Prueba de aceptación pendiente
 
