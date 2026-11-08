@@ -28,6 +28,7 @@ function Navigation() {
         <Stack.Screen name="login" options={{ title: "Iniciar sesión" }} />
         <Stack.Screen name="forgot-password" options={{ title: "Recuperar contraseña" }} />
         <Stack.Screen name="profile" options={{ title: "Mi perfil" }} />
+        <Stack.Screen name="account-deletion" options={{ title: "Eliminar cuenta" }} />
         <Stack.Screen name="orders/index" options={{ title: "Mis pedidos" }} />
         <Stack.Screen name="orders/[id]" options={{ title: "Detalle del pedido" }} />
         <Stack.Screen name="reviews/[id]" options={{ title: "Reseñas del producto" }} />

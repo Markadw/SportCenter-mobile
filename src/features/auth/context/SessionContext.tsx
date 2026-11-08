@@ -5,7 +5,7 @@ import {
 import { AppState } from "react-native";
 import axiosClient from "../../../api/axios";
 import type { LoginCredentials, Session } from "../types";
-import { SessionController } from "./SessionController";
+import { SessionController, type DeletionSessionIdentity } from "./SessionController";
 import { registerSessionInterceptors } from "./sessionInterceptors";
 
 interface SessionState {
@@ -15,6 +15,10 @@ interface SessionState {
   isRestoring: boolean;
   signIn: (credentials: LoginCredentials, signal: AbortSignal) => Promise<void>;
   signOut: () => Promise<void>;
+  captureDeletionIdentity: () => DeletionSessionIdentity | null;
+  isDeletionIdentityCurrent: (capture: DeletionSessionIdentity) => boolean;
+  deletionAccessToken: (capture: DeletionSessionIdentity) => Promise<string>;
+  clearDeletedAccountSession: (capture: DeletionSessionIdentity) => Promise<boolean>;
 }
 
 const SessionContext = createContext<SessionState | null>(null);
@@ -45,6 +49,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const value = useMemo(() => ({
     ...snapshot, signIn: controller.signIn, signOut: controller.signOut,
+    captureDeletionIdentity: controller.captureDeletionIdentity,
+    isDeletionIdentityCurrent: controller.isDeletionIdentityCurrent,
+    deletionAccessToken: controller.deletionAccessToken,
+    clearDeletedAccountSession: controller.clearDeletedAccountSession,
   }), [controller, snapshot]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

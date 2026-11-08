@@ -3,6 +3,9 @@ import { authApi } from "../../../api/authApi";
 import { InvalidSessionResponse } from "../errors";
 import { InvalidStoredSession, sessionStorage } from "../storage/sessionStorage";
 import type { LoginCredentials, Session, StoredSession } from "../types";
+import { clearCheckoutDraft } from "../../checkout/draft";
+import { authorPreferences } from "../../reviews/preferences/authorPreferences";
+import { forgetReviewPreferenceOwner, reviewPreferenceOwner } from "../../reviews/preferences/localIdentity";
 
 export const REFRESH_LEAD_MS = 30_000;
 const STORAGE_NOTICE = "No pudimos guardar la sesión de forma segura. En este dispositivo sólo seguirá abierta hasta cerrar la aplicación.";
@@ -30,10 +33,16 @@ export interface SessionRequestIdentity {
   retried: boolean;
 }
 
+export interface DeletionSessionIdentity {
+  identity: SessionRequestIdentity;
+  userId: number;
+}
+
 interface Dependencies {
   api: Pick<typeof authApi, "login" | "refresh" | "logout">;
   storage: typeof sessionStorage;
   now: () => number;
+  cleanupDeletedAccount: (userId: number, sessionId: string) => Promise<void>;
 }
 let nextOwner = 0;
 
@@ -48,10 +57,16 @@ export class SessionController {
   private flight: { generation: number; promise: Promise<Session>; abort: AbortController } | null = null;
   private retryAt = 0;
   private refreshAt = 0;
+  private pendingDeletionClear: { capture: DeletionSessionIdentity; generation: number } | null = null;
   private readonly deps: Dependencies;
 
   constructor(dependencies: Partial<Dependencies> = {}) {
-    this.deps = { api: authApi, storage: sessionStorage, now: () => Date.now(), ...dependencies };
+    this.deps = { api: authApi, storage: sessionStorage, now: () => Date.now(),
+      cleanupDeletedAccount: async (userId, sessionId) => {
+        clearCheckoutDraft(sessionId);
+        forgetReviewPreferenceOwner(userId);
+        await authorPreferences.purgeAccount(userId);
+      }, ...dependencies };
   }
 
   readonly getSnapshot = () => this.snapshot;
@@ -159,6 +174,61 @@ export class SessionController {
         this.publish({ notice: "Cerramos la sesión en este dispositivo, pero no pudimos confirmar el cierre en el servidor." });
       }
     }
+  };
+
+  readonly captureDeletionIdentity = (): DeletionSessionIdentity | null => {
+    if (!this.current || !this.snapshot.session) return null;
+    const identity = this.identityFor(this.current.accessToken);
+    if (!identity) return null;
+    try {
+      const owner = reviewPreferenceOwner(this.current.accessToken, this.current.sessionId);
+      return owner.kind === "account" ? { identity, userId: owner.userId } : null;
+    } catch { return null; }
+  };
+
+  readonly isDeletionIdentityCurrent = (capture: DeletionSessionIdentity): boolean => {
+    if (!this.owns(capture.identity) || !this.current) return false;
+    try {
+      const owner = reviewPreferenceOwner(this.current.accessToken, this.current.sessionId);
+      return owner.kind === "account" && owner.userId === capture.userId;
+    } catch { return false; }
+  };
+
+  readonly deletionAccessToken = async (capture: DeletionSessionIdentity): Promise<string> => {
+    if (!this.isDeletionIdentityCurrent(capture)) throw new SessionRequestError();
+    const token = await this.tokenFor(capture.identity);
+    if (!this.isDeletionIdentityCurrent(capture)) throw new SessionRequestError();
+    return token;
+  };
+
+  readonly clearDeletedAccountSession = async (capture: DeletionSessionIdentity): Promise<boolean> => {
+    // Una confirmación tardía no puede cerrar la cuenta que haya iniciado sesión después.
+    let attempt: number | null = null;
+    if (this.isDeletionIdentityCurrent(capture)) {
+      attempt = this.advance();
+      this.pendingDeletionClear = { capture, generation: attempt };
+    } else {
+      const pending = this.pendingDeletionClear;
+      if (pending && this.active && !this.current && this.generation === pending.generation &&
+        pending.capture.userId === capture.userId && pending.capture.identity.owner === capture.identity.owner &&
+        pending.capture.identity.generation === capture.identity.generation && pending.capture.identity.sessionId === capture.identity.sessionId) {
+        attempt = pending.generation;
+      }
+    }
+    if (attempt !== null) {
+      this.current = null;
+      this.publish({ session: null, notice: null, isRestoring: false });
+    }
+    const pending = this.pendingDeletionClear;
+    const sessionCleared = attempt === null || await this.clear(attempt);
+    if (attempt !== null && sessionCleared && this.pendingDeletionClear === pending) this.pendingDeletionClear = null;
+    let localCleared = true;
+    try { await this.deps.cleanupDeletedAccount(capture.userId, capture.identity.sessionId); }
+    catch {
+      localCleared = false;
+      if (attempt !== null && this.valid(attempt)) this.publish({ notice: "La sesión local se cerró, pero no pudimos borrar todas las preferencias de la cuenta de este dispositivo." });
+    }
+    return sessionCleared && localCleared;
   };
 
   private async endInvalidSession(attempt: number) {

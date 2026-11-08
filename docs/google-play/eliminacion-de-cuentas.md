@@ -1,12 +1,16 @@
-# Atención de solicitudes de eliminación
+# Eliminación de cuenta y atención de solicitudes
 
-Procedimiento propuesto para la atención del formulario móvil de Sport Center. No acredita que exista un operador disponible ni que una solicitud móvil se haya ejecutado. El proceso web/API por código existe por separado; su integración nativa sigue pendiente. Esta sincronización documental no ejecuta ningún borrado ni modifica ese formulario.
+La rama `feature/account-deletion-mobile` incorpora el autoservicio nativo con los mismos endpoints de eliminación utilizados por la web. Este documento distingue ese flujo de la alternativa de atención manual. Su incorporación al código no acredita que se haya distribuido un nuevo APK o publicado una versión en Google Play.
 
 ## Lo que ya hace la app
 
-Desde «Mi cuenta» se puede abrir «Solicitar eliminación de cuenta» incluso sin sesión. El formulario público pide nombre, correo de la cuenta, confirmación y detalles opcionales. Envía un mensaje a atención y recibe un folio. El correo alternativo prepara un mensaje que la persona debe enviar.
+Los clientes autenticados pueden entrar en «Eliminar cuenta» desde «Mi cuenta» o «Mi perfil». El proceso solicita un código exclusivo de seis dígitos al correo de identidad de la cuenta, verifica ese código y muestra las consecuencias antes de exigir una confirmación explícita. Solo la respuesta `completed` acredita la eliminación completada; los estados pendientes, de atención, de error o de resultado desconocido se presentan de forma diferenciada.
 
-Un folio acredita recepción del mensaje. No verifica identidad, desactiva sesiones ni elimina datos. Cerrar sesión y desactivar una cuenta tampoco equivalen a eliminarla.
+Antes de confirmar se guarda un comprobante en almacenamiento seguro nativo. Permite consultar el resultado después del cierre de sesión o de un reinicio. Una respuesta perdida no repite la confirmación. La sesión y los datos locales de la cuenta se limpian sin cerrar una cuenta diferente que haya iniciado sesión posteriormente.
+
+Como invitado se conserva «Solicitar eliminación de cuenta» y el formulario público de «Privacidad y términos». Pide nombre, correo de la cuenta, confirmación y detalles opcionales, envía un mensaje a atención y recibe un folio. El correo alternativo prepara un mensaje que la persona debe enviar.
+
+El folio de ese formulario manual acredita únicamente recepción del mensaje. No verifica identidad, desactiva sesiones ni elimina datos. Cerrar sesión y desactivar una cuenta tampoco equivalen a eliminarla.
 
 ## Proceso propuesto para atención
 
@@ -35,7 +39,7 @@ Ante identidad no verificada, solicitud duplicada, error técnico o una retenci�
 
 El recurso oficial es [Eliminar mi cuenta](https://sport-center-sitie.netlify.app/account/delete). El [aviso de privacidad, sección de eliminación](https://sport-center-sitie.netlify.app/legal/privacy#eliminar-cuenta), explica el proceso, la conservación y el correo de asistencia si no se puede acceder a la cuenta. Los documentos publicados el 8 de noviembre de 2026 identifican a Carlos Reyes Mendoza como responsable de Sport Center y usan `sportcentersoporte@gmail.com` como contacto.
 
-La vía web requiere iniciar sesión, verificar un código enviado al correo de la cuenta y confirmar la solicitud. El formulario móvil continúa enviando un mensaje a atención; recibir su folio no ejecuta ese proceso web/API. Los archivos de `docs/public/` redirigen a los recursos oficiales para evitar políticas divergentes. Incorporar las URLs en Console y comprobar el recorrido aplicable a la versión distribuida sigue pendiente.
+La vía web y el autoservicio nativo requieren iniciar sesión, verificar un código enviado al correo de identidad de la cuenta y confirmar la solicitud. El formulario de atención manual continúa disponible como alternativa; recibir su folio no ejecuta la eliminación. Los archivos de `docs/public/` redirigen a los recursos oficiales para evitar políticas divergentes. Incorporar las URLs en Console y comprobar el recorrido aplicable a la versión distribuida sigue pendiente.
 
 ## Prueba de aceptación pendiente
 

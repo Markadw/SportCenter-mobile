@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenState } from "../../../components/ScreenState";
 import { colors, fontSize, radius, spacing } from "../../../constants/theme";
+import { canRequestAccountDeletion } from "../../account-deletion/eligibility";
 import { useSession } from "../context/SessionContext";
 
 export function AccountScreen() {
@@ -29,10 +30,10 @@ export function AccountScreen() {
           <Pressable accessibilityRole="button" onPress={() => router.push("/privacy")} style={styles.menuItem}>
             <Text style={styles.link}>Privacidad y términos</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/privacy", params: { section: "deletion" } })}
+          {canRequestAccountDeletion(session.accessToken) && <Pressable accessibilityRole="button" onPress={() => router.push("/account-deletion")}
             style={styles.menuItem}>
-            <Text style={styles.link}>Solicitar eliminación de cuenta</Text>
-          </Pressable>
+            <Text style={styles.link}>Eliminar cuenta</Text>
+          </Pressable>}
           <Pressable accessibilityRole="button" onPress={() => router.replace("/catalog")} style={styles.button}>
             <Text style={styles.buttonLabel}>Explorar productos</Text>
           </Pressable>

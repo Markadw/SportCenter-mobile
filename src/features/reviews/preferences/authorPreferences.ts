@@ -7,6 +7,7 @@ const OPTIONS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStor
 const memory = new Map<string, string>();
 const queues = new Map<string, Promise<unknown>>();
 const listeners = new Map<string, Set<(authors: number[]) => void>>();
+const epochs = new Map<string, number>();
 export class ReviewPreferenceStorageError extends Error {}
 class CancelledPreferenceOperation extends Error {}
 function positiveId(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
@@ -35,8 +36,8 @@ async function read(key: string): Promise<number[]> {
   try { data = JSON.parse(raw); } catch { throw new ReviewPreferenceStorageError("Las preferencias guardadas no son válidas. Puedes restablecerlas."); }
   return parseAuthorPreferences(data);
 }
-async function write(key: string, authors: number[], isCurrent: () => boolean): Promise<number[]> {
-  if (!isCurrent()) throw new CancelledPreferenceOperation();
+async function write(key: string, authors: number[], isCurrent: () => boolean, epoch: number): Promise<number[]> {
+  if (!isCurrent() || (epochs.get(key) ?? 0) !== epoch) throw new CancelledPreferenceOperation();
   const normalized = parseAuthorPreferences({ version: 1, authors });
   const payload = JSON.stringify({ version: 1, authors: normalized });
   if (payload.length > MAX_PAYLOAD_LENGTH) throw new ReviewPreferenceStorageError("No se pudo guardar esta preferencia: se alcanzó el límite local.");
@@ -44,7 +45,7 @@ async function write(key: string, authors: number[], isCurrent: () => boolean): 
     if (Platform.OS === "web") memory.set(key, payload);
     else await SecureStore.setItemAsync(key, payload, OPTIONS);
   } catch { throw new ReviewPreferenceStorageError("No pudimos guardar el cambio. No se ha confirmado su persistencia en este dispositivo."); }
-  if (!isCurrent()) throw new CancelledPreferenceOperation();
+  if (!isCurrent() || (epochs.get(key) ?? 0) !== epoch) throw new CancelledPreferenceOperation();
   for (const listener of listeners.get(key) ?? []) listener([...normalized]);
   return normalized;
 }
@@ -54,16 +55,34 @@ export const authorPreferences = {
   hide(owner: ReviewPreferenceOwner, authorId: number, isCurrent: () => boolean = () => true): Promise<number[]> {
     if (!positiveId(authorId)) return Promise.reject(new ReviewPreferenceStorageError("El autor no es válido."));
     const key = reviewPreferenceKey(owner);
+    const epoch = epochs.get(key) ?? 0;
     return serialize(key, async () => {
-      if (!isCurrent()) throw new CancelledPreferenceOperation();
+      if (!isCurrent() || (epochs.get(key) ?? 0) !== epoch) throw new CancelledPreferenceOperation();
       const previous = await read(key);
       if (previous.includes(authorId)) return previous;
       if (previous.length >= MAX_HIDDEN_AUTHORS) throw new ReviewPreferenceStorageError("Puedes ocultar hasta 100 autores. Restaura alguno antes de añadir otro.");
-      return write(key, [...previous, authorId], isCurrent);
+      return write(key, [...previous, authorId], isCurrent, epoch);
     });
   },
   restoreAll(owner: ReviewPreferenceOwner, isCurrent: () => boolean = () => true): Promise<number[]> {
-    const key = reviewPreferenceKey(owner); return serialize(key, () => write(key, [], isCurrent));
+    const key = reviewPreferenceKey(owner), epoch = epochs.get(key) ?? 0;
+    return serialize(key, () => write(key, [], isCurrent, epoch));
+  },
+  purgeAccount(userId: number): Promise<void> {
+    const key = reviewPreferenceKey({ kind: "account", userId });
+    // Invalida primero las escrituras ya encoladas, sin bloquear un acceso futuro.
+    epochs.set(key, (epochs.get(key) ?? 0) + 1);
+    return serialize(key, async () => {
+      memory.delete(key);
+      for (const listener of listeners.get(key) ?? []) listener([]);
+      if (Platform.OS !== "web") {
+        try { await SecureStore.deleteItemAsync(key, OPTIONS); }
+        catch {
+          try { await SecureStore.setItemAsync(key, JSON.stringify({ version: 1, authors: [] }), OPTIONS); }
+          catch { throw new ReviewPreferenceStorageError("No pudimos borrar las preferencias de la cuenta de este dispositivo."); }
+        }
+      }
+    });
   },
   subscribe(owner: ReviewPreferenceOwner, listener: (authors: number[]) => void) {
     const key = reviewPreferenceKey(owner), group = listeners.get(key) ?? new Set<(authors: number[]) => void>();

@@ -1,9 +1,11 @@
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
+import { canRequestAccountDeletion } from "../../account-deletion/eligibility";
 import { useSession } from "../../auth/context/SessionContext";
 import { Form, Field, FormButton, FormMessage } from "../../registration/components/Form";
 import { ScreenState } from "../../../components/ScreenState";
 import { useProfileViewModel } from "../hooks/useProfileViewModel";
 export function ProfileScreen() {
+  const router = useRouter();
   const auth = useSession(), { session } = auth, model = useProfileViewModel(session?.accessToken, session?.sessionId);
   if ("isRestoring" in auth && auth.isRestoring === true) return <ScreenState title="Restaurando sesión" loading />;
   if (!session) return <Redirect href="/login" />;
@@ -18,5 +20,6 @@ export function ProfileScreen() {
     <FormMessage text={model.error} error />
     <FormMessage text={model.saved ? "Tu perfil se actualizó correctamente." : null} />
     <FormButton label="Guardar cambios" onPress={model.submit} busy={model.pending} />
+    {canRequestAccountDeletion(session.accessToken) && <FormButton label="Eliminar cuenta" secondary disabled={model.pending} onPress={() => router.push("/account-deletion")} />}
   </Form>;
 }

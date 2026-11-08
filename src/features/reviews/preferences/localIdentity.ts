@@ -26,6 +26,11 @@ export function bindReviewPreferenceOwner(sessionId: string | undefined, owner: 
   bindings.set(sessionId, owner.userId);
   if (bindings.size > 64) bindings.delete(bindings.keys().next().value!);
 }
+export function forgetReviewPreferenceOwner(userId: number) {
+  for (const [sessionId, boundUserId] of bindings) {
+    if (boundUserId === userId) bindings.delete(sessionId);
+  }
+}
 export function reviewPreferenceKey(owner: ReviewPreferenceOwner): string {
   if (owner.kind === "guest") return "sport-center.review-authors.guest";
   if (!validId(owner.userId)) throw new ReviewPreferenceIdentityError();
