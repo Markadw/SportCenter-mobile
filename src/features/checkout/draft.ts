@@ -26,6 +26,10 @@ export function activateCheckoutDraft(sessionId: string) {
 export function saveCheckoutDraft(sessionId: string, next: CheckoutDraft) {
   if (owner === sessionId && draft !== next) { draft = next; emit(); }
 }
+export function clearCheckoutDraft(sessionId: string) {
+  if (owner !== sessionId) return;
+  owner = null; draft = null; emit();
+}
 export function finishCheckoutDraft(sessionId: string, status: OrderStatus): boolean {
   // Un estado de otro pedido nunca resuelve una confirmación perdida sin ID conocido.
   if (owner !== sessionId || !draft?.prepared || draft.prepared.orderId !== status.id || draft.uncertain) return false;

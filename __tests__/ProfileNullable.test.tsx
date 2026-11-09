@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import axiosClient from "../src/api/axios";
 import { ProfileScreen } from "../src/features/profile/screens/ProfileScreen";
+const mockPush = jest.fn();
+const mockSession = { sessionId: "nullable-contact", accessToken: "token" };
 jest.mock("../src/api/axios", () => ({ __esModule: true, default: { get: jest.fn(), patch: jest.fn() } }));
-jest.mock("expo-router", () => ({ Redirect: () => null }));
-jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => ({ session: { sessionId: "nullable-contact", accessToken: "token" } }) }));
+jest.mock("expo-router", () => ({ Redirect: () => null, useRouter: () => ({ push: mockPush }) }));
+jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => ({ session: mockSession }) }));
+beforeEach(() => { mockSession.accessToken = "token"; });
 it("permite completar correo y teléfono NULL en el editor y sólo guarda valores validados", async () => {
   const profile = { nombre: "Ana", aPaterno: "López", aMaterno: "García", email: null, telefono: null };
   jest.mocked(axiosClient.get).mockResolvedValue({ data: profile });
@@ -19,4 +22,13 @@ it("permite completar correo y teléfono NULL en el editor y sólo guarda valore
   await fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
   await waitFor(() => expect(screen.getByText("Tu perfil se actualizó correctamente.")).toBeTruthy());
   expect(axiosClient.patch).toHaveBeenCalledWith("/users/update-profile", { ...profile, email: "ana@example.com", telefono: "5512345678" }, expect.objectContaining({ headers: { Authorization: "Bearer token" } }));
+});
+it("el perfil de cliente conecta el autoservicio sin alterar ni guardar sus datos", async () => {
+  mockSession.accessToken = "eyJhbGciOiJIUzI1NiJ9.eyJpZF91c3VhcmlvIjoxNywicm9sIjoxfQ.signature";
+  jest.mocked(axiosClient.get).mockResolvedValue({ data: { nombre: "Ana", aPaterno: "López", aMaterno: "García", email: "ana@example.com", telefono: "5512345678" } });
+  await render(<ProfileScreen />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Eliminar cuenta" })).toBeTruthy());
+  await fireEvent.press(screen.getByRole("button", { name: "Eliminar cuenta" }));
+  expect(mockPush).toHaveBeenCalledWith("/account-deletion");
+  expect(axiosClient.patch).not.toHaveBeenCalled();
 });
