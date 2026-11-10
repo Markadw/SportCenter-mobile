@@ -20,6 +20,8 @@ function driverFor(phase,secret,options={}){
   if(screen==='verify')return[...values,node('Verificar correo'),node('Código de verificación'),...(notice?[node(notice)]:[])];
   if(screen==='verified')return[node('Cuenta verificada'),node('Tu correo quedó confirmado. Ya puedes iniciar sesión en Sport Center.')];
   if(screen==='email')return[...values,node('Recuperar contraseña'),node('Enviar código')];
+  if(screen==='reset-code')return[node('Código de recuperación'),node('Continuar'),node('Paso 2 de 3'),...(notice?[node(notice)]:[])];
+  if(screen==='reset-password')return[node('Nueva contraseña'),node('Confirmar contraseña'),node('Actualizar contraseña'),node('Volver al código')];
   if(screen==='reset')return[...(resetViewport==='code'?[node('Código de recuperación')]:options.missingUpdateButton?[]:[node('Actualizar contraseña')]),...(notice?[node(notice)]:[])];
   if(screen==='done')return[node('Contraseña actualizada'),node('Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.')];
   if(screen==='login')return[...values,node('Iniciar sesión')];
@@ -27,8 +29,8 @@ function driverFor(phase,secret,options={}){
   return[node('Inicia sesión con tu cuenta verificada o regístrate para comenzar.')];
  };
  const driver={
-  async open(route){calls.push(['open',route]);screen=route==='register'?'register':route==='forgot-password'?'email':route==='account'?(loggedIn?'account':'guest'):'login';notice='';},
-  async fill(key,value){calls.push(['fill',key]);fields[key]=value;if(key==='recovery')resetViewport='code';if(['newPassword','confirmation'].includes(key))resetViewport='button';},
+  async open(route){calls.push(['open',route]);screen=route==='verify-email'?'verify':route==='register'?'register':route==='forgot-password'?'email':route==='account'?(loggedIn?'account':'guest'):'login';notice='';},
+  async fill(key,value){if(options.multistep&&['newPassword','confirmation'].includes(key))assert.equal(screen,'reset-password');calls.push(['fill',key]);fields[key]=value;if(key==='recovery')resetViewport='code';if(['newPassword','confirmation'].includes(key))resetViewport='button';},
   async reveal(label){calls.push(['reveal',label]);assert.equal(label,'Actualizar contraseña');resetViewport='button';},
   async tap(label){calls.push(['tap',label]);
    if(options.failTap===label)throw new forms.FormsError('FORMS_UI_TIMEOUT');
@@ -37,9 +39,11 @@ function driverFor(phase,secret,options={}){
    else if(label==='Reenviar código'){counters.resend++;notice=forms.NOTICE_RESENT;}
    else if(label==='Ya tengo un código')screen='verify';
    else if(label==='Verificar cuenta'){if(fields.verification===secret.code||options.acceptWrongVerification)screen='verified';else notice='Código incorrecto. Intentos restantes: 2.';}
-   else if(label==='Enviar código'){counters.recovery++;if(!options.recoveryUnconfirmed){screen='reset';resetViewport='code';}}
-   else if(label==='Ya tengo un código de recuperación'){screen='reset';resetViewport='code';}
-   else if(label==='Actualizar contraseña'){counters.reset++;if(fields.recovery===secret.code&&!options.resetUnconfirmed)screen='done';else notice=forms.RESET_ERROR;}
+   else if(label==='Enviar código'){counters.recovery++;if(!options.recoveryUnconfirmed){screen=options.multistep?'reset-code':'reset';resetViewport='code';}}
+   else if(label==='Introducir código de recuperación'){screen=options.multistep?'reset-code':'reset';resetViewport='code';}
+   else if(label==='Continuar'){assert.equal(screen,'reset-code');assert.match(fields.recovery,/^[0-9]{6}$/);screen='reset-password';}
+   else if(label==='Volver al código')screen='reset-code';
+   else if(label==='Actualizar contraseña'){counters.reset++;if(fields.recovery===secret.code&&!options.resetUnconfirmed)screen='done';else{notice=options.multistep?'Código incorrecto. Intentos restantes: 2.':forms.RESET_ERROR;if(options.multistep)screen='reset-code';}}
    else if(label==='Iniciar sesión'){counters.login++;if(!options.loginRejected){screen='account';loggedIn=true;}}
    else if(label==='Cerrar sesión'){counters.logout++;loggedIn=options.logoutSessionRemains===true;screen='login';}
    else throw new Error('unexpected public test action');
@@ -53,7 +57,7 @@ async function completed(phase,options={}){const c=config(),s=state(phase),secre
 test('real registration and one resend are separate mandatory observations; no OTP or mailbox login is needed in this phase',async()=>{
  const result=await completed('register');assert.equal(result.report.status,'passed');assert.deepEqual(result.report.cases.map(c=>c.id),['EF01','EF02']);assert.equal(result.counters.registration,1);assert.equal(result.counters.resend,1);assert.equal(result.counters.recovery,0);assert.equal(result.report.gmailDelivery,'not-observed-by-runner');
 });
-test('verification uses the existing resume UI, observes incorrect code then verified account, and requests recovery once',async()=>{
+test('verification opens the existing verification route without repeating registration, observes incorrect code then verified account, and requests recovery once',async()=>{
  const result=await completed('verify');assert.equal(result.report.status,'passed');assert.equal(result.counters.registration,0);assert.equal(result.counters.resend,0);assert.equal(result.counters.recovery,1);assert.deepEqual(result.report.cases.map(c=>c.id),['EF03','EF04','EF05']);assert.equal(result.report.evidence.invalidVerificationDidNotComplete,true);
 });
 test('reset consumes the existing code before login, stable guest logout and exactly one new recovery request',async()=>{
@@ -359,4 +363,17 @@ test('a partial install failure still checks and removes any resulting package b
 });
 test('cleanup failure remains a mandatory failure rather than being hidden by a previous UI error',async()=>{
  const r=await runtimeFailure({cleanupFailed:true});assert.equal(r.report.status,'failed');assert.equal(r.report.cleanup.sandbox,false);assert.equal(r.confirmed,false);assert.deepEqual(r.report.failureCodes,['FORMS_INPUT_MISMATCH','FORMS_SANDBOX_CLEANUP_FAILED']);
+});
+
+
+test('three-step recovery observes both controls without submitting a placeholder code',async()=>{
+ const result=await completed('request',{multistep:true});
+ assert.equal(result.report.status,'passed');assert.equal(result.counters.recovery,1);assert.equal(result.counters.reset,0);
+ assert.equal(result.report.recoveryUi.codeObserved,true);assert.equal(result.report.recoveryUi.updateButtonObserved,true);
+});
+test('three-step reset reaches password after code and returns to code after a rejected reset',async()=>{
+ const result=await completed('reset',{multistep:true});
+ assert.equal(result.report.status,'passed');assert.equal(result.counters.reset,2);assert.equal(result.counters.login,1);
+ assert.equal(result.calls.filter(c=>c[0]==='tap'&&c[1]==='Continuar').length,4);
+ assert.equal(result.counters.recovery,1);
 });

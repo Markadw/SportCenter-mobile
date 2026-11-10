@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { CartScreen } from "../src/features/cart/screens/CartScreen";
 import { cartApi } from "../src/api/cartApi";
 jest.mock("../src/api/cartApi", () => ({ cartApi: { get: jest.fn(), update: jest.fn(), remove: jest.fn(), add: jest.fn() } }));
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }), useFocusEffect: (effect: () => void) => jest.requireActual("react").useEffect(effect, [effect]) }));
+jest.mock("lucide-react-native", () => ({ ChevronLeft: () => null, CircleArrowRight: () => null, Minus: () => null, Plus: () => null, Trash2: () => null }));
+jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useRouter: () => ({ push: jest.fn(), back: jest.fn(), canGoBack: () => true, replace: jest.fn() }), useFocusEffect: (effect: () => void) => jest.requireActual("react").useEffect(effect, [effect]) }));
 jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => ({ session: { sessionId: "stock-session", accessToken: "token" } }) }));
 jest.mock("../src/components/ProductImage", () => ({ ProductImage: () => null }));
 const item = { variantId: 12, productId: 7, name: "Balón", sku: "RED", quantity: 10, unitPrice: 270, stock: 3, active: true, image: null, attributes: {} };

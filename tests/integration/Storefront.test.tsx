@@ -13,7 +13,7 @@ jest.mock('../../src/api/axios', () => ({ __esModule: true, default: { get: jest
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }), useLocalSearchParams: () => ({}) }));
 jest.mock('lucide-react-native', () => Object.fromEntries([
   'Search', 'ShoppingBag', 'User', 'ChevronRight', 'Home', 'SlidersHorizontal', 'Share2', 'ChevronDown', 'ChevronUp', 'X',
-  'Activity', 'Bike', 'CircleDot', 'Dumbbell', 'Trophy', 'Zap',
+  'Activity', 'Bike', 'CircleDot', 'Dumbbell', 'Trophy', 'Zap', 'ChevronLeft', 'ArrowUpDown',
 ].map((name) => [name, () => null])));
 const get = jest.mocked(axiosClient.get);
 const otherProduct = { ...rawProduct, id_producto: 8, producto: 'Balón de básquetbol', deportes: ['Básquetbol'] };

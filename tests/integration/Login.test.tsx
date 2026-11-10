@@ -20,7 +20,8 @@ const mockPush = jest.fn();
 const mockReplace = jest.fn();
 let mockBlur: (() => void) | undefined;
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  Stack: { Screen: () => null },
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn(), canGoBack: () => false }),
   useLocalSearchParams: () => mockParams,
   Redirect: ({ href }: { href: string }) => {
     const { Text: NativeText } = jest.requireActual("react-native");
@@ -34,7 +35,7 @@ jest.mock("expo-router", () => ({
     }, [effect]);
   },
 }));
-jest.mock("lucide-react-native", () => ({ Search: () => null, ShoppingBag: () => null, User: () => null }));
+jest.mock("lucide-react-native", () => ({ ArrowRight: () => null, ChevronLeft: () => null, Eye: () => null, EyeOff: () => null, LockKeyhole: () => null, LogIn: () => null, Mail: () => null, ChevronRight: () => null, FileText: () => null, LogOut: () => null, Package: () => null, ShieldCheck: () => null, Trash2: () => null, Search: () => null, ShoppingBag: () => null, User: () => null }));
 
 let adapter: jest.MockedFunction<AxiosAdapter>;
 const originalAdapter = axiosClient.defaults.adapter;

@@ -37,8 +37,8 @@ function credentials(env,phase){
 }
 function wrongCode(value){need(/^\d{6}$/.test(value),'FORMS_FIXTURE_INVALID');return value.slice(0,5)+(Number(value[5])+1)%10;}
 const FIELD_BODY='- eraseText: 256\n- inputText: ${MAESTRO_ACCOUNT_FIELD_VALUE}\n- hideKeyboard';
-const BUTTONS=Object.freeze(['Acepto el tratamiento necesario para mi cuenta','Crear cuenta','Reenviar código','Ya tengo un código','Verificar cuenta','Enviar código','Ya tengo un código de recuperación','Actualizar contraseña','Iniciar sesión','Cerrar sesión']);
-const BUTTON_TARGETS=Object.freeze(['consent','register-submit','resend-code','verify-resume','verify-submit','request-recovery','reset-resume','reset-submit','login-submit','logout']);
+const BUTTONS=Object.freeze(['Acepto el tratamiento necesario para mi cuenta','Crear cuenta','Reenviar código','Ya tengo un código','Verificar cuenta','Enviar código','Introducir código de recuperación','Actualizar contraseña','Iniciar sesión','Cerrar sesión','Continuar','Volver al código']);
+const BUTTON_TARGETS=Object.freeze(['consent','register-submit','resend-code','verify-resume','verify-submit','request-recovery','reset-resume','reset-submit','login-submit','logout','reset-continue','reset-back-code']);
 const SCROLL_TARGETS=Object.freeze(Object.fromEntries([...Object.entries(LABELS).map(([key,label])=>['input-'+key,Object.freeze({label,kind:'input'})]),...BUTTONS.map((label,i)=>[BUTTON_TARGETS[i],Object.freeze({label,kind:'button'})])]));
 function formsYaml(name,body){
  need(typeof name==='string'&&name.length===5&&/^EF[0-9]{3}$/.test(name)&&body===FIELD_BODY,'FORMS_MAESTRO_FAILED');
@@ -47,6 +47,7 @@ function formsYaml(name,body){
 function landingReady(route,nodes){
  const field=label=>nodes.some(node=>node.package===PACKAGE&&node.class==='android.widget.EditText'&&node['content-desc']===label&&node.enabled==='true');
  if(route==='register')return account.hasLabel(nodes,'Crear cuenta')&&field('Nombre');
+ if(route==='verify-email')return account.hasLabel(nodes,'Verificar correo')&&field('Correo electrónico');
  if(route==='forgot-password')return account.hasLabel(nodes,'Recuperar contraseña')&&field('Correo');
  if(route==='login')return account.hasLabel(nodes,'Accede a tu cuenta de Sport Center.')&&field('Correo electrónico');
  throw new FormsError('FORMS_UI_INVALID');
@@ -167,7 +168,7 @@ function safeScrollDiagnostic(value){
 }
 async function scrollControl({readUi,swipe,viewport,label,kind,direction,target,route,now=Date.now,onDiagnostic=()=>{}}){
  need(Object.hasOwn(SCROLL_TARGETS,target)&&SCROLL_TARGETS[target].label===label&&SCROLL_TARGETS[target].kind===kind&&['UP','DOWN'].includes(direction),'FORMS_UI_INVALID');
- need(route===undefined||['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');
+ need(route===undefined||['register','verify-email','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');
  const deadline=now()+30000,diagnostic={target,direction,attempts:0,regionFound:false,regionValid:false,laneFound:false,result:'searching'};
  const publish=()=>onDiagnostic({...diagnostic});
  const stop=(result,code='FORMS_UI_INVALID')=>{diagnostic.result=result;publish();throw new FormsError(code);};
@@ -224,12 +225,22 @@ function stage(state,value){need(STAGES.includes(value),'FORMS_UI_INVALID');stat
 async function executePhase(driver,secret,state){
  const mark=(id,evidence)=>{state.cases[id]='passed';state.evidence[evidence]=true;};
  const submit=async(label,before,after,predicate)=>{stage(state,before);state.operationUncertain=true;await driver.tap(label);stage(state,after);await driver.wait(predicate);state.operationUncertain=false;};
+ let steppedRecovery=false;
  const recoveryForm=async()=>{
   state.recoveryUi={codeObserved:false,updateButtonObserved:false,lastCodeVisible:false,lastUpdateButtonVisible:false};
   const observe=nodes=>{const code=account.hasLabel(nodes,'Código de recuperación'),button=account.hasLabel(nodes,'Actualizar contraseña');state.recoveryUi={codeObserved:state.recoveryUi.codeObserved||code,updateButtonObserved:state.recoveryUi.updateButtonObserved||button,lastCodeVisible:code,lastUpdateButtonVisible:button};return{code,button};};
-  await driver.wait(nodes=>observe(nodes).code);
-  await driver.reveal('Actualizar contraseña');
-  await driver.wait(nodes=>observe(nodes).button);
+  const nodes=await driver.wait(nodes=>observe(nodes).code);
+  steppedRecovery=account.hasLabel(nodes,'Continuar')||account.hasLabel(nodes,'Paso 2 de 3');
+  if(steppedRecovery){
+   // Sólo comprueba navegación local; no verifica ni consume el OTP recibido.
+   await driver.fill('recovery','000000',{direction:'UP'});await driver.tap('Continuar');
+   await driver.wait(nodes=>observe(nodes).button);await driver.tap('Volver al código');await driver.wait(nodes=>observe(nodes).code);
+  }else{await driver.reveal('Actualizar contraseña');await driver.wait(nodes=>observe(nodes).button);}
+ };
+ const fillReset=async code=>{
+  await driver.fill('recovery',code,{direction:'UP'});
+  if(steppedRecovery){await driver.tap('Continuar');await driver.wait(nodes=>account.hasLabel(nodes,'Nueva contraseña')&&account.hasLabel(nodes,'Actualizar contraseña'));}
+  await driver.fill('newPassword',secret.newPassword,{secure:true});await driver.fill('confirmation',secret.newPassword,{secure:true});
  };
  const requestRecovery=async()=>{
   stage(state,'recovery-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});
@@ -245,15 +256,15 @@ async function executePhase(driver,secret,state){
   await submit('Crear cuenta','register-submit','register-response',nodes=>account.hasLabel(nodes,'Verificar correo')&&account.hasLabel(nodes,'Código de verificación'));mark('EF01','registered');
   await submit('Reenviar código','resend-submit','resend-response',nodes=>account.hasLabel(nodes,NOTICE_RESENT));mark('EF02','resent');
  }else if(state.phase==='verify'){
-  stage(state,'verify-open');await driver.open('register');await driver.fill('registrationEmail',secret.email);stage(state,'verify-resume');await driver.tap('Ya tengo un código');await driver.wait(nodes=>account.hasLabel(nodes,'Verificar correo')&&account.fieldMatches(nodes,'Correo electrónico',secret.email));
+  stage(state,'verify-open');await driver.open('verify-email');await driver.fill('registrationEmail',secret.email);stage(state,'verify-resume');await driver.wait(nodes=>account.hasLabel(nodes,'Verificar correo')&&account.fieldMatches(nodes,'Correo electrónico',secret.email));
   await driver.fill('verification',wrongCode(secret.code));await submit('Verificar cuenta','verify-invalid-submit','verify-invalid-response',nodes=>account.hasLabel(nodes,'Código incorrecto. Intentos restantes: 2.')&&!account.hasLabel(nodes,'Cuenta verificada'));mark('EF03','invalidVerificationDidNotComplete');
   await driver.fill('verification',secret.code);await submit('Verificar cuenta','verify-submit','verify-response',nodes=>account.hasLabel(nodes,'Cuenta verificada')&&account.hasLabel(nodes,'Tu correo quedó confirmado. Ya puedes iniciar sesión en Sport Center.'));mark('EF04','verified');
   await requestRecovery();
  }else if(state.phase==='reset'){
-  stage(state,'reset-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});stage(state,'reset-resume');await driver.tap('Ya tengo un código de recuperación');await recoveryForm();mark('EF06','resumedWithoutRequest');
-  await driver.fill('recovery',wrongCode(secret.code),{direction:'UP'});await driver.fill('newPassword',secret.newPassword,{secure:true});await driver.fill('confirmation',secret.newPassword,{secure:true});
-  await submit('Actualizar contraseña','reset-invalid-submit','reset-invalid-response',nodes=>account.hasLabel(nodes,RESET_ERROR)&&!account.hasLabel(nodes,'Contraseña actualizada'));mark('EF07','invalidResetDidNotComplete');
-  await driver.fill('recovery',secret.code,{direction:'UP'});await submit('Actualizar contraseña','reset-submit','reset-response',nodes=>account.hasLabel(nodes,'Contraseña actualizada')&&account.hasLabel(nodes,'Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.'));mark('EF08','passwordUpdated');
+  stage(state,'reset-open');await driver.open('forgot-password');await driver.fill('recoveryEmail',secret.email,{direction:'UP'});stage(state,'reset-resume');await driver.tap('Introducir código de recuperación');await recoveryForm();mark('EF06','resumedWithoutRequest');
+  await fillReset(wrongCode(secret.code));
+  await submit('Actualizar contraseña','reset-invalid-submit','reset-invalid-response',nodes=>(account.hasLabel(nodes,RESET_ERROR)||account.hasLabel(nodes,'Código incorrecto. Intentos restantes: 2.'))&&!account.hasLabel(nodes,'Contraseña actualizada'));mark('EF07','invalidResetDidNotComplete');
+  await fillReset(secret.code);await submit('Actualizar contraseña','reset-submit','reset-response',nodes=>account.hasLabel(nodes,'Contraseña actualizada')&&account.hasLabel(nodes,'Tu contraseña se cambió correctamente. Inicia sesión con la nueva contraseña.'));mark('EF08','passwordUpdated');
   stage(state,'login-open');await driver.open('login');await driver.fill('registrationEmail',secret.email,{direction:'UP'});await driver.fill('password',secret.newPassword,{secure:true,login:true});
   await submit('Iniciar sesión','login-submit','login-response',nodes=>account.hasLabel(nodes,'Mi cuenta')&&account.hasLabel(nodes,'Has iniciado sesión en Sport Center.'));state.evidence.newPasswordLogin=true;
   stage(state,'logout-submit');state.operationUncertain=true;await driver.tap('Cerrar sesión');stage(state,'logout-response');
@@ -308,7 +319,7 @@ async function runPhase({env,config,context,apk,run=strictRun,create=createSandb
  const reveal=async label=>{const i=BUTTONS.indexOf(label);need(i>=0,'FORMS_UI_INVALID');await revealControl(label,'button','DOWN',BUTTON_TARGETS[i]);};
  const tap=async label=>{await reveal(label);const point=await measured(label,'button');await adb(['shell','input','tap',...point.map(String)]);};
  const driver={
-  async open(route){need(['register','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');currentRoute=route;await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
+  async open(route){need(['register','verify-email','forgot-password','login','account'].includes(route),'FORMS_UI_INVALID');currentRoute=route;await adb(['shell','am','start','-W','-n',PACKAGE+'/.MainActivity','-a','android.intent.action.VIEW','-d','sportcentermobile://'+route]);if(route!=='account')await waitForUi(nodes=>landingReady(route,nodes),{readUi,now,wait});},
   async wait(predicate){return waitForUi(predicate,{readUi,now,wait});},tap,reveal,async pause(duration){need(phase==='request'&&duration===65000,'FORMS_SOURCE_INVALID');await wait(duration);},
   async fill(key,value,{secure=false,login=false,direction='DOWN'}={}){stage(state,'field-'+key);await revealControl(LABELS[key],'input',direction,'input-'+key);const point=await measured(LABELS[key],'input');await adb(['shell','input','tap',...point.map(String)]);await flow(FIELD_BODY,value);stage(state,'check-'+key);
    const fieldNodes=async()=>scopedFormNodes(await readUi(),viewport,{label:LABELS[key],kind:'input',route:currentRoute});

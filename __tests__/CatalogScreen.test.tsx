@@ -6,9 +6,11 @@ import { product } from './fixtures/products';
 
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }), useLocalSearchParams: () => ({}) }));
-jest.mock('lucide-react-native', () => ({ ChevronRight: () => null,
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn(), canGoBack: () => false, replace: jest.fn() }), useLocalSearchParams: () => ({}) }));
+jest.mock('lucide-react-native', () => ({ ArrowUpDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, User: () => null,
   Home: () => null, SlidersHorizontal: () => null, Share2: () => null, Search: () => null, ShoppingBag: () => null, X: () => null }));
+jest.mock('../src/features/auth/context/SessionContext', () => ({ useSession: () => ({ session: null }) }));
+const many = (length: number, extra: (i: number) => object = () => ({})) => Array.from({ length }, (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}`, ...extra(i) }));
 jest.mock('../src/features/catalog', () => ({ useFilters: jest.fn() }));
 jest.mock('../src/features/products/context/ProductsContext', () => ({ useProducts: jest.fn() }));
 jest.mock('../src/features/products/components/FiltersModal', () => ({ FiltersModal: () => null }));
@@ -71,17 +73,50 @@ describe('HU-03: catálogo público', () => {
     expect(screen.getByText('No hay productos con esos filtros.')).toBeTruthy();
   });
 
-  test('carga más productos sin retirar los anteriores', async () => {
-    productsState.mockReturnValue({ ...productsState(), products: Array.from({ length: 21 },
-      (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}` })) });
+  test('sin productos no muestra paginación', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: [] });
     await render(<CatalogScreen />);
+    expect(screen.queryByLabelText('Página siguiente')).toBeNull();
+  });
+
+  test('con 20 productos muestra una sola página sin controles', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: many(20) });
+    await render(<CatalogScreen />);
+    expect(screen.getByText('20 resultados')).toBeTruthy();
+    expect(screen.queryByLabelText('Página siguiente')).toBeNull();
+  });
+
+  test('con 21 productos pagina de 20 en 20 y el siguiente reemplaza la página', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: many(21) });
+    await render(<CatalogScreen />);
+    expect(screen.getByText('21 resultados · Página 1 de 2')).toBeTruthy();
     expect(screen.queryByText('Producto 21')).toBeNull();
-    await fireEvent.press(screen.getByText('Ver más productos'));
-    await fireEvent.scroll(screen.getByTestId('catalog-list'), { nativeEvent: {
-      contentOffset: { x: 0, y: 3000 }, layoutMeasurement: { width: 390, height: 800 },
-      contentSize: { width: 390, height: 3300 } } });
-    expect(screen.queryByText('Ver más productos')).toBeNull();
-    expect(screen.getByText('21 resultados')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Página siguiente'));
+    expect(screen.getByText('Producto 21')).toBeTruthy();
+    expect(screen.queryByText('Producto 1', { exact: true })).toBeNull();
+    expect(screen.getByLabelText('Página 2').props.accessibilityState).toMatchObject({ selected: true });
+  });
+
+  test('con más de 40 productos numera las páginas y respeta el orden', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: many(45) });
+    await render(<CatalogScreen />);
+    expect(screen.getByText('45 resultados · Página 1 de 3')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Página 3'));
+    expect(screen.getByText('Producto 45')).toBeTruthy();
+    expect(screen.queryByText('Producto 40')).toBeNull();
+    expect(screen.getByLabelText('Página siguiente').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  test('la búsqueda filtra los resultados y vuelve a la página 1', async () => {
+    productsState.mockReturnValue({ ...productsState(), products: many(45) });
+    await render(<CatalogScreen />);
+    await fireEvent.press(screen.getByLabelText('Página 2'));
+    await fireEvent.changeText(screen.getByLabelText('Buscar en el catálogo'), 'Producto 4');
+    expect(screen.getByText('10 resultados')).toBeTruthy();
+    expect(screen.getByText('Producto 4', { exact: true })).toBeTruthy();
+    expect(screen.queryByLabelText('Página siguiente')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Borrar búsqueda'));
+    expect(screen.getByText('45 resultados · Página 1 de 3')).toBeTruthy();
   });
 
   test('una categoría específica excluye productos de otras categorías', async () => {
@@ -127,15 +162,10 @@ describe('HU-03: catálogo público', () => {
   });
 
   test('regresa a la primera página si un filtro elimina la página seleccionada', async () => {
-    productsState.mockReturnValue({ ...productsState(), products: Array.from({ length: 21 },
-      (_, i) => ({ ...product, id: i + 1, name: `Producto ${i + 1}`,
-        sports: i === 0 ? ['Fútbol'] : ['Básquetbol'] })) });
+    productsState.mockReturnValue({ ...productsState(), products: many(21, i => ({ sports: i === 0 ? ['Fútbol'] : ['Básquetbol'] })) });
     const view = await render(<CatalogScreen />);
-    await fireEvent.press(screen.getByText('Ver más productos'));
-    await fireEvent.scroll(screen.getByTestId('catalog-list'), { nativeEvent: {
-      contentOffset: { x: 0, y: 3000 }, layoutMeasurement: { width: 390, height: 800 },
-      contentSize: { width: 390, height: 3300 } } });
-    expect(screen.queryByText('Ver más productos')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Página 2'));
+    expect(screen.getByText('Producto 21')).toBeTruthy();
     filtersState.mockReturnValue({ ...filtersState(),
       filters: { categoryId: null, brandId: null, sportName: 'Fútbol' } });
     await view.rerender(<CatalogScreen />);

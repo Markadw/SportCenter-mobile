@@ -12,15 +12,16 @@ interface Props {
 export const SectionHeader = ({ title, actionLabel, onPressAction }: Props) => {
   return (
     <View style={styles.row}>
-      <Text style={styles.title}>{title}</Text>
+      <Text accessibilityRole="header" style={styles.title}>{title}</Text>
       {actionLabel && (
         <Pressable
           style={({ pressed }) => [styles.action, pressed && { opacity: 0.6 }]}
+          accessibilityRole="button"
           onPress={onPressAction}
           hitSlop={6}
         >
           <Text style={styles.actionText}>{actionLabel}</Text>
-          <ChevronRight size={14} color={colors.accent} />
+          <ChevronRight size={14} color={colors.secondary} />
         </Pressable>
       )}
     </View>
@@ -28,24 +29,8 @@ export const SectionHeader = ({ title, actionLabel, onPressAction }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  title: {
-    fontSize: fontSize.lg,
-    fontWeight: "800",
-    color: colors.text,
-    letterSpacing: -0.3,
-  },
-  action: { flexDirection: "row", alignItems: "center", gap: 2 },
-  actionText: {
-    fontSize: fontSize.xs,
-    color: colors.accent,
-    fontWeight: "700",
-  },
+  row: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, marginTop: spacing.xl, marginBottom: spacing.md },
+  title: { flexShrink: 1, fontSize: fontSize.xl, lineHeight: 29, fontWeight: "700", color: colors.text, letterSpacing: -0.4 },
+  action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm },
+  actionText: { fontSize: fontSize.sm, lineHeight: 20, color: colors.secondary, fontWeight: "700" },
 });

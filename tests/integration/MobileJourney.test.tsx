@@ -26,6 +26,10 @@ jest.mock("expo-splash-screen", () => ({ preventAutoHideAsync: jest.fn(async () 
 jest.mock("lucide-react-native", () => Object.fromEntries([
   "Home", "Search", "User", "ShoppingBag", "ChevronRight", "SlidersHorizontal", "Share2", "ChevronDown", "ChevronUp", "X",
   "Activity", "Bike", "CircleDot", "Dumbbell", "Trophy", "Zap", "Eye", "EyeOff",
+  "Menu", "ChevronLeft", "ArrowUpDown", "Star", "Minus", "Plus",
+  "Trash2", "CircleArrowRight",
+  "ExternalLink", "Check", "MapPin",
+  "FileText", "Mail", "LockKeyhole", "LogIn", "ArrowRight", "ShieldCheck", "LogOut", "Package", "ChevronLeft",
 ].map(name => [name, () => null])));
 
 const originalAdapter = axiosClient.defaults.adapter;

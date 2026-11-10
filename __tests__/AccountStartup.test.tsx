@@ -23,8 +23,9 @@ jest.mock("../src/features/products", () => ({
 }));
 jest.mock("../src/features/catalog", () => ({ FiltersProvider: ({ children }: PropsWithChildren) => children }));
 
-test.each([[true,false], [false,true]])("inicio espera restauración=%s y catálogo=%s antes de mostrar las rutas", async (restoring, loading) => {
-  mockRestoring = restoring; mockCatalogLoading = loading;
+// El arranque sólo espera la sesión local; el catálogo carga dentro de Inicio con su propio estado.
+test("inicio espera la restauración de sesión antes de mostrar las rutas", async () => {
+  mockRestoring = true; mockCatalogLoading = false;
   const view = await render(<RootLayout />);
   expect(screen.getByText("Preparando tu tienda…")).toBeTruthy();
   expect(screen.queryByText("profile")).toBeNull();
@@ -34,4 +35,11 @@ test.each([[true,false], [false,true]])("inicio espera restauración=%s y catál
   for (const route of ["profile", "forgot-password", "orders/index", "orders/[id]", "reviews/[id]", "privacy"]) {
     expect(screen.getByText(route)).toBeTruthy();
   }
+});
+
+test("una consulta lenta del catálogo no bloquea el arranque", async () => {
+  mockRestoring = false; mockCatalogLoading = true;
+  await render(<RootLayout />);
+  expect(screen.queryByText("Preparando tu tienda…")).toBeNull();
+  expect(screen.getByText("profile")).toBeTruthy();
 });
