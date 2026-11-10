@@ -14,6 +14,16 @@ const SAFE_ENDPOINTS = new Set([
   "/users/refresh-token",
   "/users/profile",
   "/users/logout",
+  "/users/verify-user-email",
+  "/users/reset-psw",
+  "/users/update-profile",
+  "/products/cart",
+  "/products/cart/items",
+  "/products/checkout/summary",
+  "/products/checkout/confirm",
+  "/products/orders/user",
+  "/products/reviews",
+  "/company/contact",
 ]);
 
 // Rechazos de autenticación que la interfaz presenta como mensajes del formulario.
@@ -37,9 +47,16 @@ function safeEndpoint(url?: string): string {
     return path;
   }
 
-  // Ocultar el ID del producto.
-  if (/^\/products\/get-product-details\/[^/]+$/.test(path)) {
-    return "/products/get-product-details/:id";
+  // Mostrar sólo plantillas conocidas, nunca los identificadores reales.
+  const dynamicEndpoints: [RegExp, string][] = [
+    [/^\/products\/get-product-details\/[^/]+$/, "/products/get-product-details/:id"],
+    [/^\/products\/cart\/items\/[^/]+$/, "/products/cart/items/:id"],
+    [/^\/products\/reviews\/product\/[^/]+$/, "/products/reviews/product/:id"],
+    [/^\/products\/reviews\/product\/[^/]+\/eligibility$/, "/products/reviews/product/:id/eligibility"],
+    [/^\/products\/orders\/[^/]+\/tracking$/, "/products/orders/:id/tracking"],
+  ];
+  for (const [pattern, template] of dynamicEndpoints) {
+    if (pattern.test(path)) return template;
   }
 
   return "[ruta no registrada]";
@@ -84,10 +101,11 @@ if (__DEV__) {
         if (error.response && EXPECTED_AUTH_STATUSES[endpoint]?.includes(error.response.status)) {
           console.info(`[API] ← ${status} ${endpoint}`);
         } else {
-          console.warn(`[API] ✕ ${status} ${endpoint}`);
+          // Mantener el diagnóstico y el rechazo sin abrir LogBox sobre la interfaz.
+          console.info(`[API] ✕ ${status} ${endpoint}`);
         }
       } else {
-        console.warn("[API] ✕ Error inesperado");
+        console.info("[API] ✕ Error inesperado");
       }
 
       return Promise.reject(error);

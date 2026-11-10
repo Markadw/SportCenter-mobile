@@ -1,4 +1,4 @@
-export const FALLBACK_PATH = "/catalog";
+export const FALLBACK_PATH = "/";
 export const MAX_APP_LINK_LENGTH = 2_048;
 export const MAX_DEVELOPMENT_LINK_LENGTH = 8_192;
 const APP_SCHEME = "sportcentermobile:";

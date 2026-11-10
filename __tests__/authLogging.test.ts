@@ -41,17 +41,19 @@ describe("HU-02: registros de respuestas de autenticación", () => {
 
   test.each([
     ["/users/login-user", 500], ["/users/login-user", 404], ["/products/get-all-products", 400],
-  ])("%s HTTP %s conserva la advertencia de fallo inesperado", async (url, status) => {
+  ])("%s HTTP %s conserva el diagnóstico sin abrir LogBox", async (url, status) => {
     adapter.mockImplementationOnce(async (config) => { throw rejectResponse(config, status); });
     await expect(axiosClient.get(url)).rejects.toMatchObject({ response: { status } });
-    expect(console.warn).toHaveBeenCalledWith(`[API] ✕ HTTP ${status} ${url}`);
+    expect(console.info).toHaveBeenCalledWith(`[API] ✕ HTTP ${status} ${url}`);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
-  test("una desconexión conserva la advertencia y el rechazo", async () => {
+  test("una desconexión conserva el diagnóstico y el rechazo", async () => {
     const error = new AxiosError("sin conexión", "ERR_NETWORK");
     adapter.mockImplementationOnce(async (config) => { error.config = config; throw error; });
     await expect(axiosClient.post("/users/login-user", {})).rejects.toBe(error);
-    expect(console.warn).toHaveBeenCalledWith("[API] ✕ Sin respuesta del servidor /users/login-user");
+    expect(console.info).toHaveBeenCalledWith("[API] ✕ Sin respuesta del servidor /users/login-user");
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   test("no registra el cuerpo, contraseña, cabeceras ni parámetros de la petición rechazada", async () => {

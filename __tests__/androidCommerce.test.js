@@ -54,7 +54,7 @@ test('runtime retains only validated network observations before credentials and
 
 test('all native runner URIs resolve through the actual mobile sanitizer; invented app host remains rejected',()=>{
  const {sanitizeIncomingPath}=require(path.join(root,'src/features/navigation/incomingLinks.ts'));
- for(const[route,uri]of Object.entries(c.ROUTES)){assert.equal(sanitizeIncomingPath(uri,{development:true}),'/'+route);assert.equal(sanitizeIncomingPath('sportcentermobile://app/'+route,{development:true}),'/catalog');}
+ for(const[route,uri]of Object.entries(c.ROUTES)){assert.equal(sanitizeIncomingPath(uri,{development:true}),'/'+route);assert.equal(sanitizeIncomingPath('sportcentermobile://app/'+route,{development:true}),'/');}
  assert.equal(c.ROUTES.login,'sportcentermobile:///login');
 });
 

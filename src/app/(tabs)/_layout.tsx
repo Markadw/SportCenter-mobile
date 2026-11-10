@@ -11,7 +11,7 @@ export default function TabsLayout() {
   // Área táctil de 48 px, etiqueta ampliable y área segura inferior.
   const paddingBottom = insets.bottom > 0 ? insets.bottom : 6;
   const tabBarHeight = 4 + 48 + paddingBottom + 14 * Math.max(0, fontScale - 1);
-  return <Tabs backBehavior="history" screenOptions={{ headerShown: false,
+  return <Tabs initialRouteName="index" backBehavior="history" screenOptions={{ headerShown: false,
     tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.textMuted,
     tabBarStyle: { backgroundColor: colors.white, borderTopColor: storefront.border, height: tabBarHeight, paddingTop: 4, paddingBottom, elevation: 0, boxShadow: "none" },
     tabBarActiveBackgroundColor: colors.brandChipBg, tabBarLabelPosition: "below-icon",
