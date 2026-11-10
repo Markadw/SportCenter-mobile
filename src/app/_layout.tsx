@@ -6,18 +6,18 @@ import { View } from "react-native";
 import { colors } from "../constants/theme";
 import { SessionProvider, useSession } from "../features/auth/context/SessionContext";
 import { FiltersProvider } from "../features/catalog";
-import { ProductsProvider, useProducts } from "../features/products";
+import { ProductsProvider } from "../features/products";
 import { StartupGate } from "../features/startup/StartupGate";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function Navigation() {
-  const { isLoading } = useProducts();
   const { isRestoring } = useSession();
   const onLayout = useCallback(() => { void SplashScreen.hideAsync().catch(() => {}); }, []);
   return <View style={{ flex: 1 }} onLayout={onLayout}>
     <StatusBar style="dark" />
-    <StartupGate loading={isLoading || isRestoring}>
+    {/* Sólo espera la sesión local; el catálogo carga dentro de Inicio para no bloquear el arranque. */}
+    <StartupGate loading={isRestoring}>
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.white }, headerTintColor: colors.text,
         headerShadowVisible: false, contentStyle: { backgroundColor: colors.white } }}>
         <Stack.Screen name="+not-found" options={{ title: "Pantalla no encontrada" }} />

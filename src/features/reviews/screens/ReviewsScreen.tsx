@@ -1,7 +1,7 @@
 import { Link, useLocalSearchParams } from "expo-router";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, fontSize, radius, spacing } from "../../../constants/theme";
+import { colors, fontSize, radius, spacing, storefront } from "../../../constants/theme";
 import { ScreenState } from "../../../components/ScreenState";
 import { useSession } from "../../auth/context/SessionContext";
 import { FormButton, FormMessage, Field } from "../../registration/components/Form";
@@ -11,12 +11,12 @@ import { useReviewsViewModel } from "../hooks/useReviewsViewModel";
 export function ReviewsScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>(), id = typeof params.id === "string" ? params.id : "";
   const auth = useSession(), { session } = auth;
-  if ("isRestoring" in auth && auth.isRestoring === true) return <ScreenState title="Restaurando sesión" loading />;
+  if ("isRestoring" in auth && auth.isRestoring === true) return <ScreenState appearance="storefront" title="Restaurando sesión" loading />;
   return <ReviewsContent key={id + ":" + (session?.sessionId ?? "guest")} id={id} accessToken={session?.accessToken} sessionId={session?.sessionId} />;
 }
 function ReviewsContent({ id, accessToken, sessionId }: { id: string; accessToken?: string; sessionId?: string }) {
   const model = useReviewsViewModel(id, accessToken, sessionId);
-  if (!model.valid) return <ScreenState title="Producto no disponible" message="Revisa el identificador del producto." />;
+  if (!model.valid) return <ScreenState appearance="storefront" title="Producto no disponible" message="Revisa el identificador del producto." />;
   if (!model.resource.data) return <OrderState {...model.resource} />;
   const eligibility = model.eligibility;
   return <SafeAreaView style={styles.root} edges={["bottom", "left", "right"]}>
@@ -24,8 +24,11 @@ function ReviewsContent({ id, accessToken, sessionId }: { id: string; accessToke
     <FlatList data={model.reviews} keyExtractor={item => String(item.id)} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.list}
       ListHeaderComponent={<View style={styles.section}>
         <Text accessibilityRole="header" style={styles.title}>Reseñas del producto</Text>
-        <Text style={styles.heading}>{model.resource.data.average.toFixed(1)} de 5 · {model.resource.data.total} {model.resource.data.total === 1 ? "reseña" : "reseñas"}</Text>
+        <View style={styles.summary}>
+        <Text style={styles.summaryLabel}>Calificación general</Text>
+        <Text style={styles.summaryRating}>{model.resource.data.average.toFixed(1)} de 5 · {model.resource.data.total} {model.resource.data.total === 1 ? "reseña" : "reseñas"}</Text>
         <FormButton label="Actualizar reseñas" onPress={model.resource.retry} disabled={model.publication.pending || model.report.pending} secondary />
+        </View>
         <Text style={styles.muted}>{model.preferences.persistent ? "Ocultar autores afecta sólo la vista en este dispositivo. Se guardan IDs de autores en almacenamiento seguro, separados por cuenta; puedes restaurarlos." : "En web, ocultar autores afecta sólo esta vista y se mantiene en memoria hasta recargar."} No modifica reseñas ni cuentas del servidor.</Text>
         {model.preferences.loading && <Text style={styles.muted}>Cargando preferencias de autores…</Text>}
         <FormMessage text={model.preferences.error} error /><FormMessage text={model.preferences.notice} />
@@ -59,7 +62,7 @@ function ReviewsContent({ id, accessToken, sessionId }: { id: string; accessToke
       </View>}
       ListEmptyComponent={<Text style={styles.empty}>{model.resource.data.reviews.length ? "No hay reseñas visibles con tu filtro de autores." : "Aún no hay reseñas de este producto."}</Text>}
       renderItem={({ item }) => <View style={styles.card}>
-        <Text style={styles.heading}>{item.author} · {item.rating} de 5</Text><Text style={styles.muted}>{date(item.date)}</Text><Text style={styles.text}>{item.comment}</Text>
+        <View style={styles.reviewHeader}><Text style={styles.author}>{item.author}</Text><Text style={styles.reviewRating}>{item.rating} de 5</Text></View><Text style={styles.muted}>{date(item.date)}</Text><Text style={styles.text}>{item.comment}</Text>
         <View style={styles.actions}><FormButton label={"Reportar reseña " + item.id} onPress={() => model.openReport(item.id)} disabled={model.report.pending} secondary /><FormButton label="Ocultar reseñas de este autor" onPress={() => { void model.blockAuthor(item.id); }} disabled={model.report.pending || !model.preferences.ready || model.preferences.saving} secondary /></View>
         {model.reportId === item.id && <View style={styles.section}>
           <Text style={styles.heading}>Reportar a atención</Text><Text style={styles.muted}>Enviaremos un mensaje al equipo de atención con la referencia de esta reseña. La revisión es manual.</Text>
@@ -73,13 +76,30 @@ function ReviewsContent({ id, accessToken, sessionId }: { id: string; accessToke
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white }, list: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl }, section: { gap: spacing.md },
-  title: { fontSize: fontSize.xxl, fontWeight: "700", color: colors.text }, heading: { fontSize: fontSize.md, fontWeight: "700", color: colors.text },
-  text: { fontSize: fontSize.md, color: colors.text, lineHeight: 23 }, muted: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 20 },
-  card: { padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.lightBg, gap: spacing.md }, ratings: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  rating: { minHeight: 48, minWidth: 48, borderRadius: radius.sm, backgroundColor: colors.brandChipBg, alignItems: "center", justifyContent: "center", padding: spacing.sm },
-  selected: { backgroundColor: colors.primary }, ratingText: { fontSize: fontSize.md, color: colors.primary, fontWeight: "700" }, selectedText: { color: colors.white },
-  multiline: { minHeight: 120, textAlignVertical: "top" }, link: { color: colors.secondary, paddingVertical: spacing.md, fontSize: fontSize.md },
-  terms: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.md }, check: { color: colors.primary, fontSize: fontSize.xl }, termsLabel: { flex: 1, color: colors.text, fontSize: fontSize.md, lineHeight: 23 },
-  actions: { gap: spacing.sm }, empty: { color: colors.textMuted, paddingVertical: spacing.xl, textAlign: "center" },
+  root: { flex: 1, backgroundColor: storefront.background },
+  list: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+  section: { gap: spacing.md },
+  title: { fontSize: 28, lineHeight: 36, letterSpacing: -0.6, fontWeight: "700", color: colors.text },
+  heading: { fontSize: 18, lineHeight: 26, fontWeight: "700", color: colors.text, marginTop: spacing.sm },
+  summary: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.white, borderWidth: 1, borderColor: storefront.border, gap: spacing.md, marginVertical: spacing.sm },
+  summaryLabel: { color: colors.textMuted, fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  summaryRating: { fontSize: 22, lineHeight: 31, color: colors.secondary, fontWeight: "700" },
+  text: { fontSize: fontSize.md, color: colors.text, lineHeight: 24 },
+  muted: { fontSize: 14, color: colors.textMuted, lineHeight: 22 },
+  card: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.white, borderWidth: 1, borderColor: storefront.border, gap: spacing.md },
+  reviewHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
+  author: { flexShrink: 1, fontSize: 16, lineHeight: 24, color: colors.text, fontWeight: "700" },
+  reviewRating: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.brandChipBg, color: colors.secondary, fontSize: 14, lineHeight: 21, fontWeight: "700" },
+  ratings: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  rating: { minHeight: 48, minWidth: 48, borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: storefront.border, alignItems: "center", justifyContent: "center", padding: spacing.md },
+  selected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  ratingText: { fontSize: fontSize.md, lineHeight: 23, color: colors.secondary, fontWeight: "700" },
+  selectedText: { color: colors.white },
+  multiline: { minHeight: 120, textAlignVertical: "top", borderRadius: radius.md },
+  link: { minHeight: 48, color: colors.secondary, textDecorationLine: "underline", paddingVertical: spacing.md, fontSize: fontSize.md, lineHeight: 23 },
+  terms: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.md },
+  check: { color: colors.primary, fontSize: fontSize.xl },
+  termsLabel: { flex: 1, color: colors.text, fontSize: fontSize.md, lineHeight: 23 },
+  actions: { gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: storefront.border },
+  empty: { color: colors.textMuted, fontSize: 15, lineHeight: 23, padding: spacing.xl, textAlign: "center", borderWidth: 1, borderColor: storefront.border, borderRadius: radius.lg, backgroundColor: colors.white },
 });

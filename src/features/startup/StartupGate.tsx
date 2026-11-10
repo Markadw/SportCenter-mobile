@@ -2,8 +2,8 @@ import { useState, type PropsWithChildren } from "react";
 import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
 import { colors } from "../../constants/theme";
 
-// Solo espera la primera consulta del catálogo, incluso si termina con error.
-// Los filtros e imágenes se cargan por separado y no bloquean la entrada.
+// Sólo espera la restauración local de la sesión. El catálogo, los filtros y las
+// imágenes se cargan después y cada pantalla muestra su propio estado de carga.
 export function StartupGate({ loading, children }: PropsWithChildren<{ loading: boolean }>) {
   const [settled, setSettled] = useState(!loading);
   if (!settled && !loading) setSettled(true);

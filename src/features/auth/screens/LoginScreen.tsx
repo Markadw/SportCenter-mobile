@@ -1,10 +1,11 @@
-import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { ArrowRight, ChevronLeft, Eye, EyeOff, LockKeyhole, LogIn, Mail } from "lucide-react-native";
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, fontSize, radius, spacing } from "../../../constants/theme";
+import { colors, fontSize, radius, spacing, storefront } from "../../../constants/theme";
 import { useLoginViewModel } from "../hooks/useLoginViewModel";
 import { useSession } from "../context/SessionContext";
 import { ScreenState } from "../../../components/ScreenState";
@@ -20,41 +21,57 @@ export function LoginScreen() {
   if (vm.session) return <Redirect href={destination} />;
 
   return (
-    <SafeAreaView style={styles.flex} edges={["bottom", "left", "right"]}>
+    <SafeAreaView style={styles.flex} edges={["top", "bottom", "left", "right"]}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={styles.topBar}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Volver" hitSlop={2} disabled={vm.pending}
+          onPress={() => router.canGoBack() ? router.back() : router.replace("/")} style={({ pressed }) => [styles.circle, pressed && styles.dimmed]}>
+          <ChevronLeft size={24} color={colors.text} />
+        </Pressable>
+        <Text accessibilityRole="header" style={styles.topTitle} numberOfLines={1}>Iniciar sesión</Text>
+        <View style={styles.topSpacer} />
+      </View>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
           <View style={styles.content}>
-            <Text accessibilityRole="header" style={styles.title}>Iniciar sesión</Text>
-            <Text style={styles.description}>Accede a tu cuenta de Sport Center.</Text>
+            <View style={styles.intro}>
+              <Text style={styles.title}>Bienvenido de nuevo</Text>
+              <Text style={styles.description}>Accede a tu cuenta de Sport Center.</Text>
+            </View>
             {vm.notice && <Text accessibilityRole="alert" style={styles.message}>{vm.notice}</Text>}
 
             <View style={styles.field}>
               <Text style={styles.label}>Correo electrónico</Text>
-              <TextInput accessibilityLabel="Correo electrónico" accessibilityHint={vm.errors.email}
-                autoCapitalize="none" autoCorrect={false} autoComplete="username"
-                keyboardType="email-address" textContentType="username" maxLength={100}
-                editable={!vm.pending} value={vm.values.email}
-                onChangeText={(value) => vm.change("email", value)}
-                style={[styles.input, !!vm.errors.email && styles.invalid]} />
+              <View style={[styles.inputBox, !!vm.errors.email && styles.invalid]}>
+                <Mail size={18} color={colors.textMuted} />
+                <TextInput accessibilityLabel="Correo electrónico" accessibilityHint={vm.errors.email}
+                  autoCapitalize="none" autoCorrect={false} autoComplete="username"
+                  keyboardType="email-address" textContentType="username" maxLength={100}
+                  editable={!vm.pending} value={vm.values.email} placeholder="tu@correo.com" placeholderTextColor={colors.textMuted}
+                  onChangeText={(value) => vm.change("email", value)} style={styles.input} />
+              </View>
               {vm.errors.email && <Text accessibilityRole="alert" style={styles.error}>{vm.errors.email}</Text>}
             </View>
 
             <View style={styles.field}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Contraseña</Text>
-                <Pressable accessibilityRole="button"
-                  accessibilityLabel={vm.passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
-                  onPress={vm.togglePassword} style={styles.visibility}>
-                  <Text style={styles.link}>{vm.passwordVisible ? "Ocultar" : "Mostrar"}</Text>
+              <Text style={styles.label}>Contraseña</Text>
+              <View style={[styles.inputBox, !!vm.errors.passw && styles.invalid]}>
+                <LockKeyhole size={18} color={colors.textMuted} />
+                <TextInput accessibilityLabel="Contraseña" accessibilityHint={vm.errors.passw}
+                  autoCapitalize="none" autoCorrect={false} autoComplete="current-password"
+                  textContentType="password" secureTextEntry={!vm.passwordVisible}
+                  editable={!vm.pending} value={vm.values.passw} returnKeyType="go"
+                  onChangeText={(value) => vm.change("passw", value)} onSubmitEditing={() => void vm.submit()} style={styles.input} />
+                <Pressable accessibilityRole="button" accessibilityLabel={vm.passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  onPress={vm.togglePassword} hitSlop={4} style={styles.eye}>
+                  {vm.passwordVisible ? <EyeOff size={20} color={colors.textMuted} /> : <Eye size={20} color={colors.textMuted} />}
                 </Pressable>
               </View>
-              <TextInput accessibilityLabel="Contraseña" accessibilityHint={vm.errors.passw}
-                autoCapitalize="none" autoCorrect={false} autoComplete="current-password"
-                textContentType="password" secureTextEntry={!vm.passwordVisible}
-                editable={!vm.pending} value={vm.values.passw} returnKeyType="go"
-                onChangeText={(value) => vm.change("passw", value)} onSubmitEditing={() => void vm.submit()}
-                style={[styles.input, !!vm.errors.passw && styles.invalid]} />
               {vm.errors.passw && <Text accessibilityRole="alert" style={styles.error}>{vm.errors.passw}</Text>}
+              <Pressable accessibilityRole="link" accessibilityLabel="¿Olvidaste tu contraseña?"
+                disabled={vm.pending} onPress={() => router.push("/forgot-password")} style={styles.forgot}>
+                <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
+              </Pressable>
             </View>
 
             {vm.error && <Text accessibilityRole="alert" accessibilityLiveRegion="polite"
@@ -63,19 +80,24 @@ export function LoginScreen() {
               accessibilityState={{ disabled: vm.pending, busy: vm.pending }} disabled={vm.pending}
               onPress={() => void vm.submit()}
               style={({ pressed }) => [styles.button, (pressed || vm.pending) && styles.dimmed]}>
-              {vm.pending && <ActivityIndicator color={colors.white} />}
+              {vm.pending ? <ActivityIndicator color={colors.white} /> : <LogIn size={18} color={colors.white} />}
               <Text style={styles.buttonLabel}>{vm.pending ? "Ingresando…" : "Iniciar sesión"}</Text>
             </Pressable>
-            <Pressable accessibilityRole="link" accessibilityLabel="Olvidé mi contraseña"
-              disabled={vm.pending} onPress={() => router.push("/forgot-password")} style={styles.guest}>
-              <Text style={styles.link}>Olvidé mi contraseña</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Crear cuenta"
-              disabled={vm.pending} onPress={() => router.replace("/register")} style={styles.guest}>
-              <Text style={styles.link}>Crear cuenta</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => router.replace("/catalog")} style={styles.guest}>
-              <Text style={styles.link}>Continuar sin iniciar sesión</Text>
+
+            <View style={styles.register}>
+              <Text style={styles.muted}>¿No tienes cuenta?</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Regístrate"
+                disabled={vm.pending} onPress={() => router.replace("/register")} style={styles.inlineLink}>
+                <Text style={styles.link}>Regístrate</Text>
+              </Pressable>
+            </View>
+            <View style={styles.separator}>
+              <View style={styles.line} /><Text style={styles.muted}>o</Text><View style={styles.line} />
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Continuar sin iniciar sesión" onPress={() => router.replace("/catalog")}
+              style={({ pressed }) => [styles.guest, pressed && styles.dimmed]}>
+              <Text style={styles.guestLabel}>Continuar sin iniciar sesión</Text>
+              <ArrowRight size={18} color={colors.secondary} />
             </Pressable>
           </View>
         </ScrollView>
@@ -86,24 +108,37 @@ export function LoginScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.white },
-  scroll: { flexGrow: 1, padding: spacing.xl },
+  topBar: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  // 44 px visibles + hitSlop de 2 px = 48 px táctiles.
+  circle: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: storefront.border },
+  topTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "700", color: colors.text },
+  topSpacer: { width: 44 },
+  scroll: { flexGrow: 1, paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   content: { width: "100%", maxWidth: 480, alignSelf: "center", gap: spacing.md },
-  title: { fontSize: fontSize.xxl, fontWeight: "700", color: colors.text },
-  description: { fontSize: fontSize.md, color: colors.textMuted, marginBottom: spacing.sm },
+  intro: { alignItems: "center", gap: spacing.xs, marginTop: spacing.md, marginBottom: spacing.sm },
+  title: { fontSize: fontSize.xl, lineHeight: 28, fontWeight: "700", color: colors.text, textAlign: "center" },
+  description: { fontSize: fontSize.md, lineHeight: 22, color: colors.textMuted, textAlign: "center" },
   field: { gap: spacing.xs },
-  label: { fontSize: fontSize.md, color: colors.text, fontWeight: "600" },
-  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  input: { minHeight: 48, borderWidth: 1, borderColor: colors.neutral, borderRadius: radius.sm,
-    padding: spacing.md, fontSize: fontSize.md, color: colors.text, backgroundColor: colors.white },
+  label: { fontSize: fontSize.sm, color: colors.text, fontWeight: "600" },
+  inputBox: { flexDirection: "row", alignItems: "center", gap: spacing.sm, height: 48, paddingLeft: spacing.md, borderWidth: 1, borderColor: storefront.border,
+    borderRadius: radius.md, backgroundColor: colors.white },
+  input: { flex: 1, minWidth: 0, height: 48, paddingVertical: 0, fontSize: fontSize.md, color: colors.text },
+  eye: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   invalid: { borderColor: "#B91C1C" },
   error: { color: "#B91C1C", fontSize: fontSize.sm, lineHeight: 21 },
-  message: { padding: spacing.md, backgroundColor: colors.lightBg, borderRadius: radius.sm,
+  message: { padding: spacing.md, borderWidth: 1, borderColor: storefront.border, borderRadius: radius.md,
     color: colors.text, fontSize: fontSize.md, lineHeight: 23 },
-  visibility: { minHeight: 44, minWidth: 72, alignItems: "center", justifyContent: "center" },
-  link: { color: colors.secondary, fontWeight: "600" },
-  button: { minHeight: 48, backgroundColor: colors.primary, borderRadius: radius.sm, padding: spacing.md,
+  forgot: { alignSelf: "flex-end", minHeight: 44, justifyContent: "center" },
+  link: { color: colors.primary, fontSize: fontSize.sm, fontWeight: "700" },
+  muted: { color: colors.textMuted, fontSize: fontSize.sm },
+  button: { minHeight: 52, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.lg,
     flexDirection: "row", gap: spacing.sm, alignItems: "center", justifyContent: "center" },
-  buttonLabel: { color: colors.white, fontSize: fontSize.md, fontWeight: "600" },
-  guest: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+  buttonLabel: { color: colors.white, fontSize: fontSize.md, fontWeight: "700" },
+  register: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs },
+  inlineLink: { minHeight: 44, justifyContent: "center", paddingHorizontal: spacing.xs },
+  separator: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  line: { flex: 1, height: 1, backgroundColor: storefront.border },
+  guest: { flexDirection: "row", gap: spacing.sm, minHeight: 52, borderRadius: radius.pill, borderWidth: 1, borderColor: storefront.border, alignItems: "center", justifyContent: "center" },
+  guestLabel: { color: colors.secondary, fontSize: fontSize.md, fontWeight: "600" },
   dimmed: { opacity: 0.6 },
 });

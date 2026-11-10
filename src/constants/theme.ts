@@ -1,4 +1,4 @@
-// src/constants/theme.ts — agrega/ajusta estas keys
+// Tema compartido de Sport Center.
 export const colors = {
   primary: "#0367A6",
   secondary: "#04588C",
@@ -53,4 +53,12 @@ export const shadow = {
     boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
     elevation: 1,
   },
+} as const;
+// Superficies de inicio y exploración. Los valores globales se conservan para
+// que las siguientes etapas mantengan su presentación hasta ser revisadas.
+export const storefront = {
+  background: "#F7F9FC",
+  imageBackground: "#F3F6FA",
+  border: "#DCE4ED",
+  errorText: "#B42318",
 } as const;

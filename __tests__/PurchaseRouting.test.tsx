@@ -11,7 +11,8 @@ import { SessionController, SessionRequestError } from "../src/features/auth/con
 const session = { accessToken: "token", refreshToken: "refresh", sessionId: "routing-session", expiresAt: 9999999999999 };
 let mockAuth: { session: typeof session | null; sessionScopeId?: string | null; isRestoring: boolean } = { session, isRestoring: false };
 let mockParams: { id?: string | string[] } = { id: "9" };
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
+jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => mockParams, useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true }) }));
+jest.mock("lucide-react-native", () => Object.fromEntries(["Check", "ChevronDown", "ChevronLeft", "ChevronUp", "CircleArrowRight", "ExternalLink", "MapPin", "Minus", "Plus", "Trash2"].map(name => [name, () => null])));
 jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => mockAuth }));
 jest.mock("../src/features/cart/hooks/useCartViewModel", () => ({ useCartViewModel: jest.fn() }));
 jest.mock("../src/features/checkout/hooks/useCheckoutViewModel", () => ({ useCheckoutViewModel: jest.fn() }));

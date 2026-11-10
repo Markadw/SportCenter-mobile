@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 // src/features/home/components/BrandsRow.tsx
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { colors, fontSize, radius, shadow, spacing } from "../../../constants/theme";
+import { colors, fontSize, radius, spacing, storefront } from "../../../constants/theme";
 import { useFilters } from "../../catalog";
 
 export const BrandsRow = () => {
@@ -26,7 +26,7 @@ export const BrandsRow = () => {
           <View style={styles.logoWrap}>
             <Image source={{ uri: b.image }} style={styles.logo} resizeMode="contain" />
           </View>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text numberOfLines={1} style={styles.name}>
             {b.name}
           </Text>
         </Pressable>
@@ -36,30 +36,10 @@ export const BrandsRow = () => {
 };
 
 const styles = StyleSheet.create({
-  list: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-  },
-  card: {
-    width: 88,
-    alignItems: "center",
-    gap: 6,
-  },
-  logoWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: radius.lg,
-    backgroundColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-    ...shadow.card,
-  },
+  list: { paddingHorizontal: spacing.lg, gap: spacing.md, alignItems: "flex-start" },
+  card: { width: 100, alignItems: "center", gap: spacing.xs },
+  // Cuadrado de 100 × 100: 5 px de margen interior dejan el logotipo en ~88 % del espacio.
+  logoWrap: { width: 100, height: 100, alignItems: "center", justifyContent: "center", padding: 5, borderWidth: 1, borderColor: storefront.border, borderRadius: radius.lg, backgroundColor: colors.white },
   logo: { width: "100%", height: "100%" },
-  name: {
-    fontSize: fontSize.xs,
-    color: colors.text,
-    fontWeight: "600",
-    textAlign: "center",
-  },
+  name: { fontSize: fontSize.sm, lineHeight: 20, color: colors.text, fontWeight: "600", textAlign: "center" },
 });

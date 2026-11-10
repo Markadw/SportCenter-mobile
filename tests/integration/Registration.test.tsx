@@ -9,9 +9,11 @@ const mockReplace = jest.fn();
 const mockPush = jest.fn();
 let mockParams: { email?: string | string[] } = {};
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  Stack: { Screen: () => null },
+  useRouter: () => ({ replace: mockReplace, push: mockPush, back: jest.fn(), canGoBack: () => false }),
   useLocalSearchParams: () => mockParams,
 }));
+jest.mock("lucide-react-native", () => Object.fromEntries(["Check", "CheckCircle2", "ChevronLeft", "Eye", "EyeOff", "LockKeyhole", "Mail", "MailCheck", "Phone", "RefreshCw", "User", "UserPlus"].map(name => [name, () => null])));
 jest.mock("react-native-safe-area-context", () => jest.requireActual("react-native-safe-area-context/jest/mock").default);
 jest.mock("../../src/api/axios", () => ({ __esModule: true, default: { post: jest.fn() } }));
 jest.mock("../../src/features/privacy/consentReceiptStorage", () => ({
@@ -227,12 +229,41 @@ describe("CP-01 / HU-01: pantallas, ViewModels y servicio con transporte simulad
     expect(post).not.toHaveBeenCalled();
   });
 
-  test("cambiar correo descarta el código asociado al correo anterior", async () => {
+  test("el correo recibido desde registro queda sólo lectura y conserva el código", async () => {
     mockParams = { email: registrationForm.email };
     await render(<VerifyEmailScreen />);
+    expect(screen.getByLabelText("Correo electrónico").props.editable).toBe(false);
+    await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "654321");
+    expect(screen.getByLabelText("Código de verificación").props.value).toBe("654321");
+    expect(screen.getByLabelText("Correo electrónico").props.value).toBe(registrationForm.email);
+  });
+
+  test("en acceso directo el correo es editable y cambiarlo descarta el código", async () => {
+    await render(<VerifyEmailScreen />);
+    await fireEvent.changeText(screen.getByLabelText("Correo electrónico"), registrationForm.email);
     await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "654321");
     await fireEvent.changeText(screen.getByLabelText("Correo electrónico"), "otro@example.test");
     expect(screen.getByLabelText("Código de verificación").props.value).toBe("");
+  });
+
+  test("el código acepta pegado con separadores y envía exactamente seis dígitos", async () => {
+    mockParams = { email: registrationForm.email };
+    post.mockResolvedValueOnce({ data: { message: "Cuenta verificada correctamente." } });
+    await render(<VerifyEmailScreen />);
+    await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "654 321");
+    expect(screen.getByLabelText("Código de verificación").props.value).toBe("654321");
+    await fireEvent.press(screen.getByRole("button", { name: "Verificar cuenta" }));
+    await waitFor(() => expect(screen.getByText("Cuenta verificada")).toBeTruthy());
+    expect(post).toHaveBeenCalledWith("/users/verify-email", { email: registrationForm.email, token: "654321" }, expect.anything());
+  });
+
+  test("un código incompleto no se envía", async () => {
+    mockParams = { email: registrationForm.email };
+    await render(<VerifyEmailScreen />);
+    await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "1234");
+    await fireEvent.press(screen.getByRole("button", { name: "Verificar cuenta" }));
+    expect(screen.getByText("Escribe el código de 6 dígitos.")).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
@@ -253,15 +284,29 @@ describe("registro con aceptación necesaria explícita", () => {
     expect(consentReceiptStorage.save).not.toHaveBeenCalled();
   });
 
-  test("ofrece privacidad antes del registro y la aceptación se reinicia al retomar verificación", async () => {
+  test("los enlaces legales abren las pantallas internas y conservan datos y consentimiento", async () => {
     await render(<RegisterScreen />);
-    await fireEvent.press(screen.getByRole("link", { name: "Leer privacidad y términos" }));
-    expect(mockPush).toHaveBeenCalledWith("/privacy");
     await fillRegistration();
+    await fireEvent.press(screen.getByText("Términos y condiciones"));
+    await fireEvent.press(screen.getByText("Política de privacidad"));
+    expect(mockPush.mock.calls.map(([target]) => target)).toEqual(["/legal/terms", "/legal/privacy"]);
+    expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText("Nombre").props.value).toBe(registrationForm.nombre);
+    expect(screen.getByText("Esta aceptación no incluye autorización de marketing.")).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  test("«Ya tengo un código» sólo aparece con un error y retomar verificación reinicia la aceptación", async () => {
+    await render(<RegisterScreen />);
+    expect(screen.queryByRole("button", { name: "Ya tengo un código" })).toBeNull();
+    post.mockRejectedValueOnce({ isAxiosError: true, code: "ECONNABORTED" });
+    await fillRegistration();
+    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ya tengo un código" })).toBeTruthy());
     await fireEvent.press(screen.getByRole("button", { name: "Ya tengo un código" }));
     expect(screen.getByRole("checkbox").props.accessibilityState.checked).toBe(false);
     expect(screen.getByLabelText("Contraseña").props.value).toBe("");
-    expect(consentReceiptStorage.save).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith({ pathname: "/verify-email", params: { email: registrationForm.email } });
   });
 
   test("guarda sólo el recibo local antes de POST y no añade campos de consentimiento al backend", async () => {
@@ -312,4 +357,19 @@ describe("registro con aceptación necesaria explícita", () => {
     expect(post).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
+});
+
+
+test("la verificación recibe el OTP pegado con separadores sin truncar su cero inicial", async () => {
+  post.mockResolvedValueOnce({ data: { message: "Cuenta verificada correctamente." } });
+  await render(<VerifyEmailScreen />);
+  await fireEvent.changeText(screen.getByLabelText("Correo electrónico"), "cliente@example.test");
+  const input = screen.getByLabelText("Código de verificación");
+  const clipboard = "012 345";
+  await fireEvent.changeText(input, clipboard.slice(0, input.props.maxLength ?? clipboard.length));
+  expect(screen.getByLabelText("Código de verificación").props.value).toBe("012345");
+  expect(post).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole("button", { name: "Verificar cuenta" }));
+  await waitFor(() => expect(screen.getByText("Cuenta verificada")).toBeTruthy());
+  expect(post).toHaveBeenCalledWith("/users/verify-email", { email: "cliente@example.test", token: "012345" }, expect.any(Object));
 });

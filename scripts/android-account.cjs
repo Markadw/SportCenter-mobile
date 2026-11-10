@@ -276,16 +276,16 @@ function profileScrollBody(key) {
 }
 function yaml(name, body) { need(/^(?:AC0[1-7](?:-(?:navigate|email|password))?|RO04|MU0[1-5]|cleanup)$/.test(name), 'ACCOUNT_MAESTRO_FAILED'); return 'appId: ' + SOURCE.appId + '\nname: ' + name + ' private account\n---\n' + body + '\n'; }
 const FLOWS = Object.freeze({
-  navigate: '- launchApp:\n    clearState: true\n- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- tapOn: "^Iniciar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
+  navigate: '- launchApp:\n    clearState: true\n- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Menú$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- tapOn: "^Iniciar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
   email: '- inputText: ${MAESTRO_ACCOUNT_EMAIL}',
   password: '- inputText: ${MAESTRO_ACCOUNT_PASSWORD}\n- hideKeyboard',
   login: '- extendedWaitUntil:\n    visible: "Has iniciado sesión en Sport Center."\n    timeout: 45000\n- assertVisible: "^Mi cuenta$"',
   profile: '- tapOn: "^Mi perfil$"\n- extendedWaitUntil:\n    visible: "Actualiza tus datos personales y de contacto."\n    timeout: 45000\n- assertVisible: "^Nombre$"\n- assertVisible: "^Apellido paterno$"\n- assertVisible: "^Apellido materno$"\n- assertNotVisible: "Tu perfil se actualizó correctamente."',
-  cart: '- pressKey: Back\n- extendedWaitUntil:\n    visible: "Has iniciado sesión en Sport Center."\n    timeout: 45000\n- tapOn: "^Mi carrito$"\n- extendedWaitUntil:\n    visible: "^Tu carrito$"\n    timeout: 45000',
+  cart: '- pressKey: Back\n- extendedWaitUntil:\n    visible: "Has iniciado sesión en Sport Center."\n    timeout: 45000\n- tapOn: "^Carrito$"\n- extendedWaitUntil:\n    visible: "^(Continuar compra|Tu carrito está vacío)$"\n    timeout: 45000',
   summary: '- scrollUntilVisible:\n    element:\n      text: "^Continuar compra$"\n    timeout: 30000\n- assertVisible:\n    text: "^Continuar compra$"\n    enabled: true\n- tapOn: "^Continuar compra$"\n- extendedWaitUntil:\n    visible: "^Dirección de envío$"\n    timeout: 45000\n- scrollUntilVisible:\n    element:\n      text: "^Método de envío$"\n    timeout: 30000\n- assertVisible: "^Método de envío$"\n- scrollUntilVisible:\n    element:\n      text: "^Subtotal$"\n    timeout: 30000\n- assertVisible: "^Subtotal$"\n- assertVisible: "^Descuento$"\n- scrollUntilVisible:\n    element:\n      text: "^Total$"\n    timeout: 30000\n- assertVisible: "^Total$"\n- scrollUntilVisible:\n    element:\n      text: "^Continuar a Mercado Pago$"\n    timeout: 30000\n- assertVisible: "^Continuar a Mercado Pago$"',
-  restored: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Has iniciado sesión en Sport Center."\n    timeout: 45000\n- assertVisible: "^Mi cuenta$"',
+  restored: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Menú$"\n- extendedWaitUntil:\n    visible: "Has iniciado sesión en Sport Center."\n    timeout: 45000\n- assertVisible: "^Mi cuenta$"',
   logout: '- scrollUntilVisible:\n    element:\n      text: "^Cerrar sesión$"\n    timeout: 30000\n- tapOn: "^Cerrar sesión$"\n- extendedWaitUntil:\n    visible: "Accede a tu cuenta de Sport Center."\n    timeout: 45000',
-  guest: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Cuenta$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- assertNotVisible: "Has iniciado sesión en Sport Center."',
+  guest: '- extendedWaitUntil:\n    visible: "Explora por deporte"\n    timeout: 45000\n- tapOn: "^Menú$"\n- extendedWaitUntil:\n    visible: "Tu cuenta Sport Center"\n    timeout: 45000\n- assertNotVisible: "Has iniciado sesión en Sport Center."',
   guard: '- extendedWaitUntil:\n    visible: "Inicia sesión con tu cuenta de cliente para ver tus productos."\n    timeout: 45000\n- assertNotVisible: "^Subtotal$"',
   privacy: '- extendedWaitUntil:\n    visible: "^Privacidad y términos$"\n    timeout: 45000\n- scrollUntilVisible:\n    element:\n      text: "^Documentos de Sport Center$"\n    timeout: 30000\n- assertVisible: "^Documentos de Sport Center$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir aviso de privacidad$"\n    timeout: 30000\n- assertVisible: "^Abrir aviso de privacidad$"\n- scrollUntilVisible:\n    element:\n      text: "^Abrir términos y condiciones$"\n    timeout: 30000\n- assertVisible: "^Abrir términos y condiciones$"',
 });
@@ -502,7 +502,7 @@ async function runAcceptance({ env, apk, context, run, xmlTree, create = createS
     state.stage = 'MU03-cart-restore'; await mutationTap('Restar una unidad de ' + fixture.target.name, 'cartIncrementAttempted');
     await cartQuantity(fixture.target.quantity); state.mutationEvidence.cartUiRestored = true; state.mutationChecks.MU03 = 'passed';
     caseId = 'MU04'; state.stage = 'MU04-cart-remove'; await mutationTap('Eliminar ' + fixture.target.name, 'cartRemoveAttempted');
-    await waitUi(nodes => !targetVisible(nodes, fixture.target) && (hasLabel(nodes, 'Tu carrito') || hasLabel(nodes, 'Tu carrito está vacío')));
+    await waitUi(nodes => !targetVisible(nodes, fixture.target) && (hasLabel(nodes, 'Mi carrito') || hasLabel(nodes, 'Tu carrito está vacío')));
     const remaining = fixture.cart.itemCount - fixture.target.quantity;
     if (remaining === 0) await waitUi(nodes => hasLabel(nodes, 'Tu carrito está vacío'));
     else await scrollFor(remaining + ' artículos');

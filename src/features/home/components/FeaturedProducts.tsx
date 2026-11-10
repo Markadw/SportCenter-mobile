@@ -41,12 +41,13 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   cardWrap: {
-    width: 174,
+    width: 196,
   },
   empty: {
     paddingHorizontal: spacing.lg,
     color: colors.textMuted,
-    fontStyle: "italic",
+    lineHeight: 22,
+    paddingVertical: spacing.md,
     fontSize: fontSize.sm,
   },
 });

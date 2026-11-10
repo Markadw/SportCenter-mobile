@@ -25,7 +25,8 @@ const mockReplace = jest.fn((target: Target) => {
   mockNavigate?.(target);
 });
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  Stack: { Screen: () => null },
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn(), canGoBack: () => false }),
   useLocalSearchParams: () => mockParams,
   useFocusEffect: (effect: () => (() => void) | undefined) => {
     const { useEffect: effectHook } = jest.requireActual("react");
@@ -38,7 +39,7 @@ jest.mock("expo-router", () => ({
   },
 }));
 jest.mock("react-native-safe-area-context", () => jest.requireActual("react-native-safe-area-context/jest/mock").default);
-jest.mock("lucide-react-native", () => ({ Search: () => null, ShoppingBag: () => null, User: () => null }));
+jest.mock("lucide-react-native", () => ({ CheckCircle2: () => null, MailCheck: () => null, RefreshCw: () => null, Check: () => null, Phone: () => null, UserPlus: () => null, ArrowRight: () => null, ChevronLeft: () => null, Eye: () => null, EyeOff: () => null, LockKeyhole: () => null, LogIn: () => null, Mail: () => null, ChevronRight: () => null, FileText: () => null, LogOut: () => null, Package: () => null, ShieldCheck: () => null, Trash2: () => null, Search: () => null, ShoppingBag: () => null, User: () => null }));
 
 function Flow() {
   const [path, setPath] = useState("/login");
@@ -98,7 +99,7 @@ async function fillRegistration() {
 describe("HU-01 y HU-02: conexión entre las funciones con transporte simulado", () => {
   test("recorre registro, reenvío, verificación, login y cierre sin crear sesión antes de entrar", async () => {
     const view = await render(<SessionProvider><Flow /></SessionProvider>);
-    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Regístrate" }));
     await fillRegistration();
     await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
     await waitFor(() => expect(screen.getByLabelText("Código de verificación")).toBeTruthy());
@@ -132,9 +133,9 @@ describe("HU-01 y HU-02: conexión entre las funciones con transporte simulado",
 
   test("volver de registro a login descarta la contraseña sin enviar peticiones", async () => {
     const view = await render(<SessionProvider><Flow /></SessionProvider>);
-    await fireEvent.press(screen.getByRole("button", { name: "Crear cuenta" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Regístrate" }));
     await fillRegistration();
-    await fireEvent.press(screen.getByRole("button", { name: "Ya tengo una cuenta" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Inicia sesión" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Iniciar sesión" })).toBeTruthy());
     expect(screen.getByLabelText("Contraseña").props.value).toBe("");
     expect(screen.queryByLabelText("Confirmar contraseña")).toBeNull();

@@ -21,7 +21,7 @@ El detalle selecciona una combinación real de atributos; precio, fotos y existe
 
 La arquitectura sigue MVVM por funcionalidad: los servicios convierten la respuesta del backend; los modelos de vista de Inicio, Catálogo y Detalle manejan selección, consultas y filtros; las pantallas presentan sus estados. Los proveedores conservan los datos compartidos. El detalle sigue enviando el ID real a la API; la codificación del enlace público se usa únicamente al compartir.
 
-El splash nativo usa el logotipo existente. En JavaScript, la carga inicial espera la primera consulta del catálogo y la restauración de sesión, sin demora artificial. Si falla, permite llegar al error con reintento; filtros e imágenes no bloquean la entrada. Una actualización posterior no vuelve a cubrir la app. La apariencia final del splash nativo requiere comprobar una compilación instalada, pues Expo Go no reproduce todos sus detalles.
+El splash nativo usa el logotipo existente. En JavaScript, la carga inicial sólo espera la restauración local de la sesión, sin demora artificial. El catálogo se consulta después: Inicio muestra su estado de carga y, si falla, el error con reintento; filtros e imágenes no bloquean la entrada. Una actualización posterior no vuelve a cubrir la app. La apariencia final del splash nativo requiere comprobar una compilación instalada, pues Expo Go no reproduce todos sus detalles.
 
 [Prototipo editable en Figma](https://www.figma.com/design/Ae3JMeVAfcs6ulXI7dpx5k?node-id=5-50). Documenta el primer bloque y sus estados; no sustituye las comprobaciones en el dispositivo. El usuario confirmó el recorrido básico en Android; el alcance y los casos adicionales pendientes están en la [guía de comprobación móvil](tests/manual/interfaces-moviles.md).
 

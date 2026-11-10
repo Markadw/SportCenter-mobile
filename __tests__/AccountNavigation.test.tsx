@@ -10,7 +10,8 @@ const mockAuth = {
 };
 jest.mock("../src/features/auth/context/SessionContext", () => ({ useSession: () => mockAuth }));
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  Stack: { Screen: () => null },
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn(), canGoBack: () => false }),
   useLocalSearchParams: () => ({}),
   useFocusEffect: jest.fn(),
   Redirect: ({ href }: { href: string }) => {
@@ -18,7 +19,7 @@ jest.mock("expo-router", () => ({
     return <NativeText>{`Destino: ${href}`}</NativeText>;
   },
 }));
-jest.mock("lucide-react-native", () => ({ User: () => null }));
+jest.mock("lucide-react-native", () => ({ ArrowRight: () => null, ChevronLeft: () => null, Eye: () => null, EyeOff: () => null, LockKeyhole: () => null, LogIn: () => null, Mail: () => null, ChevronRight: () => null, FileText: () => null, LogOut: () => null, Package: () => null, ShieldCheck: () => null, Trash2: () => null, User: () => null }));
 jest.mock("react-native-safe-area-context", () => jest.requireActual("react-native-safe-area-context/jest/mock").default);
 const session: Session = { accessToken: "eyJhbGciOiJIUzI1NiJ9.eyJpZF91c3VhcmlvIjoxNywicm9sIjoxLCJzZXNzaW9uSWQiOiJzZXNpb24tcHJ1ZWJhIn0.signature", refreshToken: "refresh-prueba", sessionId: "sesion-prueba", expiresAt: Date.now() + 900_000 };
 beforeEach(() => { mockAuth.session = null; mockAuth.notice = null; mockAuth.isRestoring = false; });
@@ -28,23 +29,26 @@ test("cuenta autenticada conecta perfil, pedidos, privacidad y baja y muestra av
   mockAuth.notice = "No pudimos guardar la sesión de forma segura.";
   await render(<AccountScreen />);
   expect(screen.getByRole("alert")).toHaveTextContent(mockAuth.notice);
-  for (const label of ["Mi perfil", "Mis pedidos", "Privacidad y términos", "Eliminar cuenta"]) {
+  for (const label of ["Mi perfil", "Mis pedidos", "Términos y condiciones", "Política de privacidad", "Eliminar mi cuenta"]) {
     await fireEvent.press(screen.getByRole("button", { name: label }));
   }
   expect(mockPush.mock.calls.map(([target]) => target)).toEqual([
-    "/profile", "/orders", "/privacy", "/account-deletion",
+    "/profile", "/orders", "/legal/terms", "/legal/privacy", "/account-deletion",
   ]);
   await fireEvent.press(screen.getByRole("button", { name: "Cerrar sesión" }));
   expect(mockAuth.signOut).toHaveBeenCalledTimes(1);
   expect(mockReplace).toHaveBeenCalledWith("/login");
 });
 
-test("un invitado puede abrir privacidad o solicitar baja sin pasar por login", async () => {
+test("un invitado abre los documentos legales sin pasar por login", async () => {
   await render(<AccountTabScreen />);
-  await fireEvent.press(screen.getByRole("button", { name: "Privacidad y términos" }));
-  await fireEvent.press(screen.getByRole("button", { name: "Solicitar eliminación de cuenta" }));
-  expect(mockPush).toHaveBeenNthCalledWith(1, "/privacy");
-  expect(mockPush).toHaveBeenNthCalledWith(2, { pathname: "/privacy", params: { section: "deletion" } });
+  await fireEvent.press(screen.getByRole("button", { name: "Términos y condiciones" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Política de privacidad" }));
+  expect(mockPush).toHaveBeenNthCalledWith(1, "/legal/terms");
+  expect(mockPush).toHaveBeenNthCalledWith(2, "/legal/privacy");
+  expect(screen.queryByRole("button", { name: "Solicitar eliminación de cuenta" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Iniciar sesión" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Crear cuenta" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Mi perfil" })).toBeNull();
   expect(mockReplace).not.toHaveBeenCalled();
 });
@@ -52,7 +56,7 @@ test("un invitado puede abrir privacidad o solicitar baja sin pasar por login", 
 test("una cuenta con permisos de equipo no muestra eliminación autoservicio", async () => {
   mockAuth.session = { ...session, accessToken: "eyJhbGciOiJIUzI1NiJ9.eyJpZF91c3VhcmlvIjoxNywicm9sIjoyfQ.signature" };
   await render(<AccountScreen />);
-  expect(screen.queryByRole("button", { name: "Eliminar cuenta" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Eliminar mi cuenta" })).toBeNull();
   expect(screen.getByRole("button", { name: "Mi perfil" })).toBeTruthy();
 });
 
@@ -69,7 +73,7 @@ test("restauración no expone ni redirige la cuenta antes de conocer su sesión"
 
 test("login abre recuperación sin enviar credenciales", async () => {
   await render(<LoginScreen />);
-  await fireEvent.press(screen.getByRole("link", { name: "Olvidé mi contraseña" }));
+  await fireEvent.press(screen.getByRole("link", { name: "¿Olvidaste tu contraseña?" }));
   expect(mockPush).toHaveBeenCalledWith("/forgot-password");
   expect(mockAuth.signIn).not.toHaveBeenCalled();
 });

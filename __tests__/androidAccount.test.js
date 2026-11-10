@@ -187,7 +187,7 @@ async function runtime(config = {}) {
       const control = Object.entries(account.PROFILE_CONTROLS).find(([, value]) => value.label === (node['content-desc'] || node.text));
       return control && control[0] === profileVisible && config.unmeasuredProfileField !== control[0] ? node : { ...node, bounds: '[0,0][0,0]' };
     }).concat(config.unmeasuredProfileField ? [{ text: account.PROFILE_CONTROLS[config.unmeasuredProfileField].label }] : []);
-    if (stage === 'cart') return [{ text: 'Tu carrito' }, ...(config.empty || cartQty === 0 ? [{ text: 'Tu carrito está vacío' }] : [
+    if (stage === 'cart') return [{ text: 'Mi carrito' }, ...(config.empty || cartQty === 0 ? [{ text: 'Tu carrito está vacío' }] : [
       { text: 'Subtotal' }, { text: cartQty + ' artículos' }, { text: String(cartQty), 'content-desc': 'Cantidad de Producto Uno: ' + cartQty, bounds: '[10,120][200,180]' },
       { text: 'Agregar una unidad de Producto Uno', clickable: 'true', bounds: '[250,120][400,180]' },
       { text: 'Restar una unidad de Producto Uno', clickable: 'true', bounds: '[10,220][200,280]' },
@@ -287,7 +287,7 @@ async function runtime(config = {}) {
       else if (name === 'AC06' || name === 'cleanup') { authenticated = false; stage = 'guest'; }
       else if (name === 'AC07') { assert.equal(authenticated, false); stage = 'guest'; }
       else if (name === 'MU02' || name === 'MU03') {
-        if (body.includes('tapOn: "^Cuenta$"')) { assert.equal(authenticated, true); stage = 'account'; }
+        if (body.includes('tapOn: "^Menú$"')) { assert.equal(authenticated, true); stage = 'account'; }
         else if (body.includes('tapOn: "^Mi perfil$"')) { stage = 'profile'; draftName = profileName; savedName = false; }
       }
       if (Object.hasOwn(options.secretEnv, 'MAESTRO_ACCOUNT_FIELD_VALUE')) draftName = config.corruptMutationInput ? 'different' : options.secretEnv.MAESTRO_ACCOUNT_FIELD_VALUE;

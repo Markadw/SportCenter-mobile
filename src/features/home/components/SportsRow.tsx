@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 // src/features/home/components/SportsRow.tsx
 import { Activity, Bike, CircleDot, Dumbbell, Trophy, Zap } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { colors, fontSize, radius, spacing } from "../../../constants/theme";
+import { colors, fontSize, radius, spacing, storefront } from "../../../constants/theme";
 import { useFilters } from "../../catalog";
 
 // Mapeo nombre del deporte → icono Lucide
@@ -38,13 +38,13 @@ export const SportsRow = () => {
               active && styles.chipActive,
               pressed && { opacity: 0.85 },
             ]}
-            accessibilityRole="button" accessibilityLabel={`Ver productos de ${s.name}`}
+            accessibilityState={{ selected: active }} accessibilityRole="button" accessibilityLabel={`Ver productos de ${s.name}`}
             onPress={() => { clearFilters(); requestCatalog(); setSport(s.name); router.push({ pathname: "/catalog", params: { q: "" } }); }}
           >
             <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
-              <Icon size={18} color={active ? colors.white : colors.primary} />
+              <Icon size={22} color={active ? colors.white : colors.primary} />
             </View>
-            <Text style={[styles.label, active && styles.labelActive]}>
+            <Text numberOfLines={1} style={[styles.label, active && styles.labelActive]}>
               {s.name}
             </Text>
           </Pressable>
@@ -55,39 +55,12 @@ export const SportsRow = () => {
 };
 
 const styles = StyleSheet.create({
-  list: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.white,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minHeight: 48,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  iconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#E8F1F8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapActive: { backgroundColor: "rgba(255,255,255,0.2)" },
-  label: {
-    fontSize: fontSize.sm,
-    fontWeight: "700",
-    color: colors.text,
-  },
+  list: { paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" },
+  // Cápsula: icono en círculo a la izquierda y nombre a la derecha.
+  chip: { flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 52, paddingLeft: 6, paddingRight: spacing.lg, paddingVertical: 6, backgroundColor: colors.white, borderRadius: radius.pill, borderWidth: 1, borderColor: storefront.border },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  iconWrap: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.brandChipBg, alignItems: "center", justifyContent: "center" },
+  iconWrapActive: { backgroundColor: "rgba(255,255,255,0.15)" },
+  label: { fontSize: fontSize.sm, lineHeight: 20, fontWeight: "600", color: colors.text },
   labelActive: { color: colors.white },
 });

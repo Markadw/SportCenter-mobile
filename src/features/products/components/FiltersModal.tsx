@@ -22,7 +22,7 @@ import {
   colors,
   fontSize,
   radius,
-  shadow,
+  storefront,
   spacing,
 } from "../../../constants/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -115,7 +115,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
         </Animated.View>
 
         {/* Sheet animado */}
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+        <Animated.View accessibilityViewIsModal style={[styles.sheet, { paddingLeft: insets.left, paddingRight: insets.right, transform: [{ translateY }] }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -132,6 +132,8 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.closeBtn,
                 pressed && { opacity: 0.6 },
               ]}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar filtros"
               onPress={onClose}
               hitSlop={8}
             >
@@ -208,6 +210,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.clearBtn,
                 pressed && { opacity: 0.7 },
               ]}
+              accessibilityRole="button"
               onPress={clearFilters}
             >
               <Text style={styles.clearBtnText}>Limpiar</Text>
@@ -218,6 +221,7 @@ export const FiltersModal = ({ visible, onClose }: Props) => {
                 styles.applyBtn,
                 pressed && { opacity: 0.9 },
               ]}
+              accessibilityRole="button"
               onPress={onClose}
             >
               <Text style={styles.applyBtnText}>Aplicar</Text>
@@ -248,6 +252,8 @@ const Section = ({
         styles.sectionHeader,
         pressed && { opacity: 0.7 },
       ]}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
       onPress={onToggle}
     >
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -274,6 +280,8 @@ const RadioRow = ({
 }) => (
   <Pressable
     style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+    accessibilityRole="radio"
+    accessibilityState={{ checked: selected }}
     onPress={onPress}
   >
     <View style={[styles.radio, selected && styles.radioSelected]}>
@@ -297,143 +305,33 @@ const RadioRow = ({
 /* --- Estilos --- */
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "#000",
-  },
-  sheet: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    maxHeight: "88%",
-    paddingBottom: spacing.sm,
-    ...shadow.card,
-  },
-
-  // Header
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  headerTitle: { fontSize: fontSize.lg, fontWeight: "800", color: colors.text },
-  badge: {
-    backgroundColor: "#DCE9F5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-  },
-  badgeText: {
-    fontSize: fontSize.xs,
-    color: colors.primary,
-    fontWeight: "700",
-  },
-  closeBtn: { padding: 4 },
-
-  loadMessage: { margin: spacing.lg, color: colors.textMuted, fontSize: fontSize.sm },
+  root: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "#000" },
+  sheet: { backgroundColor: colors.white, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, maxHeight: "88%", paddingBottom: spacing.sm, overflow: "hidden" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: storefront.border, gap: spacing.sm },
+  headerLeft: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.sm },
+  headerTitle: { fontSize: fontSize.xl, lineHeight: 30, fontWeight: "700", color: colors.text },
+  badge: { backgroundColor: colors.brandChipBg, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill },
+  badgeText: { fontSize: fontSize.xs, lineHeight: 17, color: colors.secondary, fontWeight: "700" },
+  closeBtn: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: radius.md, backgroundColor: storefront.background },
+  loadMessage: { margin: spacing.lg, color: colors.textMuted, fontSize: fontSize.sm, lineHeight: 21 },
   loadFailure: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
-  loadError: { color: "#B91C1C", fontSize: fontSize.sm, lineHeight: 21 },
-  retryButton: { minHeight: 48, padding: spacing.md, backgroundColor: colors.brandChipBg,
-    borderRadius: radius.sm, justifyContent: "center", alignItems: "center" },
-  retryLabel: { color: colors.secondary, fontWeight: "700", fontSize: fontSize.sm },
-  // Secciones
-  section: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    overflow: "hidden",
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
-  },
-  sectionTitle: {
-    fontSize: fontSize.md,
-    fontWeight: "700",
-    color: colors.text,
-  },
-  sectionBody: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.white,
-  },
-
-  // Rows
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.neutral,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  loadError: { color: storefront.errorText, fontSize: fontSize.sm, lineHeight: 21 },
+  retryButton: { minHeight: 48, padding: spacing.md, backgroundColor: colors.brandChipBg, borderRadius: radius.md, justifyContent: "center", alignItems: "center" },
+  retryLabel: { color: colors.secondary, fontWeight: "700", fontSize: fontSize.sm, lineHeight: 21, textAlign: "center" },
+  section: { marginHorizontal: spacing.lg, marginTop: spacing.md, borderWidth: 1, borderColor: storefront.border, borderRadius: radius.lg, overflow: "hidden" },
+  sectionHeader: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: storefront.background },
+  sectionTitle: { flex: 1, fontSize: fontSize.md, lineHeight: 23, fontWeight: "700", color: colors.text },
+  sectionBody: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, backgroundColor: colors.white },
+  row: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.neutral, alignItems: "center", justifyContent: "center" },
   radioSelected: { borderColor: colors.primary },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  brandLogo: { width: 22, height: 22, borderRadius: 4 },
-  rowLabel: { fontSize: fontSize.sm, color: colors.text, flex: 1 },
-
-  // Footer
-  footer: {
-    flexDirection: "row",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  clearBtn: {
-    flex: 1,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  clearBtnText: {
-    color: colors.text,
-    fontWeight: "700",
-    fontSize: fontSize.sm,
-  },
-  applyBtn: {
-    flex: 2,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-  },
-  applyBtnText: {
-    color: colors.white,
-    fontWeight: "700",
-    fontSize: fontSize.md,
-  },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  brandLogo: { width: 24, height: 24, borderRadius: radius.sm },
+  rowLabel: { fontSize: fontSize.md, lineHeight: 23, color: colors.text, flex: 1 },
+  footer: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: storefront.border },
+  clearBtn: { flex: 1, minHeight: 52, padding: spacing.md, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderWidth: 1, borderColor: storefront.border },
+  clearBtnText: { color: colors.secondary, fontWeight: "700", fontSize: fontSize.sm, lineHeight: 21, textAlign: "center" },
+  applyBtn: { flex: 2, minHeight: 52, padding: spacing.md, alignItems: "center", justifyContent: "center", borderRadius: radius.md, backgroundColor: colors.primary },
+  applyBtnText: { color: colors.white, fontWeight: "700", fontSize: fontSize.md, lineHeight: 23, textAlign: "center" },
 });
