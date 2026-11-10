@@ -18,7 +18,7 @@ function Navigation() {
     <StatusBar style="dark" />
     {/* Sólo espera la sesión local; el catálogo carga dentro de Inicio para no bloquear el arranque. */}
     <StartupGate loading={isRestoring}>
-      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.white }, headerTintColor: colors.text,
+      <Stack initialRouteName="(tabs)" screenOptions={{ headerStyle: { backgroundColor: colors.white }, headerTintColor: colors.text,
         headerShadowVisible: false, contentStyle: { backgroundColor: colors.white } }}>
         <Stack.Screen name="+not-found" options={{ title: "Pantalla no encontrada" }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

@@ -4,6 +4,13 @@ import {
 import { redirectSystemPath } from "../src/app/+native-intent";
 
 test.each([
+  "", "/", "sportcentermobile://", "exp://192.168.1.4:8081",
+  "exp://192.168.1.4:8081/--/", "exp://169.254.1.4:8081",
+])("una apertura del proyecto sin destino llega a Inicio: %s", path => {
+  expect(redirectSystemPath({ path, initial: true })).toBe("/");
+});
+
+test.each([
   "/", "/catalog", "/account", "/login", "/register", "/verify-email", "/forgot-password",
   "/profile", "/orders", "/privacy", "/cart", "/checkout",
   "/product/7", "/orders/91", "/reviews/7", "/checkout-status?id=91",
